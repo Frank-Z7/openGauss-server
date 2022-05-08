@@ -676,7 +676,8 @@ VecAggState* ExecInitVecAggregation(VecAgg* node, EState* estate, int eflags)
             else
                 aggstate->aggInfo[idx].vec_agg_function.flinfo->vec_fn_addr = aggstate->aggInfo[idx].vec_agg_cache[1];
 
-            if (OidIsValid(peraggstate->finalfn_oid)) {
+            if (OidIsValid(peraggstate->finalfn_oid) && aggstate->aggInfo[idx].vec_agg_cache[0] && 
+                aggstate->aggInfo[idx].vec_agg_final[0]) {
                 InitFunctionCallInfoData(aggstate->aggInfo[idx].vec_final_function,
                     &peraggstate->finalfn,
                     2,

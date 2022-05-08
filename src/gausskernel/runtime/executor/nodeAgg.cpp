@@ -2879,6 +2879,11 @@ int AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext* aggcontext)
             *aggcontext = ((WindowAggState*)fcinfo->context)->aggcontext;
         return AGG_CONTEXT_WINDOW;
     }
+    if (fcinfo->context && IsA(fcinfo->context, VecWindowAggState)) {
+        if (aggcontext != NULL)
+            *aggcontext = ((VecWindowAggState*)fcinfo->context)->aggcontext;
+        return AGG_CONTEXT_WINDOW;
+    }
 
     /* this is just to prevent "uninitialized variable" warnings */
     if (aggcontext != NULL)
