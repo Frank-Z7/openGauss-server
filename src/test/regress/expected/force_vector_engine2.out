@@ -32,12 +32,12 @@ explain (analyze on, timing off) select /*+ set(try_vector_engine_strategy force
 explain (analyze on, timing off) select /*+ set(try_vector_engine_strategy force) */ id, avg(val1), sum(val2) from force_vector_partition group by id order by id limit 10;
                                                                        QUERY PLAN                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
- Row Adapter  (cost=596.12..596.12 rows=10 width=76) (actual rows=10 loops=1)
-   ->  Vector Limit  (cost=596.10..596.12 rows=10 width=76) (actual rows=10 loops=1)
-         ->  Vector Sort  (cost=596.10..621.10 rows=10000 width=76) (actual rows=10 loops=1)
+ Row Adapter  (cost=621.12..621.12 rows=10 width=172) (actual rows=10 loops=1)
+   ->  Vector Limit  (cost=621.10..621.12 rows=10 width=172) (actual rows=10 loops=1)
+         ->  Vector Sort  (cost=621.10..646.10 rows=10000 width=172) (actual rows=10 loops=1)
                Sort Key: id
                Sort Method: top-N heapsort  Memory: 5kB
-               ->  Vector Hash Aggregate  (cost=255.00..380.00 rows=10000 width=76) (actual rows=10000 loops=1)
+               ->  Vector Hash Aggregate  (cost=255.00..405.00 rows=10000 width=172) (actual rows=10000 loops=1)
                      Group By Key: id
                      ->  Vector Partition Iterator  (cost=0.00..155.00 rows=10000 width=12) (actual rows=10000 loops=1)
                            Iterations: 5

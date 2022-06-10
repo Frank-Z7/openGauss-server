@@ -547,8 +547,28 @@ VecWinAggRuntime::VecWinAggRuntime(VecWindowAggState* runtime) : BaseAggRunner()
         WindowStatePerFunc perfuncstate = &(m_winruntime->perfunc[winfuncno]);
         DispatchAggFunction(peraggstate, perfuncstate, &runtime->windowAggInfo[i]);
 
-        if (m_sortKey > 0)
+        if (m_sortKey > 0) {
             m_cellvar_encoded[i] = CheckAggEncoded(peraggstate->transfn.fn_rettype);
+            /* 
+             * fix some case that row agg function has both transfn and finnal
+             * but vec agg function only have transfn
+             */
+            if (OidIsValid(peraggstate->finalfn.fn_oid) && 
+                 runtime->windowAggInfo[i].vec_final_function.flinfo == NULL) {
+                m_cellvar_encoded[i] = CheckAggEncoded(peraggstate->finalfn.fn_rettype);
+            }
+            /* 
+             * in some case, vec agg function has its own rettyp 
+             * XXX: hard code here
+             */
+            if (perfuncstate->flinfo.fn_oid == 2100 || perfuncstate->flinfo.fn_oid == 2103
+                || perfuncstate->flinfo.fn_oid == 2712 || perfuncstate->flinfo.fn_oid == 2713
+		|| perfuncstate->flinfo.fn_oid == 2714 || perfuncstate->flinfo.fn_oid == 2717
+                || perfuncstate->flinfo.fn_oid == 2154 || perfuncstate->flinfo.fn_oid == 2155
+                || perfuncstate->flinfo.fn_oid == 2156 || perfuncstate->flinfo.fn_oid == 2159) {
+                m_cellvar_encoded[i] = true;
+            }
+        }
     }
 
     /* agg start from here */

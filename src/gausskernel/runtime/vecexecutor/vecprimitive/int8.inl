@@ -902,12 +902,11 @@ vnumeric_stddev_samp_final(PG_FUNCTION_ARGS)
 	ScalarValue*	m_vals = (ScalarValue*)PG_GETARG_DATUM(2);
 	uint8  *m_flag = (uint8*)PG_GETARG_DATUM(3);
 	
-	Datum	  args;
 	Datum	  arg[4];
 	FunctionCallInfoData finfo;
 
     finfo.context = fcinfo->context;
-	finfo.arg = &args;
+	finfo.arg = arg;
 	Numeric tmp_arg;
 	
 	if (singlenode)
