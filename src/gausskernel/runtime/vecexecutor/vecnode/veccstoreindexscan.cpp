@@ -323,7 +323,7 @@ CStoreIndexScanState* ExecInitCstoreIndexScan(CStoreIndexScan* node, EState* est
     indexstate->ps.vectorized = true;
     indexstate->ps.type = T_CStoreIndexScanState;
     indexstate->index_only_scan = node->indexonly;
-    indexstate->m_deltaQual = (List*)ExecInitExpr((Expr*)node->indexqualorig, (PlanState*)&indexstate->ps);
+    indexstate->m_deltaQual = (List*)ExecInitQual(node->indexqualorig, (PlanState*)&indexstate->ps);
 
     // If we are just doing EXPLAIN (ie, aren't going to run the plan), stop
     // here. This allows an index-advisor plugin to EXPLAIN a plan containing

@@ -314,7 +314,7 @@ Oid CreateTrigger(CreateTrigStmt* stmt, const char* queryString, Oid relOid, Oid
         addRTEtoQuery(pstate, rte, false, true, true);
 
         /* Transform expression.  Copy to be sure we don't modify original */
-        whenClause = transformWhereClause(pstate, (Node*)copyObject(stmt->whenClause), "WHEN");
+        whenClause = transformWhereClause(pstate, (Node*)copyObject(stmt->whenClause), EXPR_KIND_TRIGGER_WHEN, "WHEN");
         /* we have to fix its collations too */
         assign_expr_collations(pstate, whenClause);
 
@@ -3047,7 +3047,7 @@ static bool TriggerEnabled(EState* estate, ResultRelInfo* relinfo, Trigger* trig
             ChangeVarNodes(tgqual, PRS2_NEW_VARNO, OUTER_VAR, 0);
             /* ExecQual wants implicit-AND form */
             tgqual = (Node*)make_ands_implicit((Expr*)tgqual);
-            *predicate = (List*)ExecPrepareExpr((Expr*)tgqual, estate);
+            *predicate = (List*)ExecPrepareQual((List*)tgqual, estate);
             (void)MemoryContextSwitchTo(oldContext);
             pfree_ext(tgqual);
         }
@@ -3094,7 +3094,7 @@ static bool TriggerEnabled(EState* estate, ResultRelInfo* relinfo, Trigger* trig
          */
         econtext->ecxt_innertuple = oldslot;
         econtext->ecxt_outertuple = newslot;
-        if (!ExecQual(*predicate, econtext, false))
+        if (!ExecQual((ExprState*)*predicate, econtext))
             return false;
     }
 

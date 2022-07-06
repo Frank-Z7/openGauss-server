@@ -2403,7 +2403,6 @@ static const char *ExecRelCheck(ResultRelInfo *resultRelInfo, TupleTableSlot *sl
     ConstrCheck *check = rel->rd_att->constr->check;
     ExprContext *econtext = NULL;
     MemoryContext oldContext;
-    List *qual = NIL;
     int i;
 
     /*
@@ -2415,9 +2414,9 @@ static const char *ExecRelCheck(ResultRelInfo *resultRelInfo, TupleTableSlot *sl
         oldContext = MemoryContextSwitchTo(estate->es_query_cxt);
         resultRelInfo->ri_ConstraintExprs = (List **)palloc(ncheck * sizeof(List *));
         for (i = 0; i < ncheck; i++) {
-            /* ExecQual wants implicit-AND form */
-            qual = make_ands_implicit((Expr *)stringToNode(check[i].ccbin));
-            resultRelInfo->ri_ConstraintExprs[i] = (List *)ExecPrepareExpr((Expr *)qual, estate);
+            Expr	   *checkconstr;
+			checkconstr = (Expr*)stringToNode(check[i].ccbin);
+			resultRelInfo->ri_ConstraintExprs[i] = (List*)ExecPrepareExpr(checkconstr, estate);
         }
         (void)MemoryContextSwitchTo(oldContext);
     }
@@ -2433,14 +2432,14 @@ static const char *ExecRelCheck(ResultRelInfo *resultRelInfo, TupleTableSlot *sl
 
     /* And evaluate the constraints */
     for (i = 0; i < ncheck; i++) {
-        qual = resultRelInfo->ri_ConstraintExprs[i];
+        ExprState *checkconstr = (ExprState *)resultRelInfo->ri_ConstraintExprs[i];
 
         /*
          * NOTE: SQL92 specifies that a NULL result from a constraint
          * expression is not to be treated as a failure.  Therefore, tell
          * ExecQual to return TRUE for NULL.
          */
-        if (!ExecQual(qual, econtext, true)) {
+        if (!ExecCheck(checkconstr, econtext)) {
             return check[i].ccname;
         }
     }

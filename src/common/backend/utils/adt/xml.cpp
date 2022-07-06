@@ -519,10 +519,11 @@ text* xmltotext_with_xmloption(xmltype* data, XmlOptionType xmloption_arg)
     return (text*)data;
 }
 
-xmltype* xmlelement(XmlExprState* xmlExpr, ExprContext* econtext)
+xmltype* xmlelement(XmlExpr *xexpr,
+		   Datum *named_argvalue, bool *named_argnull,
+		   Datum *argvalue, bool *argnull)
 {
 #ifdef USE_LIBXML
-    XmlExpr* xexpr = (XmlExpr*)xmlExpr->xprstate.expr;
     xmltype* result = NULL;
     List* named_arg_strings = NIL;
     List* arg_strings = NIL;
@@ -534,44 +535,43 @@ xmltype* xmlelement(XmlExprState* xmlExpr, ExprContext* econtext)
     volatile xmlTextWriterPtr writer = NULL;
 
     /*
-     * We first evaluate all the arguments, then start up libxml and create
-     * the result.	This avoids issues if one of the arguments involves a call
-     * to some other function or subsystem that wants to use libxml on its own
-     * terms.
-     */
+	 * All arguments are already evaluated, and their values are passed in the
+	 * named_argvalue/named_argnull or argvalue/argnull arrays.  This avoids
+	 * issues if one of the arguments involves a call to some other function
+	 * or subsystem that wants to use libxml on its own terms.  We examine the
+	 * original XmlExpr to identify the numbers and types of the arguments.
+ 	 */
     named_arg_strings = NIL;
     i = 0;
-    foreach (arg, xmlExpr->named_args) {
-        ExprState* e = (ExprState*)lfirst(arg);
-        Datum value;
-        bool isnull = false;
+    foreach(arg, xexpr->named_args)
+    {
+        Expr *e = (Expr *) lfirst(arg);
         char* str = NULL;
 
-        value = ExecEvalExpr(e, econtext, &isnull, NULL);
-        if (isnull)
+        if (named_argnull[i])
             str = NULL;
         else
-            str = map_sql_value_to_xml_value(value, exprType((Node*)e->expr), false);
+            str = map_sql_value_to_xml_value(named_argvalue[i], exprType((Node *)e), false);
         named_arg_strings = lappend(named_arg_strings, str);
         i++;
     }
 
     arg_strings = NIL;
-    foreach (arg, xmlExpr->args) {
-        ExprState* e = (ExprState*)lfirst(arg);
-        Datum value;
-        bool isnull = false;
+    i = 0;
+    foreach(arg, xexpr->args)
+    {
+        Expr *e = (Expr *) lfirst(arg);
         char* str = NULL;
 
-        value = ExecEvalExpr(e, econtext, &isnull, NULL);
         /* here we can just forget NULL elements immediately */
-        if (!isnull) {
-            str = map_sql_value_to_xml_value(value, exprType((Node*)e->expr), true);
+        if (!argnull[i])
+        {
+            str = map_sql_value_to_xml_value(argvalue[i], exprType((Node *)e), true);
             arg_strings = lappend(arg_strings, str);
         }
+        i++;
     }
 
-    /* now safe to run libxml */
     xmlerrcxt = pg_xml_init(PG_XML_STRICTNESS_ALL);
 
     PG_TRY();

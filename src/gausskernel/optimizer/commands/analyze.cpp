@@ -2007,7 +2007,7 @@ static void compute_index_stats(Relation onerel, double totalrows, AnlIndexData*
         econtext->ecxt_scantuple = slot;
 
         /* Set up execution state for predicate. */
-        predicate = (List*)ExecPrepareExpr((Expr*)indexInfo->ii_Predicate, estate);
+        predicate = (List*)ExecPrepareQual(indexInfo->ii_Predicate, estate);
 
         /* Compute and save index expression values */
         exprvals = (Datum*)palloc(numrows * attr_cnt * sizeof(Datum));
@@ -2028,7 +2028,7 @@ static void compute_index_stats(Relation onerel, double totalrows, AnlIndexData*
 
             /* If index is partial, check predicate */
             if (predicate != NIL) {
-                if (!ExecQual(predicate, econtext, false))
+                if (!ExecQual((ExprState*)predicate, econtext))
                     continue;
             }
             numindexrows++;

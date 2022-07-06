@@ -69,8 +69,46 @@ select a,b,c,regexp_split_to_table(b,E','), regexp_split_to_table(c,E',') from h
 (21 rows)
 
 select regexp_split_to_table(b,E','), generate_series(1, 3) from hl_test001;
-ERROR:  set-return function not supported in vector eninge
-CONTEXT:  referenced column: generate_series
+ regexp_split_to_table | generate_series 
+-----------------------+-----------------
+ gauss                 |               1
+ ap                    |               2
+ gauss                 |               3
+ ap                    |               1
+ gauss                 |               2
+ ap                    |               3
+ gauss                 |               1
+ ap                    |               2
+ gauss                 |               3
+ ap                    |               1
+ gauss                 |               2
+ ap                    |               3
+ xue                   |               1
+ dong                  |               2
+ pu                    |               3
+ xue                   |               1
+ dong                  |               2
+ pu                    |               3
+ xi                    |               1
+ an                    |               2
+ xi                    |               3
+ an                    |               1
+ xi                    |               2
+ an                    |               3
+ xi                    |               1
+ an                    |               2
+ xi                    |               3
+ an                    |               1
+ xi                    |               2
+ an                    |               3
+ wang                  |               1
+                       |               2
+ rui                   |               3
+ wang                  |               1
+                       |               2
+ rui                   |               3
+(36 rows)
+
 select a, b, unnest(b) from hl_test003;
  a |    b    | unnest 
 ---+---------+--------

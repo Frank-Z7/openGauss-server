@@ -245,8 +245,7 @@ WorkTableScanState* ExecInitWorkTableScan(WorkTableScan* node, EState* estate, i
     /*
      * initialize child expressions
      */
-    scan_state->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)scan_state);
-    scan_state->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)scan_state);
+    scan_state->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)scan_state);
 
     /*
      * tuple table initialization

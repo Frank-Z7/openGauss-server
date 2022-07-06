@@ -2864,7 +2864,7 @@ static char* domainAddConstraint(
 
     pstate->p_value_substitute = (Node*)domVal;
 
-    expr = transformExpr(pstate, constr->raw_expr);
+    expr = transformExpr(pstate, constr->raw_expr, EXPR_KIND_DOMAIN_CHECK);
 
     /*
      * Make sure it yields a boolean result.
@@ -3033,7 +3033,7 @@ List* GetDomainConstraints(Oid typeOid)
             r = makeNode(DomainConstraintState);
             r->constrainttype = DOM_CONSTRAINT_CHECK;
             r->name = pstrdup(NameStr(c->conname));
-            r->check_expr = ExecInitExpr(check_expr, NULL);
+            r->check_expr = check_expr;
 
             /*
              * use lcons() here because constraints of lower domains should be

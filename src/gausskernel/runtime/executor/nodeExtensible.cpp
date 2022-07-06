@@ -116,9 +116,7 @@ ExtensiblePlanState* ExecInitExtensiblePlan(ExtensiblePlan* eplan, EState* estat
     extensionPlanState->ss.ps.ps_TupFromTlist = false;
 
     /* initialize child expressions */
-    extensionPlanState->ss.ps.targetlist =
-        (List*)ExecInitExpr((Expr*)eplan->scan.plan.targetlist, (PlanState*)extensionPlanState);
-    extensionPlanState->ss.ps.qual = (List*)ExecInitExpr((Expr*)eplan->scan.plan.qual, (PlanState*)extensionPlanState);
+    extensionPlanState->ss.ps.qual = (List*)ExecInitQual(eplan->scan.plan.qual, (PlanState*)extensionPlanState);
 
     /* tuple table initialization */
     ExecInitScanTupleSlot(estate, &extensionPlanState->ss);

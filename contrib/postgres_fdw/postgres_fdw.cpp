@@ -390,7 +390,7 @@ static void postgresGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oi
      * columns used in them.  Doesn't seem worth detecting that case though.)
      */
     fpinfo->attrs_used = NULL;
-    pull_varattnos((Node *)baserel->reltargetlist, baserel->relid, &fpinfo->attrs_used);
+    pull_varattnos((Node *)baserel->reltarget->exprs, baserel->relid, &fpinfo->attrs_used);
     foreach (lc, fpinfo->local_conds) {
         RestrictInfo *rinfo = (RestrictInfo *)lfirst(lc);
 
@@ -424,7 +424,7 @@ static void postgresGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oi
 
         /* Report estimated baserel size to planner. */
         baserel->rows = fpinfo->rows;
-        baserel->width = fpinfo->width;
+        baserel->reltarget->width = fpinfo->width;
     } else {
         /*
          * If the foreign table has never been ANALYZEd, it will have relpages
@@ -437,7 +437,7 @@ static void postgresGetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oi
          */
         if (baserel->pages == 0 && baserel->tuples == 0) {
             baserel->pages = 10;
-            baserel->tuples = (double)(10 * BLCKSZ) / (baserel->width + sizeof(HeapTupleHeaderData));
+            baserel->tuples = (double)(10 * BLCKSZ) / (baserel->reltarget->width + sizeof(HeapTupleHeaderData));
         }
 
         /* Estimate baserel size as best we can with local statistics. */
@@ -773,7 +773,7 @@ static void postgresBeginForeignScan(ForeignScanState *node, int eflags)
      * benefit, and it'd require postgres_fdw to know more than is desirable
      * about Param evaluation.)
      */
-    fsstate->param_exprs = (List *)ExecInitExpr((Expr *)fsplan->fdw_exprs, (PlanState *)node);
+    fsstate->param_exprs = ExecInitExprList(fsplan->fdw_exprs, (PlanState *)node);
 
     /*
      * Allocate buffer for text form of query parameters, if any.
@@ -1535,7 +1535,7 @@ static void estimate_path_cost_size(PlannerInfo *root, RelOptInfo *baserel, List
 
         /* Use rows/width estimates made by set_baserel_size_estimates. */
         rows = baserel->rows;
-        width = baserel->width;
+        width = baserel->reltarget->width;
 
         /*
          * Back into an estimate of the number of retrieved rows.  Just in

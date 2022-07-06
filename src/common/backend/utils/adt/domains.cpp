@@ -114,9 +114,6 @@ static void domain_check_input(Datum value, bool isnull, DomainIOData* my_extra)
                             errmsg("domain %s does not allow null values", format_type_be(my_extra->domain_type))));
                 break;
             case DOM_CONSTRAINT_CHECK: {
-                Datum conResult;
-                bool conIsNull = false;
-
                 /* Make the econtext if we didn't already */
                 if (econtext == NULL) {
                     MemoryContext oldcontext;
@@ -136,9 +133,7 @@ static void domain_check_input(Datum value, bool isnull, DomainIOData* my_extra)
                 econtext->domainValue_datum = value;
                 econtext->domainValue_isNull = isnull;
 
-                conResult = ExecEvalExprSwitchContext(con->check_expr, econtext, &conIsNull, NULL);
-
-                if (!conIsNull && !DatumGetBool(conResult))
+                if (!ExecCheck(con->check_exprstate, econtext))
                     ereport(ERROR,
                         (errcode(ERRCODE_CHECK_VIOLATION),
                             errmsg("value for domain %s violates check constraint \"%s\"",

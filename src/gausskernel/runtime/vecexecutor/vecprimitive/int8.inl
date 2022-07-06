@@ -902,11 +902,11 @@ vnumeric_stddev_samp_final(PG_FUNCTION_ARGS)
 	ScalarValue*	m_vals = (ScalarValue*)PG_GETARG_DATUM(2);
 	uint8  *m_flag = (uint8*)PG_GETARG_DATUM(3);
 	
-	Datum	  args;
-	Datum	  arg[3];
+	Datum	  arg[4];
 	FunctionCallInfoData finfo;
 
-	finfo.arg = &args;
+    finfo.context = fcinfo->context;
+	finfo.arg = arg;
 	Numeric tmp_arg;
 	
 	if (singlenode)
@@ -926,11 +926,10 @@ vnumeric_stddev_samp_final(PG_FUNCTION_ARGS)
 			tmp_arg = bitonumeric(cell->m_val[idx + 1].val);
 		}
 
-		arg[0] = NumericGetDatum(tmp_arg);
-		arg[1] = NumericGetDatum(bitonumeric(cell->m_val[idx].val));
-		arg[2] = NumericGetDatum(bitonumeric(cell->m_val[idx + 2].val));
-		
-		args = PointerGetDatum(construct_array(arg, 3, NUMERICOID, -1, false, 'i'));
+		arg[1] = NumericGetDatum(tmp_arg);
+		arg[2] = NumericGetDatum(bitonumeric(cell->m_val[idx].val));
+		arg[3] = NumericGetDatum(bitonumeric(cell->m_val[idx + 2].val));
+		stddev_create_state_4_vector(&finfo);
 
 		finfo.isnull = false;
 		*m_vals = numeric_stddev_samp(&finfo);

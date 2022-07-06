@@ -1196,8 +1196,6 @@ WindowAggState* ExecInitWindowAgg(WindowAgg* node, EState* estate, int eflags)
     winstate->temp_slot_1 = ExecInitExtraTupleSlot(estate);
     winstate->temp_slot_2 = ExecInitExtraTupleSlot(estate);
 
-    winstate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->plan.targetlist, (PlanState*)winstate);
-
     /*
      * WindowAgg nodes never have quals, since they can only occur at the
      * logical top level of a query (ie, after any WHERE or HAVING filters)

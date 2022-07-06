@@ -3437,7 +3437,7 @@ VectorBatch* HashJoinTbl::buildResult(VectorBatch* in_batch, VectorBatch* out_ba
     if (m_runtime->js.ps.qual != NULL) {
         has_qual = true;
         econtext->ecxt_scanbatch = m_result;
-        p_vector = ExecVecQual(m_runtime->js.ps.qual, econtext, false);
+        p_vector = ExecVecQual((List*)m_runtime->js.ps.qual, econtext, false);
 
         if (p_vector == NULL) {
             in_batch->Reset();

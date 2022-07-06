@@ -65,7 +65,6 @@ extern WindowLists* make_windows_lists(Index maxWinRef);
 extern void find_window_functions(Node* clause, WindowLists* lists);
 
 extern double expression_returns_set_rows(Node* clause);
-extern double tlist_returns_set_rows(List* tlist);
 
 extern bool contain_subplans(Node* clause);
 

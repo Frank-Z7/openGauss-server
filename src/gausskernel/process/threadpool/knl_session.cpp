@@ -28,6 +28,7 @@
 #include "access/reloptions.h"
 #include "access/xlogdefs.h"
 #include "access/ustore/knl_uundovec.h"
+#include "catalog/pg_authid.h"
 #include "commands/tablespace.h"
 #include "executor/instrument.h"
 #include "gssignal/gs_signal.h"
@@ -477,6 +478,7 @@ static void knl_u_security_init(knl_u_security_context* sec_cxt) {
     sec_cxt->last_roleid_is_monitoradmin = false;
     sec_cxt->last_roleid_is_operatoradmin = false;
     sec_cxt->last_roleid_is_policyadmin = false;
+    sec_cxt->last_roleid_rolkind = ROLKIND_NORMAL;
     sec_cxt->roleid_callback_registered = false;
 }
 

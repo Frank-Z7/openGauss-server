@@ -1018,6 +1018,7 @@ SubPlanState* ExecInitVecSubPlan(SubPlan* subplan, PlanState* parent)
                     errmsg("unsupported vector sub plan type %d", subplan->subLinkType)));
     }
     sstate->xprstate.vecExprFun = (VectorExprFun)ptr;
+    sstate->subplan = subplan;
     sstate->xprstate.expr = (Expr*)subplan;
 
     /* Link the SubPlanState to already-initialized subplan */
@@ -1198,44 +1199,35 @@ SubPlanState* ExecInitVecSubPlan(SubPlan* subplan, PlanState* parent)
             i++;
         }
 
-        if (IsA(sstate->row_testexpr->expr, OpExpr)) {
+        if (IsA(subplan->testexpr, OpExpr)) {
             /* single combining operator */
-            oplist = list_make1(sstate->row_testexpr);
-        } else if (and_clause((Node*)sstate->row_testexpr->expr)) {
+            oplist = list_make1(subplan->testexpr);
+        } else if (and_clause((Node*)subplan->testexpr)) {
             /* multiple combining operators */
-            Assert(IsA(sstate->row_testexpr, BoolExprState));
-            oplist = ((BoolExprState*)sstate->row_testexpr)->args;
+            Assert(IsA(subplan->testexpr, BoolExpr));
+            oplist = ((BoolExpr*)subplan->testexpr)->args;
         } else {
             /* shouldn't see anything else in a hashable subplan */
             ereport(ERROR,
                 (errcode(ERRCODE_UNRECOGNIZED_NODE_TYPE),
-                    errmsg("unrecognized testexpr type: %d", (int)nodeTag(sstate->row_testexpr->expr))));
+                    errmsg("unrecognized testexpr type: %d", (int)nodeTag(subplan->testexpr))));
             oplist = NIL; /* keep compiler quiet */
         }
         Assert(list_length(oplist) == ncols);
 
         i = 1;
         foreach (l, oplist) {
-            FuncExprState* fstate = (FuncExprState*)lfirst(l);
-            ExprState* exstate = NULL;
+            OpExpr* opexpr = (OpExpr*)lfirst(l);
             Expr* expr = NULL;
             TargetEntry* tle = NULL;
-            GenericExprState* tlestate = NULL;
 
-            Assert(IsA(fstate, FuncExprState));
-            Assert(IsA((OpExpr*)fstate->xprstate.expr, OpExpr));
-            Assert(list_length(fstate->args) == 2);
+            Assert(IsA(opexpr, OpExpr));
+            Assert(list_length(opexpr->args) == 2);
 
             /* Process righthand argument */
-            exstate = (ExprState*)lsecond(fstate->args);
-            expr = exstate->expr;
+            expr = (Expr*)lsecond(opexpr->args);
             tle = makeTargetEntry(expr, i, NULL, false);
-            tlestate = makeNode(GenericExprState);
-            tlestate->xprstate.expr = (Expr*)tle;
-            tlestate->xprstate.evalfunc = NULL;
-            tlestate->arg = exstate;
-            righttlist = lappend(righttlist, tlestate);
-            rightptlist = lappend(rightptlist, tle);
+            righttlist = lappend(righttlist, tle);
 
             i++;
         }
@@ -1253,10 +1245,10 @@ SubPlanState* ExecInitVecSubPlan(SubPlan* subplan, PlanState* parent)
         ExecSetSlotDescriptor(slot, tup_desc);
         sstate->projLeft = ExecBuildVecProjectionInfo(lefttlist, NULL, NULL, slot, NULL);
 
-        tup_desc = ExecTypeFromTL(rightptlist, false);
+        tup_desc = ExecTypeFromTL(righttlist, false);
         slot = ExecInitExtraTupleSlot(estate);
         ExecSetSlotDescriptor(slot, tup_desc);
-        sstate->projRight = ExecBuildProjectionInfo(righttlist, sstate->innerecontext, slot, NULL);
+        sstate->projRight = ExecBuildProjectionInfo(righttlist, sstate->innerecontext, slot, sstate->planstate, NULL);
     }
 
     return sstate;

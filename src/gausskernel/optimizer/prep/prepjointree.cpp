@@ -1413,8 +1413,8 @@ static Node* pull_up_simple_subquery(PlannerInfo* root, Node* jtnode, RangeTblEn
     parse->hasRowSecurity = parse->hasRowSecurity || subquery->hasRowSecurity;
 
     /*
-     * subquery won't be pulled up if it hasAggs or hasWindowFuncs, so no work
-     * needed on those flags
+     * subquery won't be pulled up if it hasAggs or hasWindowFuncs, or 
+     * hasTargetSRFs, so no work needed on those flags
      *
      * Return the adjusted subquery jointree to replace the RangeTblRef entry
      * in parent's jointree; or, if the FromExpr is degenerate, just return
@@ -1722,7 +1722,7 @@ static bool is_simple_subquery(Query* subquery, RangeTblEntry *rte, JoinExpr *lo
     }
     if (subquery->hasAggs || subquery->hasWindowFuncs || subquery->groupClause || subquery->groupingSets ||
         subquery->havingQual || subquery->sortClause || subquery->distinctClause || subquery->limitOffset ||
-        subquery->limitCount || subquery->hasForUpdate || subquery->cteList)
+        subquery->limitCount || subquery->hasForUpdate || subquery->cteList || subquery->hasTargetSRFs)
         return false;
 
     /*
@@ -1738,15 +1738,6 @@ static bool is_simple_subquery(Query* subquery, RangeTblEntry *rte, JoinExpr *lo
             return false;
         }
 #endif
-
-    /*
-     * Don't pull up a subquery that has any set-returning functions in its
-     * targetlist.	Otherwise we might well wind up inserting set-returning
-     * functions into places where they mustn't go, such as quals of higher
-     * queries.
-     */
-    if (expression_returns_set((Node*)subquery->targetList))
-        return false;
 
     /*
      * Don't pull up a subquery that has any volatile functions in its

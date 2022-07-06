@@ -243,7 +243,7 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
         if (indexScan->xs_recheck) {
             econtext->ecxt_scantuple = slot;
             ResetExprContext(econtext);
-            if (!ExecQual(node->indexqual, econtext, false)) {
+            if (!ExecQual((ExprState*)node->indexqual, econtext)) {
                 /* Fails recheck, so drop it and loop back for another */
                 InstrCountFiltered2(node, 1);
                 continue;
@@ -566,9 +566,8 @@ IndexOnlyScanState* ExecInitIndexOnlyScan(IndexOnlyScan* node, EState* estate, i
      * Note: we don't initialize all of the indexorderby expression, only the
      * sub-parts corresponding to runtime keys (see below).
      */
-    indexstate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)indexstate);
-    indexstate->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)indexstate);
-    indexstate->indexqual = (List*)ExecInitExpr((Expr*)node->indexqual, (PlanState*)indexstate);
+    indexstate->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)indexstate);
+    indexstate->indexqual = (List*)ExecInitQual(node->indexqual, (PlanState*)indexstate);
 
 
     /*

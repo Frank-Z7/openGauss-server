@@ -174,7 +174,7 @@ TupleTableSlot* ExecScan(ScanState* node, ExecScanAccessMtd access_mtd, /* funct
          */
         if (TupIsNull(slot) || unlikely(executorEarlyStop())) {
             if (proj_info != NULL)
-                return ExecClearTuple(proj_info->pi_slot);
+                return ExecClearTuple(proj_info->pi_state.resultslot);
             else
                 return slot;
         }
@@ -191,7 +191,7 @@ TupleTableSlot* ExecScan(ScanState* node, ExecScanAccessMtd access_mtd, /* funct
          * when the qual is nil ... saves only a few cycles, but they add up
          * ...
          */
-        if (qual == NULL || ExecQual(qual, econtext, false)) {
+        if (qual == NULL || ExecQual((ExprState*)qual, econtext)) {
             /*
              * Found a satisfactory scan tuple.
              */

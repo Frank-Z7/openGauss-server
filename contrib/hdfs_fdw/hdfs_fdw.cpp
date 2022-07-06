@@ -769,7 +769,7 @@ static void estimate_size(PlannerInfo* root, RelOptInfo* baserel, HdfsFdwPlanSta
             statBuffer.st_size = 10 * BLCKSZ;
         }
 
-        tupleWidth = MAXALIGN((unsigned int)baserel->width) + MAXALIGN(sizeof(HeapTupleHeaderData));
+        tupleWidth = MAXALIGN((unsigned int)baserel->reltarget->width) + MAXALIGN(sizeof(HeapTupleHeaderData));
         fdw_private->tuplesCount = clamp_row_est((double)statBuffer.st_size / (double)tupleWidth);
         baserel->tuples = fdw_private->tuplesCount;
     }

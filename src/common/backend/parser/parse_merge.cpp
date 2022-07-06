@@ -677,7 +677,7 @@ static List* transformUpdateTargetList(ParseState* pstate, List* origTlist)
     ListCell* origTargetList = NULL;
     ListCell* tl = NULL;
 
-    tlist = transformTargetList(pstate, origTlist);
+    tlist = transformTargetList(pstate, origTlist, EXPR_KIND_UPDATE_SOURCE);
 
     /* Prepare to assign non-conflicting resnos to resjunk attributes */
     if (pstate->p_next_resno <= RelationGetNumberOfAttributes(pstate->p_target_relation)) {
@@ -1185,7 +1185,7 @@ Query* transformMergeStmt(ParseState* pstate, MergeStmt* stmt)
                  * are evaluated separately during execution to decide which of the
                  * WHEN MATCHED or WHEN NOT MATCHED actions to execute.
                  */
-                action->qual = transformWhereClause(pstate, mergeWhenClause->condition, "WHEN");
+                action->qual = transformWhereClause(pstate, mergeWhenClause->condition, EXPR_KIND_MERGE_WHEN, "WHEN");
                 pstate->p_varnamespace = save_varnamespace;
 
                 pstate->p_is_insert = true;
@@ -1223,7 +1223,7 @@ Query* transformMergeStmt(ParseState* pstate, MergeStmt* stmt)
                      * Do basic expression transformation (same as a ROW()
                      * expr, but allow SetToDefault at top level)
                      */
-                    exprList = transformExpressionList(pstate, mergeWhenClause->values);
+                    exprList = transformExpressionList(pstate, mergeWhenClause->values, EXPR_KIND_VALUES_SINGLE);
 
                     /*
                      * If td_compatible_truncation equal true and no foreign table found,
@@ -1290,7 +1290,7 @@ Query* transformMergeStmt(ParseState* pstate, MergeStmt* stmt)
                  * are evaluated separately during execution to decide which of the
                  * WHEN MATCHED or WHEN NOT MATCHED actions to execute.
                  */
-                action->qual = transformWhereClause(pstate, mergeWhenClause->condition, "WHEN");
+                action->qual = transformWhereClause(pstate, mergeWhenClause->condition, EXPR_KIND_MERGE_WHEN, "WHEN");
                 pstate->p_varnamespace = save_varnamespace;
                 pstate->use_level = false;
 

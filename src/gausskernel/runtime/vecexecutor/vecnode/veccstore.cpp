@@ -187,7 +187,7 @@ VectorBatch* ApplyProjectionAndFilter(CStoreScanState* node, VectorBatch* p_scan
 
     VECCSTORE_SCAN_TRACE_START(node, CSTORE_PROJECT);
 
-    qual = node->ps.qual;
+    qual = (List*)node->ps.qual;
     econtext = node->ps.ps_ExprContext;
     p_out_batch = node->m_pCurrentBatch;
     simple_map = node->m_fSimpleMap;
@@ -702,7 +702,7 @@ CStoreScanState* ExecInitCStoreScan(
             CodeGenThreadObjectReady() &&
             CodeGenPassThreshold(((Plan*)node)->plan_rows, estate->es_plannedstmt->num_nodes, ((Plan*)node)->dop);
         if (consider_codegen) {
-            jitted_vecqual = dorado::VecExprCodeGen::QualCodeGen(scan_stat->ps.qual, (PlanState*)scan_stat);
+            jitted_vecqual = dorado::VecExprCodeGen::QualCodeGen((List*)scan_stat->ps.qual, (PlanState*)scan_stat);
             if (jitted_vecqual != NULL)
                 llvm_code_gen->addFunctionToMCJit(jitted_vecqual, reinterpret_cast<void**>(&(scan_stat->jitted_vecqual)));
         }

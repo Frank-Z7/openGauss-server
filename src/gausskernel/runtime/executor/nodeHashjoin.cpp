@@ -313,7 +313,7 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
                  * Only the joinquals determine tuple match status, but all
                  * quals must pass to actually return the tuple.
                  */
-                if (joinqual == NIL || ExecQual(joinqual, econtext, false)) {
+                if (joinqual == NIL || ExecQual((ExprState*)joinqual, econtext)) {
                     node->hj_MatchedOuter = true;
 
                     /*
@@ -346,7 +346,7 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
                             node->hj_JoinState = HJ_NEED_NEW_OUTER;
                     }
 
-                    if (otherqual == NIL || ExecQual(otherqual, econtext, false)) {
+                    if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
                         TupleTableSlot* result = NULL;
 
                         result = ExecProject(node->js.ps.ps_ProjInfo, &isDone);
@@ -381,7 +381,7 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
                      */
                     econtext->ecxt_innertuple = node->hj_NullInnerTupleSlot;
 
-                    if (otherqual == NIL || ExecQual(otherqual, econtext, false)) {
+                    if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
                         TupleTableSlot* result = NULL;
 
                         result = ExecProject(node->js.ps.ps_ProjInfo, &isDone);
@@ -414,7 +414,7 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
                  */
                 econtext->ecxt_outertuple = node->hj_NullOuterTupleSlot;
 
-                if (otherqual == NIL || ExecQual(otherqual, econtext, false)) {
+                if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
                     TupleTableSlot* result = NULL;
 
                     result = ExecProject(node->js.ps.ps_ProjInfo, &isDone);
@@ -540,12 +540,11 @@ HashJoinState* ExecInitHashJoin(HashJoin* node, EState* estate, int eflags)
     /*
      * initialize child expressions
      */
-    hjstate->js.ps.targetlist = (List*)ExecInitExpr((Expr*)node->join.plan.targetlist, (PlanState*)hjstate);
-    hjstate->js.ps.qual = (List*)ExecInitExpr((Expr*)node->join.plan.qual, (PlanState*)hjstate);
+    hjstate->js.ps.qual = (List*)ExecInitQual(node->join.plan.qual, (PlanState*)hjstate);
     hjstate->js.jointype = node->join.jointype;
-    hjstate->js.joinqual = (List*)ExecInitExpr((Expr*)node->join.joinqual, (PlanState*)hjstate);
-    hjstate->js.nulleqqual = (List*)ExecInitExpr((Expr*)node->join.nulleqqual, (PlanState*)hjstate);
-    hjstate->hashclauses = (List*)ExecInitExpr((Expr*)node->hashclauses, (PlanState*)hjstate);
+    hjstate->js.joinqual = (List*)ExecInitQual(node->join.joinqual, (PlanState*)hjstate);
+    hjstate->js.nulleqqual = (List*)ExecInitQual(node->join.nulleqqual, (PlanState*)hjstate);
+    hjstate->hashclauses = (List*)ExecInitQual(node->hashclauses, (PlanState*)hjstate);
 
     /*
      * initialize child nodes
@@ -637,15 +636,11 @@ HashJoinState* ExecInitHashJoin(HashJoin* node, EState* estate, int eflags)
     lclauses = NIL;
     rclauses = NIL;
     hoperators = NIL;
-    foreach (l, hjstate->hashclauses) {
-        FuncExprState* fstate = (FuncExprState*)lfirst(l);
-        OpExpr* hclause = NULL;
+    foreach(l, node->hashclauses) {
+        OpExpr* hclause = (OpExpr*)lfirst(l);
 
-        Assert(IsA(fstate, FuncExprState));
-        hclause = (OpExpr*)fstate->xprstate.expr;
-        Assert(IsA(hclause, OpExpr));
-        lclauses = lappend(lclauses, linitial(fstate->args));
-        rclauses = lappend(rclauses, lsecond(fstate->args));
+        lclauses = lappend(lclauses, ExecInitExpr((Expr*)linitial(hclause->args), (PlanState *) hjstate));
+        rclauses = lappend(rclauses, ExecInitExpr((Expr*)lsecond(hclause->args), (PlanState *) hjstate));
         hoperators = lappend_oid(hoperators, hclause->opno);
     }
     hjstate->hj_OuterHashKeys = lclauses;

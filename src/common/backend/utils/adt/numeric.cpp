@@ -57,6 +57,48 @@ typedef struct {
 } generate_series_numeric_fctx;
 
 /* ----------
+ * Fast sum accumulator.
+ *
+ * NumericSumAccum is used to implement SUM(), and other standard aggregates
+ * that track the sum of input values.  It uses 32-bit integers to store the
+ * digits, instead of the normal 16-bit integers (with NBASE=10000).  This
+ * way, we can safely accumulate up to NBASE - 1 values without propagating
+ * carry, before risking overflow of any of the digits.  'num_uncarried'
+ * tracks how many values have been accumulated without propagating carry.
+ *
+ * Positive and negative values are accumulated separately, in 'pos_digits'
+ * and 'neg_digits'.  This is simpler and faster than deciding whether to add
+ * or subtract from the current value, for each new value (see sub_var() for
+ * the logic we avoid by doing this).  Both buffers are of same size, and
+ * have the same weight and scale.  In accum_sum_final(), the positive and
+ * negative sums are added together to produce the final result.
+ *
+ * When a new value has a larger ndigits or weight than the accumulator
+ * currently does, the accumulator is enlarged to accommodate the new value.
+ * We normally have one zero digit reserved for carry propagation, and that
+ * is indicated by the 'have_carry_space' flag.  When accum_sum_carry() uses
+ * up the reserved digit, it clears the 'have_carry_space' flag.  The next
+ * call to accum_sum_add() will enlarge the buffer, to make room for the
+ * extra digit, and set the flag again.
+ *
+ * To initialize a new accumulator, simply reset all fields to zeros.
+ *
+ * The accumulator does not handle NaNs.
+ * ----------
+ */
+typedef struct NumericSumAccum
+{
+	int			ndigits;
+	int			weight;
+	int			dscale;
+	int			num_uncarried;
+	bool		have_carry_space;
+	int32	   *pos_digits;
+	int32	   *neg_digits;
+} NumericSumAccum;
+
+
+/* ----------
  * Sort support.
  * ----------
  */
@@ -67,6 +109,16 @@ typedef struct {
 
     hyperLogLogState abbr_card; /* cardinality estimator */
 } NumericSortSupport;
+
+typedef struct NumericAggState
+{
+    bool        calcSumX2;      /* if true, calculate sumX2 */
+    bool        isNaN;          /* true if any processed number was NaN */
+    MemoryContext agg_context;  /* context we're calculating in */
+    int64       N;              /* count of processed numbers */
+    NumericSumAccum  sumX;           /* sum of processed numbers */
+    NumericSumAccum  sumX2;          /* sum of squares of processed numbers */
+} NumericAggState;
 
 #define NUMERIC_ABBREV_BITS (SIZEOF_DATUM * BITS_PER_BYTE)
 #if SIZEOF_DATUM == 8
@@ -207,6 +259,14 @@ static void trunc_var(NumericVar* var, int rscale);
 static void strip_var(NumericVar* var);
 static void compute_bucket(
     Numeric operand, Numeric bound1, Numeric bound2, NumericVar* count_var, NumericVar* result_var);
+
+static void accum_sum_add(NumericSumAccum *accum, NumericVar *var1);
+static void accum_sum_rescale(NumericSumAccum *accum, NumericVar *val);
+static void accum_sum_carry(NumericSumAccum *accum);
+static void accum_sum_reset(NumericSumAccum *accum);
+static void accum_sum_final(NumericSumAccum *accum, NumericVar *result);
+static void accum_sum_copy(NumericSumAccum *dst, NumericSumAccum *src);
+static void accum_sum_combine(NumericSumAccum *accum, NumericSumAccum *accum2);
 
 /*
  * @Description: call corresponding big integer operator functions.
@@ -3231,80 +3291,114 @@ Datum numeric_float4(PG_FUNCTION_ARGS)
  * ----------------------------------------------------------------------
  */
 
-static ArrayType* do_numeric_accum(ArrayType* transarray, Numeric newval)
+/*
+ * Prepare state data for a numeric aggregate function that needs to compute
+ * sum, count and optionally sum of squares of the input.
+ */
+static NumericAggState *
+makeNumericAggState(FunctionCallInfo fcinfo, bool calcSumX2)
 {
-    Datum* transdatums = NULL;
-    int ndatums;
-    Datum N, sumX, sumX2;
-    ArrayType* result = NULL;
-
-    /* We assume the input is array of numeric */
-    deconstruct_array(transarray, NUMERICOID, -1, false, 'i', &transdatums, NULL, &ndatums);
-    if (ndatums != 3)
-        ereport(ERROR, (errcode(ERRCODE_ARRAY_ELEMENT_ERROR), errmsg("expected 3-element numeric array")));
-    N = transdatums[0];
-    sumX = transdatums[1];
-    sumX2 = transdatums[2];
-
-    N = DirectFunctionCall1(numeric_inc, N);
-    sumX = DirectFunctionCall2(numeric_add, sumX, NumericGetDatum(newval));
-    sumX2 = DirectFunctionCall2(
-        numeric_add, sumX2, DirectFunctionCall2(numeric_mul, NumericGetDatum(newval), NumericGetDatum(newval)));
-
-    transdatums[0] = N;
-    transdatums[1] = sumX;
-    transdatums[2] = sumX2;
-
-    result = construct_array(transdatums, 3, NUMERICOID, -1, false, 'i');
-
-    return result;
+    NumericAggState *state;
+    MemoryContext agg_context;
+    MemoryContext old_context;
+ 
+    if (!AggCheckCallContext(fcinfo, &agg_context))
+        elog(ERROR, "aggregate function called in non-aggregate context");
+ 
+    old_context = MemoryContextSwitchTo(agg_context);
+ 
+    state = (NumericAggState *) palloc0(sizeof(NumericAggState));
+    state->calcSumX2 = calcSumX2;
+    state->agg_context = agg_context;
+ 
+    MemoryContextSwitchTo(old_context);
+ 
+    return state;
 }
 
 /*
- * Improve avg performance by not caclulating sum(X*X).
+ * Accumulate a new input value for numeric aggregate functions.
  */
-static ArrayType* do_numeric_avg_accum(ArrayType* transarray, Numeric newval)
+static void
+do_numeric_accum(NumericAggState *state, Numeric newval)
 {
-    Datum* transdatums = NULL;
-    int ndatums;
-    Datum N, sumX;
-    ArrayType* result = NULL;
+    NumericVar  X;
+    NumericVar  X2;
+    MemoryContext old_context;
+    uint16 num1Flags = NUMERIC_NB_FLAGBITS(newval);
+    /* result is NaN if any processed number is NaN */
+    if (state->isNaN || NUMERIC_FLAG_IS_NAN(num1Flags)) {
+        state->isNaN = true;
+        return;
+    }
 
-    /* We assume the input is array of numeric */
-    deconstruct_array(transarray, NUMERICOID, -1, false, 'i', &transdatums, NULL, &ndatums);
-    if (ndatums != 2)
-        ereport(ERROR, (errcode(ERRCODE_ARRAY_ELEMENT_ERROR), errmsg("expected 2-element numeric array")));
-    N = transdatums[0];
-    sumX = transdatums[1];
+    if (NUMERIC_FLAG_IS_BI(num1Flags)) {
+        // num1 is int64/128, num2 is numeric, turn num1 to numeric
+        newval = makeNumericNormal(newval);
+    }
 
-    N = DirectFunctionCall1(numeric_inc, N);
-    sumX = DirectFunctionCall2(numeric_add, sumX, NumericGetDatum(newval));
+    /* load processed number in short-lived context */
+    init_var_from_num(newval, &X);
+ 
+    /* if we need X^2, calculate that in short-lived context */
+    if (state->calcSumX2)
+    {
+        init_var(&X2);
+        mul_var(&X, &X, &X2, X.dscale * 2);
+    }
+ 
+    /* The rest of this needs to work in the aggregate context */
+    old_context = MemoryContextSwitchTo(state->agg_context);
+ 
+    state->N++;
 
-    transdatums[0] = N;
-    transdatums[1] = sumX;
+    /* Accumulate sums */
+    accum_sum_add(&(state->sumX), &X);
 
-    result = construct_array(transdatums, 2, NUMERICOID, -1, false, 'i');
-
-    return result;
+    if (state->calcSumX2)
+        accum_sum_add(&(state->sumX2), &X2);
+    MemoryContextSwitchTo(old_context);
 }
 
+/*
+ * Generic transition function for numeric aggregates that require sumX2.
+ */
 Datum numeric_accum(PG_FUNCTION_ARGS)
 {
-    ArrayType* transarray = PG_GETARG_ARRAYTYPE_P(0);
-    Numeric newval = PG_GETARG_NUMERIC(1);
+    NumericAggState *state;
 
-    PG_RETURN_ARRAYTYPE_P(do_numeric_accum(transarray, newval));
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    if (!PG_ARGISNULL(1))
+    {
+        /* Create the state data when we see the first non-null input. */
+        if (state == NULL)
+            state = makeNumericAggState(fcinfo, true);
+ 
+        do_numeric_accum(state, PG_GETARG_NUMERIC(1));
+    }
+ 
+    PG_RETURN_POINTER(state);
 }
 
 /*
- * Optimized case for average of numeric.
+ * Generic transition function for numeric aggregates that don't require sumX2.
  */
 Datum numeric_avg_accum(PG_FUNCTION_ARGS)
 {
-    ArrayType* transarray = PG_GETARG_ARRAYTYPE_P(0);
-    Numeric newval = PG_GETARG_NUMERIC(1);
-
-    PG_RETURN_ARRAYTYPE_P(do_numeric_avg_accum(transarray, newval));
+    NumericAggState *state;
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    if (!PG_ARGISNULL(1))
+    {
+        /* Create the state data when we see the first non-null input. */
+        if (state == NULL)
+            state = makeNumericAggState(fcinfo, false);
+ 
+        do_numeric_accum(state, PG_GETARG_NUMERIC(1));
+    }
+ 
+    PG_RETURN_POINTER(state);
 }
 
 /*
@@ -3318,35 +3412,66 @@ Datum numeric_avg_accum(PG_FUNCTION_ARGS)
 
 Datum int2_accum(PG_FUNCTION_ARGS)
 {
-    ArrayType* transarray = PG_GETARG_ARRAYTYPE_P(0);
-    Datum newval2 = PG_GETARG_DATUM(1);
-    Numeric newval;
-
-    newval = DatumGetNumeric(DirectFunctionCall1(int2_numeric, newval2));
-
-    PG_RETURN_ARRAYTYPE_P(do_numeric_accum(transarray, newval));
+    NumericAggState *state;
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    if (!PG_ARGISNULL(1))
+    {
+        Numeric     newval;
+ 
+        newval = DatumGetNumeric(DirectFunctionCall1(int2_numeric,
+                                                     PG_GETARG_DATUM(1)));
+ 
+        /* Create the state data when we see the first non-null input. */
+        if (state == NULL)
+            state = makeNumericAggState(fcinfo, true);
+ 
+        do_numeric_accum(state, newval);
+    }
+    PG_RETURN_POINTER(state);
 }
 
 Datum int4_accum(PG_FUNCTION_ARGS)
 {
-    ArrayType* transarray = PG_GETARG_ARRAYTYPE_P(0);
-    Datum newval4 = PG_GETARG_DATUM(1);
-    Numeric newval;
-
-    newval = DatumGetNumeric(DirectFunctionCall1(int4_numeric, newval4));
-
-    PG_RETURN_ARRAYTYPE_P(do_numeric_accum(transarray, newval));
+    NumericAggState *state;
+ 
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    if (!PG_ARGISNULL(1))
+    {
+        Numeric     newval;
+        newval = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
+                                                     PG_GETARG_DATUM(1)));
+ 
+        /* Create the state data when we see the first non-null input. */
+        if (state == NULL)
+            state = makeNumericAggState(fcinfo, true);
+ 
+        do_numeric_accum(state, newval);
+    }
+    PG_RETURN_POINTER(state);
 }
 
 Datum int8_accum(PG_FUNCTION_ARGS)
 {
-    ArrayType* transarray = PG_GETARG_ARRAYTYPE_P(0);
-    Datum newval8 = PG_GETARG_DATUM(1);
-    Numeric newval;
+    NumericAggState *state;
+ 
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    if (!PG_ARGISNULL(1))
+    {
+        Numeric     newval;
+ 
+        newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+                                                     PG_GETARG_DATUM(1)));
+        /* Create the state data when we see the first non-null input. */
+        if (state == NULL)
+            state = makeNumericAggState(fcinfo, true);
+        do_numeric_accum(state, newval);
+    }
+ 
+    PG_RETURN_POINTER(state);
 
-    newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric, newval8));
-
-    PG_RETURN_ARRAYTYPE_P(do_numeric_accum(transarray, newval));
 }
 
 /*
@@ -3354,41 +3479,117 @@ Datum int8_accum(PG_FUNCTION_ARGS)
  */
 Datum int8_avg_accum(PG_FUNCTION_ARGS)
 {
-    ArrayType* transarray = PG_GETARG_ARRAYTYPE_P(0);
-    Datum newval8 = PG_GETARG_DATUM(1);
-    Numeric newval;
+    NumericAggState *state;
+ 
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    if (!PG_ARGISNULL(1))
+    {
+        Numeric     newval;
+ 
+        newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+                                                     PG_GETARG_DATUM(1)));
+        /* Create the state data when we see the first non-null input. */
+        if (state == NULL)
+            state = makeNumericAggState(fcinfo, false);
 
-    newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric, newval8));
-
-    PG_RETURN_ARRAYTYPE_P(do_numeric_avg_accum(transarray, newval));
+        do_numeric_accum(state, newval);
+    }
+ 
+    PG_RETURN_POINTER(state);
 }
 
 Datum numeric_avg(PG_FUNCTION_ARGS)
 {
-    ArrayType* transarray = PG_GETARG_ARRAYTYPE_P(0);
-    Datum* transdatums = NULL;
-    int ndatums;
-    Numeric N, sumX;
-
-    /* We assume the input is array of numeric */
-    deconstruct_array(transarray, NUMERICOID, -1, false, 'i', &transdatums, NULL, &ndatums);
-    if (ndatums != 2)
-        ereport(ERROR, (errcode(ERRCODE_ARRAY_ELEMENT_ERROR), errmsg("expected 2-element numeric array")));
-    N = DatumGetNumeric(transdatums[0]);
-    sumX = DatumGetNumeric(transdatums[1]);
-
-    /* SQL92 defines AVG of no values to be NULL */
-    /* N is zero iff no digits (cf. numeric_uminus) */
-    if (NUMERIC_NDIGITS(N) == 0)
+    NumericAggState *state;
+    Datum       N_datum;
+    Datum       sumX_datum;
+    NumericVar	sumX_var;
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+    if (state == NULL)          /* there were no non-null inputs */
         PG_RETURN_NULL();
+    if (state->isNaN)           /* there was at least one NaN input */
+        PG_RETURN_NUMERIC(make_result(&const_nan));
+ 
+    N_datum = DirectFunctionCall1(int8_numeric, Int64GetDatum(state->N));
+    init_var(&sumX_var);
+    accum_sum_final(&state->sumX, &sumX_var);
+    sumX_datum = NumericGetDatum(make_result(&sumX_var));
+    free_var(&sumX_var); 
+    PG_RETURN_DATUM(DirectFunctionCall2(numeric_div, sumX_datum, N_datum));
+}
 
-    PG_RETURN_DATUM(DirectFunctionCall2(numeric_div, NumericGetDatum(sumX), NumericGetDatum(N)));
+Datum
+numeric_sum(PG_FUNCTION_ARGS)
+{
+    NumericAggState *state;
+    NumericVar	sumX_var;
+    Numeric result; 
+    
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+    if (state == NULL)          /* there were no non-null inputs */
+        PG_RETURN_NULL();
+ 
+    if (state->isNaN)           /* there was at least one NaN input */
+        PG_RETURN_NUMERIC(make_result(&const_nan));
+    
+    init_var(&sumX_var);
+    accum_sum_final(&state->sumX, &sumX_var);
+    result = make_result(&sumX_var);
+    free_var(&sumX_var);
+
+    PG_RETURN_NUMERIC(result); 
+}
+
+/*
+ *  * Convert int8 value to numeric.
+ *   */
+static void
+int8_to_numericvar(int64 val, NumericVar *var)
+{
+    uint64      uval,
+                newuval;
+    NumericDigit *ptr;
+    int         ndigits;
+
+    /* int8 can require at most 19 decimal digits; add one for safety */
+    alloc_var(var, 20 / DEC_DIGITS);
+    if (val < 0)
+    {
+        var->sign = NUMERIC_NEG;
+        uval = -val;
+    }
+    else
+    {
+        var->sign = NUMERIC_POS;
+        uval = val;
+    }
+    var->dscale = 0;
+    if (val == 0)
+    {
+        var->ndigits = 0;
+        var->weight = 0;
+        return;
+    }
+    ptr = var->digits + var->ndigits;
+    ndigits = 0;
+    do
+    {
+        ptr--;
+        ndigits++;
+        newuval = uval / NBASE;
+        *ptr = uval - newuval * NBASE;
+        uval = newuval;
+    } while (uval);
+    var->digits = ptr;
+    var->ndigits = ndigits;
+    var->weight = ndigits - 1;
 }
 
 /*
  * Workhorse routine for the standard deviance and variance
- * aggregates. 'transarray' is the aggregate's transition
- * array. 'variance' specifies whether we should calculate the
+ * aggregates. 'state' is aggregate's transition state.
+ * 'variance' specifies whether we should calculate the
  * variance or the standard deviation. 'sample' indicates whether the
  * caller is interested in the sample or the population
  * variance/stddev.
@@ -3396,37 +3597,31 @@ Datum numeric_avg(PG_FUNCTION_ARGS)
  * If appropriate variance statistic is undefined for the input,
  * *is_null is set to true and NULL is returned.
  */
-static Numeric numeric_stddev_internal(ArrayType* transarray, bool variance, bool sample, bool* is_null)
+static Numeric numeric_stddev_internal(NumericAggState* state, bool variance, bool sample, bool* is_null)
 {
-    Datum* transdatums = NULL;
-    int ndatums;
-    Numeric N, sumX, sumX2, res;
+    Numeric     res;
     NumericVar vN, vsumX, vsumX2, vNminus1;
     NumericVar* comp = NULL;
     int rscale;
 
+    /* Deal with empty input and NaN-input cases */
+    if (state == NULL)
+    {
+        *is_null = true;
+        return NULL;
+    }
+ 
+
     *is_null = false;
 
-    /* We assume the input is array of numeric */
-    deconstruct_array(transarray, NUMERICOID, -1, false, 'i', &transdatums, NULL, &ndatums);
-    if (ndatums != 3)
-        ereport(ERROR, (errcode(ERRCODE_ARRAY_ELEMENT_ERROR), errmsg("expected 3-element numeric array")));
-    N = DatumGetNumeric(transdatums[0]);
-    sumX = DatumGetNumeric(transdatums[1]);
-    sumX2 = DatumGetNumeric(transdatums[2]);
-
-    if (NUMERIC_IS_NAN(N) || NUMERIC_IS_NAN(sumX) || NUMERIC_IS_NAN(sumX2)) {
+    if (state->isNaN)
         return make_result(&const_nan);
-    }
 
-    /*
-     * Handle Big Integer
-     */
-    if (NUMERIC_IS_BI(N)) {
-        N = makeNumericNormal(N);
-    }
-    init_var_from_num(N, &vN);
-
+    init_var(&vN);
+    init_var(&vsumX);
+    init_var(&vsumX2);
+ 
+    int8_to_numericvar(state->N, &vN);
     /*
      * Sample stddev and variance are undefined when N <= 1; population stddev
      * is undefined when N == 0. Return NULL in either case.
@@ -3447,12 +3642,8 @@ static Numeric numeric_stddev_internal(ArrayType* transarray, bool variance, boo
     /*
      * Handle Big Integer
      */
-    if (NUMERIC_IS_BI(sumX))
-        sumX = makeNumericNormal(sumX);
-    if (NUMERIC_IS_BI(sumX2))
-        sumX2 = makeNumericNormal(sumX2);
-    init_var_from_num(sumX, &vsumX);
-    init_var_from_num(sumX2, &vsumX2);
+    accum_sum_final(&(state->sumX), &vsumX);
+    accum_sum_final(&(state->sumX2), &vsumX2);
 
     /* compute rscale for mul_var calls */
     rscale = vsumX.dscale * 2;
@@ -3486,10 +3677,13 @@ static Numeric numeric_stddev_internal(ArrayType* transarray, bool variance, boo
 
 Datum numeric_var_samp(PG_FUNCTION_ARGS)
 {
+    NumericAggState *state;
     Numeric res;
     bool is_null = false;
 
-    res = numeric_stddev_internal(PG_GETARG_ARRAYTYPE_P(0), true, true, &is_null);
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    res = numeric_stddev_internal(state, true, true, &is_null);
 
     if (is_null)
         PG_RETURN_NULL();
@@ -3497,12 +3691,30 @@ Datum numeric_var_samp(PG_FUNCTION_ARGS)
         PG_RETURN_NUMERIC(res);
 }
 
+void stddev_create_state_4_vector(PG_FUNCTION_ARGS)
+{
+    NumericAggState *state = makeNumericAggState(fcinfo, true);
+    state->N = DatumGetInt64(DirectFunctionCall1(numeric_int8, PG_GETARG_DATUM(1)));
+    NumericVar* sumX = (NumericVar*)palloc0(sizeof(NumericVar));
+    NumericVar* sumX2 = (NumericVar*)palloc0(sizeof(NumericVar));
+    init_var_from_num(DatumGetNumeric(PG_GETARG_DATUM(2)), sumX);
+    init_var_from_num(DatumGetNumeric(PG_GETARG_DATUM(3)), sumX2);
+    accum_sum_add(&(state->sumX), sumX);
+    accum_sum_add(&(state->sumX2), sumX2);
+
+    fcinfo->arg[0] = PointerGetDatum(state);
+    return ;
+}
+
 Datum numeric_stddev_samp(PG_FUNCTION_ARGS)
 {
+    NumericAggState *state;
     Numeric res;
     bool is_null = false;
 
-    res = numeric_stddev_internal(PG_GETARG_ARRAYTYPE_P(0), false, true, &is_null);
+    state = (fcinfo->isnull && PG_ARGISNULL(0)) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    res = numeric_stddev_internal(state, false, true, &is_null);
 
     if (is_null)
         PG_RETURN_NULL();
@@ -3512,10 +3724,13 @@ Datum numeric_stddev_samp(PG_FUNCTION_ARGS)
 
 Datum numeric_var_pop(PG_FUNCTION_ARGS)
 {
+    NumericAggState *state;
     Numeric res;
     bool is_null = false;
 
-    res = numeric_stddev_internal(PG_GETARG_ARRAYTYPE_P(0), true, false, &is_null);
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    res = numeric_stddev_internal(state, true, false, &is_null);
 
     if (is_null)
         PG_RETURN_NULL();
@@ -3525,10 +3740,13 @@ Datum numeric_var_pop(PG_FUNCTION_ARGS)
 
 Datum numeric_stddev_pop(PG_FUNCTION_ARGS)
 {
+    NumericAggState *state;
     Numeric res;
     bool is_null = false;
 
-    res = numeric_stddev_internal(PG_GETARG_ARRAYTYPE_P(0), false, false, &is_null);
+    state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+ 
+    res = numeric_stddev_internal(state, false, false, &is_null);
 
     if (is_null)
         PG_RETURN_NULL();
@@ -19194,4 +19412,322 @@ Datum bool_numeric(PG_FUNCTION_ARGS)
     free_var(&result);
 
     PG_RETURN_NUMERIC(res);
+}
+
+/* ----------------------------------------------------------------------
+ *
+ * Fast sum accumulator functions
+ *
+ * ----------------------------------------------------------------------
+ */
+
+/*
+ * Reset the accumulator's value to zero.  The buffers to hold the digits
+ * are not free'd.
+ */
+static void
+accum_sum_reset(NumericSumAccum *accum)
+{
+	int			i;
+
+	accum->dscale = 0;
+	for (i = 0; i < accum->ndigits; i++)
+	{
+		accum->pos_digits[i] = 0;
+		accum->neg_digits[i] = 0;
+	}
+}
+
+/*
+ * Accumulate a new value.
+ */
+static void
+accum_sum_add(NumericSumAccum *accum, NumericVar *val)
+{
+	int32	   *accum_digits;
+	int			i,
+				val_i;
+	int			val_ndigits;
+	NumericDigit *val_digits;
+
+	/*
+	 * If we have accumulated too many values since the last carry
+	 * propagation, do it now, to avoid overflowing.  (We could allow more
+	 * than NBASE - 1, if we reserved two extra digits, rather than one, for
+	 * carry propagation.  But even with NBASE - 1, this needs to be done so
+	 * seldom, that the performance difference is negligible.)
+	 */
+	if (accum->num_uncarried == NBASE - 1)
+		accum_sum_carry(accum);
+
+	/*
+	 * Adjust the weight or scale of the old value, so that it can accommodate
+	 * the new value.
+	 */
+	accum_sum_rescale(accum, val);
+
+	/* */
+	if (val->sign == NUMERIC_POS)
+		accum_digits = accum->pos_digits;
+	else
+		accum_digits = accum->neg_digits;
+
+	/* copy these values into local vars for speed in loop */
+	val_ndigits = val->ndigits;
+	val_digits = val->digits;
+
+	i = accum->weight - val->weight;
+	for (val_i = 0; val_i < val_ndigits; val_i++)
+	{
+		accum_digits[i] += (int32) val_digits[val_i];
+		i++;
+	}
+
+	accum->num_uncarried++;
+}
+
+/*
+ * Propagate carries.
+ */
+static void
+accum_sum_carry(NumericSumAccum *accum)
+{
+	int			i;
+	int			ndigits;
+	int32	   *dig;
+	int32		carry;
+	int32		newdig = 0;
+
+	/*
+	 * If no new values have been added since last carry propagation, nothing
+	 * to do.
+	 */
+	if (accum->num_uncarried == 0)
+		return;
+
+	/*
+	 * We maintain that the weight of the accumulator is always one larger
+	 * than needed to hold the current value, before carrying, to make sure
+	 * there is enough space for the possible extra digit when carry is
+	 * propagated.  We cannot expand the buffer here, unless we require
+	 * callers of accum_sum_final() to switch to the right memory context.
+	 */
+	Assert(accum->pos_digits[0] == 0 && accum->neg_digits[0] == 0);
+
+	ndigits = accum->ndigits;
+
+	/* Propagate carry in the positive sum */
+	dig = accum->pos_digits;
+	carry = 0;
+	for (i = ndigits - 1; i >= 0; i--)
+	{
+		newdig = dig[i] + carry;
+		if (newdig >= NBASE)
+		{
+			carry = newdig / NBASE;
+			newdig -= carry * NBASE;
+		}
+		else
+			carry = 0;
+		dig[i] = newdig;
+	}
+	/* Did we use up the digit reserved for carry propagation? */
+	if (newdig > 0)
+		accum->have_carry_space = false;
+
+	/* And the same for the negative sum */
+	dig = accum->neg_digits;
+	carry = 0;
+	for (i = ndigits - 1; i >= 0; i--)
+	{
+		newdig = dig[i] + carry;
+		if (newdig >= NBASE)
+		{
+			carry = newdig / NBASE;
+			newdig -= carry * NBASE;
+		}
+		else
+			carry = 0;
+		dig[i] = newdig;
+	}
+	if (newdig > 0)
+		accum->have_carry_space = false;
+
+	accum->num_uncarried = 0;
+}
+
+/*
+ * Re-scale accumulator to accommodate new value.
+ *
+ * If the new value has more digits than the current digit buffers in the
+ * accumulator, enlarge the buffers.
+ */
+static void
+accum_sum_rescale(NumericSumAccum *accum, NumericVar *val)
+{
+	int			old_weight = accum->weight;
+	int			old_ndigits = accum->ndigits;
+	int			accum_ndigits;
+	int			accum_weight;
+	int			accum_rscale;
+	int			val_rscale;
+
+	accum_weight = old_weight;
+	accum_ndigits = old_ndigits;
+
+	/*
+	 * Does the new value have a larger weight? If so, enlarge the buffers,
+	 * and shift the existing value to the new weight, by adding leading
+	 * zeros.
+	 *
+	 * We enforce that the accumulator always has a weight one larger than
+	 * needed for the inputs, so that we have space for an extra digit at the
+	 * final carry-propagation phase, if necessary.
+	 */
+	if (val->weight >= accum_weight)
+	{
+		accum_weight = val->weight + 1;
+		accum_ndigits = accum_ndigits + (accum_weight - old_weight);
+	}
+
+	/*
+	 * Even though the new value is small, we might've used up the space
+	 * reserved for the carry digit in the last call to accum_sum_carry().  If
+	 * so, enlarge to make room for another one.
+	 */
+	else if (!accum->have_carry_space)
+	{
+		accum_weight++;
+		accum_ndigits++;
+	}
+
+	/* Is the new value wider on the right side? */
+	accum_rscale = accum_ndigits - accum_weight - 1;
+	val_rscale = val->ndigits - val->weight - 1;
+	if (val_rscale > accum_rscale)
+		accum_ndigits = accum_ndigits + (val_rscale - accum_rscale);
+
+	if (accum_ndigits != old_ndigits ||
+		accum_weight != old_weight)
+	{
+		int32	   *new_pos_digits;
+		int32	   *new_neg_digits;
+		int			weightdiff;
+
+		weightdiff = accum_weight - old_weight;
+
+		new_pos_digits = (int32*)palloc0(accum_ndigits * sizeof(int32));
+		new_neg_digits = (int32*)palloc0(accum_ndigits * sizeof(int32));
+
+		if (accum->pos_digits)
+		{
+			memcpy(&new_pos_digits[weightdiff], accum->pos_digits,
+				   old_ndigits * sizeof(int32));
+			pfree(accum->pos_digits);
+
+			memcpy(&new_neg_digits[weightdiff], accum->neg_digits,
+				   old_ndigits * sizeof(int32));
+			pfree(accum->neg_digits);
+		}
+
+		accum->pos_digits = new_pos_digits;
+		accum->neg_digits = new_neg_digits;
+
+		accum->weight = accum_weight;
+		accum->ndigits = accum_ndigits;
+
+		Assert(accum->pos_digits[0] == 0 && accum->neg_digits[0] == 0);
+		accum->have_carry_space = true;
+	}
+
+	if (val->dscale > accum->dscale)
+		accum->dscale = val->dscale;
+}
+
+/*
+ * Return the current value of the accumulator.  This perform final carry
+ * propagation, and adds together the positive and negative sums.
+ *
+ * Unlike all the other routines, the caller is not required to switch to
+ * the memory context that holds the accumulator.
+ */
+static void
+accum_sum_final(NumericSumAccum *accum, NumericVar *result)
+{
+	int			i;
+	NumericVar	pos_var;
+	NumericVar	neg_var;
+
+	if (accum->ndigits == 0)
+	{
+		set_var_from_var(&const_zero, result);
+		return;
+	}
+
+	/* Perform final carry */
+	accum_sum_carry(accum);
+
+	/* Create NumericVars representing the positive and negative sums */
+	init_var(&pos_var);
+	init_var(&neg_var);
+
+	pos_var.ndigits = neg_var.ndigits = accum->ndigits;
+	pos_var.weight = neg_var.weight = accum->weight;
+	pos_var.dscale = neg_var.dscale = accum->dscale;
+	pos_var.sign = NUMERIC_POS;
+	neg_var.sign = NUMERIC_NEG;
+
+	pos_var.buf = pos_var.digits = digitbuf_alloc(accum->ndigits);
+	neg_var.buf = neg_var.digits = digitbuf_alloc(accum->ndigits);
+
+	for (i = 0; i < accum->ndigits; i++)
+	{
+		Assert(accum->pos_digits[i] < NBASE);
+		pos_var.digits[i] = (int16) accum->pos_digits[i];
+
+		Assert(accum->neg_digits[i] < NBASE);
+		neg_var.digits[i] = (int16) accum->neg_digits[i];
+	}
+
+	/* And add them together */
+	add_var(&pos_var, &neg_var, result);
+
+	/* Remove leading/trailing zeroes */
+	strip_var(result);
+}
+
+/*
+ * Copy an accumulator's state.
+ *
+ * 'dst' is assumed to be uninitialized beforehand.  No attempt is made at
+ * freeing old values.
+ */
+static void
+accum_sum_copy(NumericSumAccum *dst, NumericSumAccum *src)
+{
+	dst->pos_digits = (int32*)palloc(src->ndigits * sizeof(int32));
+	dst->neg_digits = (int32*)palloc(src->ndigits * sizeof(int32));
+
+	memcpy(dst->pos_digits, src->pos_digits, src->ndigits * sizeof(int32));
+	memcpy(dst->neg_digits, src->neg_digits, src->ndigits * sizeof(int32));
+	dst->num_uncarried = src->num_uncarried;
+	dst->ndigits = src->ndigits;
+	dst->weight = src->weight;
+	dst->dscale = src->dscale;
+}
+
+/*
+ * Add the current value of 'accum2' into 'accum'.
+ */
+static void
+accum_sum_combine(NumericSumAccum *accum, NumericSumAccum *accum2)
+{
+	NumericVar	tmp_var;
+
+	init_var(&tmp_var);
+
+	accum_sum_final(accum2, &tmp_var);
+	accum_sum_add(accum, &tmp_var);
+
+	free_var(&tmp_var);
 }

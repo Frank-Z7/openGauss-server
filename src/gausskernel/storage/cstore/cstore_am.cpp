@@ -4480,7 +4480,7 @@ void ScanDeltaStore(CStoreScanState* node, VectorBatch* outBatch, List* indexqua
             /* If there is index qual, use it to filter the delta rows before */
             if (hasIndexFilter) {
                 econtext->ecxt_scantuple = slot;
-                if (!ExecQual(indexqual, econtext, false)) {
+                if (!ExecQual((ExprState*)indexqual, econtext)) {
                     (void)ExecClearTuple(slot);
                     continue;
                 }

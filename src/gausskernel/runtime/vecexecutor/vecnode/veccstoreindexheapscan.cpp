@@ -87,7 +87,7 @@ CStoreIndexHeapScanState* ExecInitCstoreIndexHeapScan(CStoreIndexHeapScan* node,
     CIHSState->ps.state = estate;
     CIHSState->ps.vectorized = true;
     CIHSState->ps.type = T_CStoreIndexHeapScanState;
-    CIHSState->m_deltaQual = (List*)ExecInitExpr((Expr*)node->bitmapqualorig, (PlanState*)&CIHSState->ps);
+    CIHSState->m_deltaQual = (List*)ExecInitQual(node->bitmapqualorig, (PlanState*)&CIHSState->ps);
 
     outerPlanState(CIHSState) = ExecInitNode(outerPlan(node), estate, eflags);
 

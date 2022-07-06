@@ -409,7 +409,7 @@ static ParamListInfo EvaluateParams(CachedPlanSource* psrc, List* params, const 
         Oid expected_type_id = param_types[i];
         Oid given_type_id;
 
-        expr = transformExpr(pstate, expr);
+        expr = transformExpr(pstate, expr, EXPR_KIND_EXECUTE_PARAMETER);
 
         /* Cannot contain subselects or aggregates */
         if (pstate->p_hasSubLinks)
@@ -444,7 +444,7 @@ static ParamListInfo EvaluateParams(CachedPlanSource* psrc, List* params, const 
     }
 
     /* Prepare the expressions for execution */
-    exprstates = (List*)ExecPrepareExpr((Expr*)params, estate);
+    exprstates = ExecPrepareExprList(params, estate);
 
     paramLI = (ParamListInfo)palloc(offsetof(ParamListInfoData, params) + num_params * sizeof(ParamExternData));
     /* we have static list of params, so no hooks needed */

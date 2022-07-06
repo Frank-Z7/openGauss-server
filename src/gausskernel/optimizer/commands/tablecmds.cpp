@@ -8304,7 +8304,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
         switch (con->contype) {
             case CONSTR_CHECK:
                 needscan = true;
-                con->qualstate = (List*)ExecPrepareExpr((Expr*)con->qual, estate);
+                con->qualstate = (List*)ExecPrepareExprList((List*)con->qual, estate);
                 break;
             case CONSTR_FOREIGN:
                 /* Nothing to do here */
@@ -8496,19 +8496,24 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                 foreach(l, tab->constraints)
                 {
                     NewConstraint *con = (NewConstraint*)lfirst(l);
+                    ListCell* lc = NULL;
 
                     switch (con->contype)
                     {
                         case CONSTR_CHECK:
-                            if (!ExecQual(con->qualstate, econtext, true))
+                            foreach (lc, con->qualstate) {
+                                ExprState* exprState = (ExprState*)lfirst(lc);
+
+                                if (!ExecCheck(exprState, econtext))
                                     ereport(ERROR,
-                                            (errcode(ERRCODE_CHECK_VIOLATION),
+                                        (errcode(ERRCODE_CHECK_VIOLATION),
                                              errmsg("check constraint \"%s\" is violated by some row",
                                                     con->name)));
+                            }
                             break;
                         case CONSTR_FOREIGN:
-                                /* Nothing to do here */
-                                break;
+                            /* Nothing to do here */
+                            break;
                         default:
                         {
                             ereport(ERROR,
@@ -8594,13 +8599,18 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
 
                 foreach (l, tab->constraints) {
                     NewConstraint* con = (NewConstraint*)lfirst(l);
+                    ListCell* lc = NULL;
 
                     switch (con->contype) {
                         case CONSTR_CHECK:
-                            if (!ExecQual(con->qualstate, econtext, true))
-                                ereport(ERROR,
-                                    (errcode(ERRCODE_CHECK_VIOLATION),
-                                        errmsg("check constraint \"%s\" is violated by some row", con->name)));
+                            foreach (lc, con->qualstate) {
+                                ExprState* exprState = (ExprState*)lfirst(lc);
+
+                                if (!ExecCheck(exprState, econtext))
+                                    ereport(ERROR,
+                                        (errcode(ERRCODE_CHECK_VIOLATION),
+                                            errmsg("check constraint \"%s\" is violated by some row", con->name)));
+                            }
                             break;
                         case CONSTR_FOREIGN:
                             /* Nothing to do here */
@@ -12007,6 +12017,7 @@ static void validateCheckConstraint(Relation rel, HeapTuple constrtup)
     HeapTuple tuple = NULL;
     bool isnull = false;
     MemoryContext oldcxt;
+    ListCell* lc = NULL;
 
     Form_pg_constraint constrForm = (Form_pg_constraint)GETSTRUCT(constrtup);
     EState* estate = CreateExecutorState();
@@ -12023,7 +12034,7 @@ static void validateCheckConstraint(Relation rel, HeapTuple constrtup)
                 errmsg("null conbin for constraint %u", HeapTupleGetOid(constrtup))));
     char* conbin = TextDatumGetCString(val);
     Expr* origexpr = (Expr*)stringToNode(conbin);
-    List* exprstate = (List*)ExecPrepareExpr((Expr*)make_ands_implicit(origexpr), estate);
+    List* exprstate = ExecPrepareExprList(make_ands_implicit(origexpr), estate);
     ExprContext* econtext = GetPerTupleExprContext(estate);
     TupleDesc tupdesc = RelationGetDescr(rel);
     TupleTableSlot* slot = MakeSingleTupleTableSlot(tupdesc, false, rel->rd_tam_type);
@@ -12041,10 +12052,14 @@ static void validateCheckConstraint(Relation rel, HeapTuple constrtup)
          */
         oldcxt = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
 
-        if (!ExecQual(exprstate, econtext, true))
-            ereport(ERROR,
-                (errcode(ERRCODE_CHECK_VIOLATION),
-                    errmsg("check constraint \"%s\" is violated by some row", NameStr(constrForm->conname))));
+        foreach (lc, exprstate) {
+            ExprState* exprState = (ExprState*)lfirst(lc);
+
+            if (!ExecCheck(exprState, econtext))
+                ereport(ERROR,
+                    (errcode(ERRCODE_CHECK_VIOLATION),
+                        errmsg("check constraint \"%s\" is violated by some row", NameStr(constrForm->conname))));
+        }
 
         ResetExprContext(econtext);
         MemoryContextSwitchTo(oldcxt);
@@ -12682,7 +12697,7 @@ static void ATPrepAlterColumnType(List** wqueue, AlteredTableInfo* tab, Relation
 
             addRTEtoQuery(pstate, rte, false, true, true);
 
-            transform = transformExpr(pstate, transform);
+            transform = transformExpr(pstate, transform, EXPR_KIND_ALTER_COL_TRANSFORM);
 
             if (RelationIsColStore(rel)) {
                 Bitmapset* attrs_referred = NULL;

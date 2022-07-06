@@ -665,6 +665,8 @@ typedef struct knl_u_security_context {
 
     bool last_roleid_is_policyadmin;  /* Indicates whether a policy admin */
 
+    char last_roleid_rolkind;
+
     bool roleid_callback_registered;
 } knl_u_security_context;
 

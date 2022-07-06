@@ -15535,6 +15535,42 @@ _ACEOF
 
 fi
 fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for computed goto support" >&5
+$as_echo_n "checking for computed goto support... " >&6; }
+if ${pgac_cv_computed_goto+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+void *labeladdrs[] = {&&my_label};
+  goto *labeladdrs[0];
+  my_label:
+  return 1;
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  pgac_cv_computed_goto=yes
+else
+  pgac_cv_computed_goto=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $pgac_cv_computed_goto" >&5
+$as_echo "$pgac_cv_computed_goto" >&6; }
+if test x"$pgac_cv_computed_goto" = xyes ; then
+
+$as_echo "#define HAVE_COMPUTED_GOTO 1" >>confdefs.h
+
+fi
+
 { $as_echo "$as_me:$LINENO: checking whether struct tm is in sys/time.h or time.h" >&5
 $as_echo_n "checking whether struct tm is in sys/time.h or time.h... " >&6; }
 if test "${ac_cv_struct_tm+set}" = set; then
@@ -29836,7 +29872,7 @@ platform_version=`sh ./src/get_PlatForm_str.sh`
 is_euler=`echo $platform_version | grep euleros`
 # New gcc version should be compatible to old one
 if test "$CC_VERSION" = "$NEW_GCC"; then
-  CFLAGS=" -std=c++11 -D_GLIBCXX_USE_CXX11_ABI=0 $CFLAGS -fno-aggressive-loop-optimizations -Wno-attributes -fno-omit-frame-pointer -fno-expensive-optimizations"
+  CFLAGS=" -D_GLIBCXX_USE_CXX11_ABI=0 $CFLAGS -Wno-attributes "
   CFLAGS="$CFLAGS -Wno-unused-but-set-variable"
   if test "$is_euler" != ""; then
     if test "${enable_cassert}" = no -o "${enable_memory_check}" = no -a "${enable_ut}" = no; then

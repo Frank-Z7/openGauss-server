@@ -462,7 +462,7 @@ static void MOTGetForeignRelSize(PlannerInfo* root, RelOptInfo* baserel, Oid for
         }
     } else {
         /* Pull "var" clauses to build an appropriate target list */
-        pull_varattnos((Node*)baserel->reltargetlist, baserel->relid, &attrs);
+        pull_varattnos((Node*)baserel->reltarget->exprs, baserel->relid, &attrs);
         if (attrs != NULL) {
             bool all = bms_is_member(-FirstLowInvalidHeapAttributeNumber, attrs);
             for (int i = 0; i < planstate->m_numAttrs; i++) {
@@ -947,7 +947,7 @@ static TupleTableSlot* IterateForeignScanStopAtFirst(
 {
     MOT::RC rc = MOT::RC_OK;
     ForeignScan* fscan = (ForeignScan*)node->ss.ps.plan;
-    festate->m_execExprs = (List*)ExecInitExpr((Expr*)fscan->fdw_exprs, (PlanState*)node);
+    festate->m_execExprs = ExecInitExprList(fscan->fdw_exprs, (PlanState*)node);
     festate->m_econtext = node->ss.ps.ps_ExprContext;
     MOTAdaptor::CreateKeyBuffer(node->ss.ss_currentRelation, festate, 0);
     MOT::Sentinel* Sentinel =
@@ -1011,7 +1011,7 @@ static TupleTableSlot* MOTIterateForeignScan(ForeignScanState* node)
 
     if (!festate->m_cursorOpened) {
         ForeignScan* fscan = (ForeignScan*)node->ss.ps.plan;
-        festate->m_execExprs = (List*)ExecInitExpr((Expr*)fscan->fdw_exprs, (PlanState*)node);
+        festate->m_execExprs = ExecInitExprList(fscan->fdw_exprs, (PlanState*)node);
         festate->m_econtext = node->ss.ps.ps_ExprContext;
         CleanCursors(festate);
         MOTAdaptor::OpenCursor(node->ss.ss_currentRelation, festate);
@@ -1106,7 +1106,7 @@ static void MOTReScanForeignScan(ForeignScanState* node)
     if (!stopAtFirst) {
         if (festate->m_execExprs == NULL) {
             ForeignScan* fscan = (ForeignScan*)node->ss.ps.plan;
-            festate->m_execExprs = (List*)ExecInitExpr((Expr*)fscan->fdw_exprs, (PlanState*)node);
+            festate->m_execExprs = ExecInitExprList(fscan->fdw_exprs, (PlanState*)node);
             festate->m_econtext = node->ss.ps.ps_ExprContext;
         }
         MOTAdaptor::OpenCursor(node->ss.ss_currentRelation, festate);

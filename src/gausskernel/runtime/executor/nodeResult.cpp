@@ -74,7 +74,7 @@ TupleTableSlot* ExecResult(ResultState* node)
      * check constant qualifications like (2 > 1), if not already done
      */
     if (node->rs_checkqual) {
-        bool qualResult = ExecQual((List*)node->resconstantqual, econtext, false);
+        bool qualResult = ExecQual(node->resconstantqual, econtext);
 
         node->rs_checkqual = false;
         if (!qualResult) {
@@ -89,6 +89,13 @@ TupleTableSlot* ExecResult(ResultState* node)
     }
 
     /*
+     * Reset per-tuple memory context to free any expression evaluation
+     * storage allocated in the previous tuple cycle.  Note this can't happen
+     * until we're done projecting out tuples from a scan tuple.
+     */
+    ResetExprContext(econtext);
+
+    /*
      * Check to see if we're still projecting out tuples from a previous scan
      * tuple (because there is a function-returning-set in the projection
      * expressions).  If so, try to project another one.
@@ -101,13 +108,6 @@ TupleTableSlot* ExecResult(ResultState* node)
         /* Done with that source tuple... */
         node->ps.ps_TupFromTlist = false;
     }
-
-    /*
-     * Reset per-tuple memory context to free any expression evaluation
-     * storage allocated in the previous tuple cycle.  Note this can't happen
-     * until we're done projecting out tuples from a scan tuple.
-     */
-    ResetExprContext(econtext);
 
     /*
      * if rs_done is true then it means that we were asked to return a
@@ -131,7 +131,7 @@ TupleTableSlot* ExecResult(ResultState* node)
              */
             econtext->ecxt_outertuple = outer_tuple_slot;
 
-            if (node->ps.qual && !ExecQual(node->ps.qual, econtext, false))
+            if (node->ps.qual && !ExecQual((ExprState*)node->ps.qual, econtext))
                 continue;
         } else {
             /*
@@ -229,9 +229,8 @@ ResultState* ExecInitResult(BaseResult* node, EState* estate, int eflags)
     /*
      * initialize child expressions
      */
-    resstate->ps.targetlist = (List*)ExecInitExpr((Expr*)node->plan.targetlist, (PlanState*)resstate);
-    resstate->ps.qual = (List*)ExecInitExpr((Expr*)node->plan.qual, (PlanState*)resstate);
-    resstate->resconstantqual = ExecInitExpr((Expr*)node->resconstantqual, (PlanState*)resstate);
+    resstate->ps.qual = (List*)ExecInitQual(node->plan.qual, (PlanState*)resstate);
+    resstate->resconstantqual = ExecInitQual((List*)node->resconstantqual, (PlanState*)resstate);
 
     /*
      * initialize child nodes

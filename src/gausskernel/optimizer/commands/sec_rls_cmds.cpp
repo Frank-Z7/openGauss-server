@@ -144,7 +144,7 @@ void CreateRlsPolicy(CreateRlsPolicyStmt* stmt)
     addRTEtoQuery(usingQualState, rte, false, true, true);
 
     /* Transform expr clause */
-    Node* usingQual = transformWhereClause(usingQualState, (Node*)copyObject(stmt->usingQual), "POLICY");
+    Node* usingQual = transformWhereClause(usingQualState, (Node*)copyObject(stmt->usingQual), EXPR_KIND_POLICY, "POLICY");
 
     /* Take care of collations */
     assign_expr_collations(usingQualState, usingQual);
@@ -372,7 +372,7 @@ void AlterRlsPolicy(AlterRlsPolicyStmt* stmt)
         rte = addRangeTableEntryForRelation(usingQualState, targetTable, NULL, false, false);
         addRTEtoQuery(usingQualState, rte, false, true, true);
         /* Transform expr clause */
-        usingQual = transformWhereClause(usingQualState, (Node*)copyObject(stmt->usingQual), "POLICY");
+        usingQual = transformWhereClause(usingQualState, (Node*)copyObject(stmt->usingQual), EXPR_KIND_POLICY, "POLICY");
         /* Take cate of collations */
         assign_expr_collations(usingQualState, usingQual);
         /* Check whether contain RangeTblEntry in usingQual */

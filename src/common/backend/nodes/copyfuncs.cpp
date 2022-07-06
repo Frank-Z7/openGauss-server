@@ -271,6 +271,21 @@ static BaseResult* _copyResult(const BaseResult* from)
 }
 
 /*
+ * _copyProjectSet
+ */
+static ProjectSet *_copyProjectSet(const ProjectSet *from)
+{
+    ProjectSet *newnode = makeNode(ProjectSet);
+
+    /*
+     * copy node superclass fields
+     */
+    CopyPlanFields((const Plan *)from, (Plan *)newnode);
+
+    return newnode;
+}
+
+/*
  * _copyModifyTable
  */
 static ModifyTable* _copyModifyTable(const ModifyTable* from)
@@ -4536,6 +4551,7 @@ static Query* _copyQuery(const Query* from)
     COPY_SCALAR_FIELD(resultRelation);
     COPY_SCALAR_FIELD(hasAggs);
     COPY_SCALAR_FIELD(hasWindowFuncs);
+    COPY_SCALAR_FIELD(hasTargetSRFs);
     COPY_SCALAR_FIELD(hasSubLinks);
     COPY_SCALAR_FIELD(hasDistinctOn);
     COPY_SCALAR_FIELD(hasRecursive);
@@ -6769,6 +6785,9 @@ void* copyObject(const void* from)
             break;
         case T_BaseResult:
             retval = _copyResult((BaseResult*)from);
+            break;
+        case T_ProjectSet:
+            retval = _copyProjectSet((ProjectSet*)from);
             break;
         case T_ModifyTable:
             retval = _copyModifyTable((ModifyTable*)from);

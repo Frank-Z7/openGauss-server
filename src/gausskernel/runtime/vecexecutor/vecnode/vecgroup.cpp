@@ -119,7 +119,7 @@ static VectorBatch* ProduceBatch(VecGroupState* node)
     expr_context->ecxt_scanbatch = batch;
     expr_context->ecxt_outerbatch = batch;
 
-    if (list_length(node->ss.ps.qual) != 0) {
+    if (list_length((List*)node->ss.ps.qual) != 0) {
         ScalarVector* p_vector = NULL;
 
         /*
@@ -181,7 +181,7 @@ VecGroupState* ExecInitVecGroup(VecGroup* node, EState* estate, int eflags)
         CodeGenThreadObjectReady() &&
         CodeGenPassThreshold(((Plan*)node)->plan_rows, estate->es_plannedstmt->num_nodes, ((Plan*)node)->dop);
     if (consider_codegen) {
-        grp_vecqual = dorado::VecExprCodeGen::QualCodeGen(grp_state->ss.ps.qual, (PlanState*)grp_state);
+        grp_vecqual = dorado::VecExprCodeGen::QualCodeGen((List*)grp_state->ss.ps.qual, (PlanState*)grp_state);
         if (grp_vecqual != NULL)
             llvm_code_gen->addFunctionToMCJit(grp_vecqual, reinterpret_cast<void**>(&(grp_state->jitted_vecqual)));
     }

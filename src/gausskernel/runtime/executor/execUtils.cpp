@@ -60,9 +60,14 @@
 #include "utils/snapmgr.h"
 #include "utils/partitionmap.h"
 #include "utils/partitionmap_gs.h"
+#include "utils/typcache.h"
 #include "optimizer/var.h"
 #include "utils/resowner.h"
 #include "miscadmin.h"
+#include "catalog/pg_proc.h"
+#include "catalog/pg_proc_fn.h"
+#include "catalog/pg_proc_fn.h"
+#include "funcapi.h"
 
 static bool get_last_attnums(Node* node, ProjectionInfo* projInfo);
 static bool index_recheck_constraint(
@@ -72,6 +77,7 @@ static bool check_violation(Relation heap, Relation index, IndexInfo *indexInfo,
                             const bool *isnull, EState *estate, bool newIndex, bool errorOK, CheckWaitMode waitMode,
                             ConflictInfoData *conflictInfo, Oid partoid = InvalidOid, int2 bucketid = InvalidBktId,
                             Oid *conflictPartOid = NULL, int2 *conflictBucketid = NULL);
+extern struct varlena *heap_tuple_fetch_and_copy(Relation rel, struct varlena *attr, bool needcheck);
 
 /* ----------------------------------------------------------------
  *				 Executor state and memory management functions
@@ -735,122 +741,6 @@ ProjectionInfo* ExecBuildVecProjectionInfo(
     return projInfo;
 }
 
-/* ----------------
- *		ExecBuildProjectionInfo
- *
- * Build a ProjectionInfo node for evaluating the given tlist in the given
- * econtext, and storing the result into the tuple slot.  (Caller must have
- * ensured that tuple slot has a descriptor matching the tlist!)  Note that
- * the given tlist should be a list of ExprState nodes, not Expr nodes.
- *
- * inputDesc can be NULL, but if it is not, we check to see whether simple
- * Vars in the tlist match the descriptor.	It is important to provide
- * inputDesc for relation-scan plan nodes, as a cross check that the relation
- * hasn't been changed since the plan was made.  At higher levels of a plan,
- * there is no need to recheck.
- * ----------------
- */
-ProjectionInfo* ExecBuildProjectionInfo(
-    List* targetList, ExprContext* econtext, TupleTableSlot* slot, TupleDesc inputDesc)
-{
-    ProjectionInfo* projInfo = makeNode(ProjectionInfo);
-    int len = ExecTargetListLength(targetList);
-    int* workspace = NULL;
-    int* varSlotOffsets = NULL;
-    int* varNumbers = NULL;
-    int* varOutputCols = NULL;
-    List* exprlist = NULL;
-    int numSimpleVars;
-    bool directMap = false;
-    ListCell* tl = NULL;
-
-    projInfo->pi_exprContext = econtext;
-    projInfo->pi_slot = slot;
-    /* since these are all int arrays, we need do just one palloc */
-    workspace = (int*)palloc(len * 3 * sizeof(int));
-    projInfo->pi_varSlotOffsets = varSlotOffsets = workspace;
-    projInfo->pi_varNumbers = varNumbers = workspace + len;
-    projInfo->pi_varOutputCols = varOutputCols = workspace + len * 2;
-    projInfo->pi_lastInnerVar = 0;
-    projInfo->pi_lastOuterVar = 0;
-    projInfo->pi_lastScanVar = 0;
-
-    /*
-     * We separate the target list elements into simple Var references and
-     * expressions which require the full ExecTargetList machinery.  To be a
-     * simple Var, a Var has to be a user attribute and not mismatch the
-     * inputDesc.  (Note: if there is a type mismatch then ExecEvalScalarVar
-     * will probably throw an error at runtime, but we leave that to it.)
-     */
-    exprlist = NIL;
-    numSimpleVars = 0;
-    directMap = true;
-    foreach (tl, targetList) {
-        GenericExprState* gstate = (GenericExprState*)lfirst(tl);
-        Var* variable = (Var*)gstate->arg->expr;
-        bool isSimpleVar = false;
-
-        if (variable != NULL && IsA(variable, Var) && variable->varattno > 0) {
-            if (!inputDesc)
-                isSimpleVar = true; /* can't check type, assume OK */
-            else if (variable->varattno <= inputDesc->natts) {
-                Form_pg_attribute attr;
-
-                attr = inputDesc->attrs[variable->varattno - 1];
-                if (!attr->attisdropped && variable->vartype == attr->atttypid)
-                    isSimpleVar = true;
-            }
-        }
-
-        if (isSimpleVar) {
-            TargetEntry* tle = (TargetEntry*)gstate->xprstate.expr;
-            AttrNumber attnum = variable->varattno;
-
-            varNumbers[numSimpleVars] = attnum;
-            varOutputCols[numSimpleVars] = tle->resno;
-            if (tle->resno != numSimpleVars + 1)
-                directMap = false;
-
-            switch (variable->varno) {
-                case INNER_VAR:
-                    varSlotOffsets[numSimpleVars] = offsetof(ExprContext, ecxt_innertuple);
-                    if (projInfo->pi_lastInnerVar < attnum)
-                        projInfo->pi_lastInnerVar = attnum;
-                    break;
-
-                case OUTER_VAR:
-                    varSlotOffsets[numSimpleVars] = offsetof(ExprContext, ecxt_outertuple);
-                    if (projInfo->pi_lastOuterVar < attnum)
-                        projInfo->pi_lastOuterVar = attnum;
-                    break;
-
-                    /* INDEX_VAR is handled by default case */
-                default:
-                    varSlotOffsets[numSimpleVars] = offsetof(ExprContext, ecxt_scantuple);
-                    if (projInfo->pi_lastScanVar < attnum)
-                        projInfo->pi_lastScanVar = attnum;
-                    break;
-            }
-            numSimpleVars++;
-        } else {
-            /* Not a simple variable, add it to generic targetlist */
-            exprlist = lappend(exprlist, gstate);
-            /* Examine expr to include contained Vars in lastXXXVar counts */
-            get_last_attnums((Node*)variable, projInfo);
-        }
-    }
-    projInfo->pi_targetlist = exprlist;
-    projInfo->pi_numSimpleVars = numSimpleVars;
-    projInfo->pi_directMap = directMap;
-
-    if (exprlist == NIL)
-        projInfo->pi_itemIsDone = NULL; /* not needed */
-    else
-        projInfo->pi_itemIsDone = (ExprDoneCond*)palloc(len * sizeof(ExprDoneCond));
-
-    return projInfo;
-}
-
 /*
  * get_last_attnums: expression walker for ExecBuildProjectionInfo
  *
@@ -910,7 +800,11 @@ static bool get_last_attnums(Node* node, ProjectionInfo* projInfo)
 void ExecAssignProjectionInfo(PlanState* planstate, TupleDesc inputDesc)
 {
     planstate->ps_ProjInfo = ExecBuildProjectionInfo(
-        planstate->targetlist, planstate->ps_ExprContext, planstate->ps_ResultTupleSlot, inputDesc);
+                                planstate->plan->targetlist,
+								planstate->ps_ExprContext,
+								planstate->ps_ResultTupleSlot,
+								planstate,
+								inputDesc);
 }
 
 /* ----------------
@@ -1368,12 +1262,12 @@ void ExecDeleteIndexTuples(TupleTableSlot* slot, ItemPointer tupleid, EState* es
              */
             predicate = indexInfo->ii_PredicateState;
             if (predicate == NIL) {
-                predicate = (List*)ExecPrepareExpr((Expr*)indexInfo->ii_Predicate, estate);
+                predicate = (List*)ExecPrepareQual(indexInfo->ii_Predicate, estate);
                 indexInfo->ii_PredicateState = predicate;
             }
 
             /* Skip this index-update if the predicate isn't satisfied */
-            if (!ExecQual(predicate, econtext, false)) {
+            if (!ExecQual((ExprState*)predicate, econtext)) {
                 continue;
             }
         }
@@ -1439,12 +1333,12 @@ static inline bool CheckForPartialIndex(IndexInfo* indexInfo, EState* estate, Ex
          * per-query context)
          */
         if (predicate == NIL) {
-            predicate = (List*)ExecPrepareExpr((Expr*)indexInfo->ii_Predicate, estate);
+            predicate = (List*)ExecPrepareQual(indexInfo->ii_Predicate, estate);
             indexInfo->ii_PredicateState = predicate;
         }
 
         /* Skip this index-update if the predicate isn't satisfied */
-        if (!ExecQual(predicate, econtext, false)) {
+        if (!ExecQual((ExprState*)predicate, econtext)) {
             return false;
         }
     }
@@ -1796,12 +1690,12 @@ List* ExecInsertIndexTuples(TupleTableSlot* slot, ItemPointer tupleid, EState* e
              */
             predicate = indexInfo->ii_PredicateState;
             if (predicate == NIL) {
-                predicate = (List*)ExecPrepareExpr((Expr*)indexInfo->ii_Predicate, estate);
+                predicate = (List*)ExecPrepareQual(indexInfo->ii_Predicate, estate);
                 indexInfo->ii_PredicateState = predicate;
             }
 
             /* Skip this index-update if the predicate isn't satisfied */
-            if (!ExecQual(predicate, econtext, false)) {
+            if (!ExecQual((ExprState*)predicate, econtext)) {
                 continue;
             }
         }
@@ -2288,6 +2182,167 @@ static void ShutdownExprContext(ExprContext* econtext, bool isCommit)
     MemoryContextSwitchTo(oldcontext);
 }
 
+/* ----------------------------------------------------------------
+ *		ExecEvalOper / ExecEvalFunc support routines
+ * ----------------------------------------------------------------
+ */
+/*
+ *		GetAttributeByName
+ *		GetAttributeByNum
+ *
+ *		These functions return the value of the requested attribute
+ *		out of the given tuple Datum.
+ *		C functions which take a tuple as an argument are expected
+ *		to use these.  Ex: overpaid(EMP) might call GetAttributeByNum().
+ *		Note: these are actually rather slow because they do a typcache
+ *		lookup on each call.
+ */
+Datum GetAttributeByNum(HeapTupleHeader tuple, AttrNumber attrno, bool* isNull)
+{
+    Datum result;
+    Oid tupType;
+    int32 tupTypmod;
+    TupleDesc tupDesc;
+    HeapTupleData tmptup;
+
+    if (!AttributeNumberIsValid(attrno))
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT), errmsg("invalid attribute number %d", attrno)));
+
+    if (isNull == NULL)
+        ereport(ERROR,
+            (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                errmsg("a NULL isNull pointer was passed when get attribute by number.")));
+
+    if (tuple == NULL) {
+        /* Kinda bogus but compatible with old behavior... */
+        *isNull = true;
+        return (Datum)0;
+    }
+
+    tupType = HeapTupleHeaderGetTypeId(tuple);
+    tupTypmod = HeapTupleHeaderGetTypMod(tuple);
+    tupDesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+
+    /*
+     * heap_getattr needs a HeapTuple not a bare HeapTupleHeader.  We set all
+     * the fields in the struct just in case user tries to inspect system
+     * columns.
+     */
+    tmptup.t_len = HeapTupleHeaderGetDatumLength(tuple);
+    ItemPointerSetInvalid(&(tmptup.t_self));
+    tmptup.t_tableOid = InvalidOid;
+    tmptup.t_bucketId = InvalidBktId;
+    HeapTupleSetZeroBase(&tmptup);
+#ifdef PGXC
+    tmptup.t_xc_node_id = 0;
+#endif
+    tmptup.t_data = tuple;
+
+    if (attrno == -3 || attrno == -5) {
+        elog(WARNING, "system attribute xmin or xmax,  the results about this attribute are untrustworthy.");
+    }
+    result = tableam_tops_tuple_getattr(&tmptup, attrno, tupDesc, isNull);
+
+    ReleaseTupleDesc(tupDesc);
+
+    return result;
+}
+
+Datum GetAttributeByName(HeapTupleHeader tuple, const char* attname, bool* isNull)
+{
+    AttrNumber attrno;
+    Datum result;
+    Oid tupType;
+    int32 tupTypmod;
+    TupleDesc tupDesc;
+    HeapTupleData tmptup;
+    int i;
+
+    if (attname == NULL)
+        ereport(ERROR, (errcode(ERRCODE_INVALID_NAME), errmsg("invalid null attribute name")));
+
+    if (isNull == NULL)
+        ereport(ERROR,
+            (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                errmsg("a NULL isNull pointer was passed when get attribute by name.")));
+
+    if (tuple == NULL) {
+        /* Kinda bogus but compatible with old behavior... */
+        *isNull = true;
+        return (Datum)0;
+    }
+
+    tupType = HeapTupleHeaderGetTypeId(tuple);
+    tupTypmod = HeapTupleHeaderGetTypMod(tuple);
+    tupDesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+
+    attrno = InvalidAttrNumber;
+    for (i = 0; i < tupDesc->natts; i++) {
+        if (namestrcmp(&(tupDesc->attrs[i]->attname), attname) == 0) {
+            attrno = tupDesc->attrs[i]->attnum;
+            break;
+        }
+    }
+
+    if (attrno == InvalidAttrNumber)
+        ereport(ERROR,
+            (errcode(ERRCODE_INVALID_ATTRIBUTE),
+                errmodule(MOD_EXECUTOR),
+                errmsg("attribute \"%s\" does not exist", attname)));
+
+    /*
+     * heap_getattr needs a HeapTuple not a bare HeapTupleHeader.  We set all
+     * the fields in the struct just in case user tries to inspect system
+     * columns.
+     */
+    tmptup.t_len = HeapTupleHeaderGetDatumLength(tuple);
+    ItemPointerSetInvalid(&(tmptup.t_self));
+    tmptup.t_tableOid = InvalidOid;
+    tmptup.t_bucketId = InvalidBktId;
+    HeapTupleSetZeroBase(&tmptup);
+#ifdef PGXC
+    tmptup.t_xc_node_id = 0;
+#endif
+    tmptup.t_data = tuple;
+
+    if (attrno == -3 || attrno == -5) {
+        elog(WARNING, "system attribute \"%s\",  the results about this attribute are untrustworthy.", attname);
+    }
+    result = tableam_tops_tuple_getattr(&tmptup, attrno, tupDesc, isNull);
+
+    ReleaseTupleDesc(tupDesc);
+
+    return result;
+}
+
+/*
+ * Number of items in a tlist (including any resjunk items!)
+ */
+int
+ExecTargetListLength(List *targetlist)
+{
+	/* This used to be more complex, but fjoins are dead */
+	return list_length(targetlist);
+}
+
+/*
+ * Number of items in a tlist, not including any resjunk items
+ */
+int
+ExecCleanTargetListLength(List *targetlist)
+{
+	int			len = 0;
+	ListCell   *tl;
+
+	foreach(tl, targetlist)
+	{
+		TargetEntry *curTle = castNode(TargetEntry, lfirst(tl));
+
+		if (!curTle->resjunk)
+			len++;
+	}
+	return len;
+}
 
 int PthreadMutexLock(ResourceOwner owner, pthread_mutex_t* mutex, bool trace)
 {
@@ -2429,4 +2484,310 @@ void PthreadRwLockInit(pthread_rwlock_t* rwlock, pthread_rwlockattr_t *attr)
         ereport(ERROR,
             (errcode(ERRCODE_INITIALIZE_FAILED), errmsg("init rwlock failed")));
     }
+}
+
+/* this function is only used for getting table of index inout param */
+static bool get_tableofindex_param(Node* node, ExecTableOfIndexInfo* execTableOfIndexInfo)
+{
+    if (node == NULL)
+        return false;
+    if (IsA(node, Param)) {
+        execTableOfIndexInfo->paramid = ((Param*)node)->paramid;
+        execTableOfIndexInfo->paramtype = ((Param*)node)->paramtype;
+        return true;
+    }
+    return false;
+}
+
+bool ExecEvalParamExternTableOfIndexById(ExecTableOfIndexInfo* execTableOfIndexInfo)
+{
+    if (execTableOfIndexInfo->paramid == -1) {
+        return false;
+    }
+
+    int thisParamId = execTableOfIndexInfo->paramid;
+    ParamListInfo paramInfo = execTableOfIndexInfo->econtext->ecxt_param_list_info;
+
+    /*
+     * PARAM_EXTERN parameters must be sought in ecxt_param_list_info.
+     */
+    if (paramInfo && thisParamId > 0 && thisParamId <= paramInfo->numParams) {
+        ParamExternData* prm = &paramInfo->params[thisParamId - 1];
+
+        /* give hook a chance in case parameter is dynamic */
+        if (!OidIsValid(prm->ptype) && paramInfo->paramFetch != NULL)
+            (*paramInfo->paramFetch)(paramInfo, thisParamId);
+
+        if (OidIsValid(prm->ptype) && prm->tabInfo != NULL &&
+            prm->tabInfo->tableOfIndex != NULL && OidIsValid(prm->tabInfo->tableOfIndexType)) {
+            /* safety check in case hook did something unexpected */
+            if (prm->ptype != execTableOfIndexInfo->paramtype)
+                ereport(ERROR,
+                    (errcode(ERRCODE_DATATYPE_MISMATCH),
+                        errmsg("type of parameter %d (%s) does not match that when preparing the plan (%s)",
+                            thisParamId,
+                            format_type_be(prm->ptype),
+                            format_type_be(execTableOfIndexInfo->paramtype))));
+            execTableOfIndexInfo->tableOfIndexType = prm->tabInfo->tableOfIndexType;
+            execTableOfIndexInfo->isnestedtable = prm->tabInfo->isnestedtable;
+            execTableOfIndexInfo->tableOfLayers = prm->tabInfo->tableOfLayers;
+            execTableOfIndexInfo->tableOfIndex = prm->tabInfo->tableOfIndex;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* ----------------------------------------------------------------
+ *		ExecEvalParamExternTableOfIndex
+ *
+ *		Returns the value of a PARAM_EXTERN table of index and type parameter .
+ * ----------------------------------------------------------------
+ */
+void ExecEvalParamExternTableOfIndex(Node* node, ExecTableOfIndexInfo* execTableOfIndexInfo)
+{
+    if (get_tableofindex_param(node, execTableOfIndexInfo)) {
+        ExecEvalParamExternTableOfIndexById(execTableOfIndexInfo);
+    }
+}
+
+/*
+ * @Description: jugde function has parameter that is refcursor or return type is refcursor
+ * @in Funcid - function oid
+ * @in fcinfo - function call info
+ * @return - has refcursor
+ */
+bool func_has_refcursor_args(Oid Funcid, FunctionCallInfoData* fcinfo)
+{
+    HeapTuple proctup = NULL;
+    Form_pg_proc procStruct;
+    int allarg;
+    Oid* p_argtypes = NULL;
+    char** p_argnames = NULL;
+    char* p_argmodes = NULL;
+    bool use_cursor = false;
+    bool return_refcursor = false;
+    int out_count = 0; /* out arg count */
+
+    proctup = SearchSysCache(PROCOID, ObjectIdGetDatum(Funcid), 0, 0, 0);
+
+    /*
+     * function may be deleted after clist be searched.
+     */
+    if (!HeapTupleIsValid(proctup)) {
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_FUNCTION), errmsg("function doesn't exist ")));
+    }
+
+    /* get the all args informations, only "in" parameters if p_argmodes is null */
+    allarg = get_func_arg_info(proctup, &p_argtypes, &p_argnames, &p_argmodes);
+    procStruct = (Form_pg_proc)GETSTRUCT(proctup);
+
+    fcinfo->refcursor_data.return_number = 0;
+    fcinfo->refcursor_data.returnCursor = NULL;
+    for (int i = 0; i < allarg; i++) {
+        if (p_argmodes != NULL && (p_argmodes[i] == 'o' || p_argmodes[i] == 'b')) {
+            out_count++;
+            if (p_argtypes[i] == REFCURSOROID)
+                return_refcursor = true;
+        } else {
+            if (p_argtypes[i] == REFCURSOROID)
+                use_cursor = true;
+        }
+    }
+
+    if (procStruct->prorettype == REFCURSOROID) {
+        use_cursor = true;
+        fcinfo->refcursor_data.return_number = 1;
+    } else if (return_refcursor) {
+        fcinfo->refcursor_data.return_number = out_count;
+    }
+
+    ReleaseSysCache(proctup);
+    return use_cursor;
+}
+
+bool expr_func_has_refcursor_args(Oid Funcid)
+{
+    HeapTuple proctup = NULL;
+    Form_pg_proc procStruct;
+    int allarg;
+    Oid* p_argtypes = NULL;
+    char** p_argnames = NULL;
+    char* p_argmodes = NULL;
+    bool use_cursor = false;
+
+    proctup = SearchSysCache(PROCOID, ObjectIdGetDatum(Funcid), 0, 0, 0);
+
+    /*
+     * function may be deleted after clist be searched.
+     */
+    if (!HeapTupleIsValid(proctup)) {
+        ereport(ERROR, (errcode(ERRCODE_UNDEFINED_FUNCTION), errmsg("function doesn't exist ")));
+    }
+
+    /* get the all args informations, only "in" parameters if p_argmodes is null */
+    allarg = get_func_arg_info(proctup, &p_argtypes, &p_argnames, &p_argmodes);
+    procStruct = (Form_pg_proc)GETSTRUCT(proctup);
+
+    if (procStruct->prorettype == REFCURSOROID) {
+        use_cursor = true;
+    }
+    else {
+        for (int i = 0; i < allarg; i++) {
+            if (!(p_argmodes != NULL && (p_argmodes[i] == 'o' || p_argmodes[i] == 'b'))) {
+                if (p_argtypes[i] == REFCURSOROID) {
+                    use_cursor = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    ReleaseSysCache(proctup);
+    return use_cursor;
+}
+
+void check_huge_clob_paramter(FunctionCallInfoData* fcinfo, bool is_have_huge_clob)
+{
+    if (!is_have_huge_clob || IsSystemObjOid(fcinfo->flinfo->fn_oid)) {
+        return;
+    }
+    Oid schema_oid = get_func_namespace(fcinfo->flinfo->fn_oid);
+    if (IsPackageSchemaOid(schema_oid)) {
+        return;
+    }
+    ereport(ERROR,
+            (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+            errmsg("huge clob do not support as function in parameter")));
+}
+
+HeapTuple get_tuple(Relation relation, ItemPointer tid)
+{
+    Buffer user_buf = InvalidBuffer;
+    HeapTuple tuple = NULL;
+    HeapTuple new_tuple = NULL;
+
+    /* alloc mem for old tuple and set tuple id */
+    tuple = (HeapTupleData *)heaptup_alloc(BLCKSZ);
+    tuple->t_data = (HeapTupleHeader)((char *)tuple + HEAPTUPLESIZE);
+    Assert(tid != NULL);
+    tuple->t_self = *tid;
+    
+    if (heap_fetch(relation, SnapshotAny, tuple, &user_buf, false, NULL)) {
+        new_tuple = heapCopyTuple((HeapTuple)tuple, relation->rd_att, NULL);
+        ReleaseBuffer(user_buf);
+    } else {
+        ereport(ERROR, (errcode(ERRCODE_SYSTEM_ERROR), errmsg("The tuple is not found"),
+            errdetail("Another user is getting tuple or the datum is NULL")));
+    }
+
+    heap_freetuple(tuple);
+    return new_tuple;
+}
+
+Datum fetch_lob_value_from_tuple(varatt_lob_pointer* lob_pointer, Oid update_oid, bool* is_null)
+{
+    /* get relation by relid */
+    ItemPointerData tuple_ctid;
+    tuple_ctid.ip_blkid.bi_hi = lob_pointer->bi_hi;
+    tuple_ctid.ip_blkid.bi_lo = lob_pointer->bi_lo;
+    tuple_ctid.ip_posid = lob_pointer->ip_posid;
+    Relation relation = heap_open(lob_pointer->relid, RowExclusiveLock);
+    HeapTuple origin_tuple = get_tuple(relation, &tuple_ctid);
+    if (!HeapTupleIsValid(origin_tuple)) {
+        ereport(ERROR,
+            (errcode(ERRCODE_CACHE_LOOKUP_FAILED),
+            errmsg("cache lookup failed for tuple from relation %u", lob_pointer->relid)));
+    }
+
+    Datum attr = fastgetattr(origin_tuple, lob_pointer->columid, relation->rd_att, is_null);
+
+
+    if (!OidIsValid(update_oid)) {
+        heap_close(relation, NoLock);
+        return attr;
+    }
+    Datum new_attr = (Datum)0;
+    if (*is_null) {
+        new_attr = (Datum)0;
+    } else {
+        if (VARATT_IS_HUGE_TOAST_POINTER(attr)) {
+            if (unlikely(origin_tuple->tupTableType == UHEAP_TUPLE)) {
+                ereport(ERROR,
+                    (errcode(ERRCODE_INVALID_NAME),
+                        errmsg("UStore cannot update clob column that larger than 1GB")));
+            }
+            Relation update_rel = heap_open(update_oid, RowExclusiveLock);
+            struct varlena *old_value = (struct varlena *)DatumGetPointer(attr);
+            struct varlena *new_value = heap_tuple_fetch_and_copy(update_rel, old_value, false);
+            new_attr = PointerGetDatum(new_value);
+            heap_close(update_rel, NoLock);
+        } else if (VARATT_IS_SHORT(attr) || VARATT_IS_EXTERNAL(attr) || VARATT_IS_4B(attr)) {
+            new_attr = PointerGetDatum(attr);
+        } else {
+            ereport(ERROR, (errcode(ERRCODE_SYSTEM_ERROR),
+                    errmsg("lob value which fetch from tuple type is not recognized."), 
+                        errdetail("lob type is not one of the existing types")));
+        }
+    }
+    heap_close(relation, NoLock);
+    return new_attr;
+}
+
+bool is_external_clob(Oid type_oid, bool is_null, Datum value)
+{
+    if (type_oid == CLOBOID && !is_null && VARATT_IS_EXTERNAL_LOB(value)) {
+        return true;
+    }
+    return false;
+}
+
+bool is_huge_clob(Oid type_oid, bool is_null, Datum value)
+{
+    if (!is_external_clob(type_oid, is_null, value)) {
+        return false;
+    }
+
+    struct varatt_lob_pointer* lob_pointer = (varatt_lob_pointer*)(VARDATA_EXTERNAL(value));
+    bool is_huge_clob = false;
+    /* get relation by relid */
+    ItemPointerData tuple_ctid;
+    tuple_ctid.ip_blkid.bi_hi = lob_pointer->bi_hi;
+    tuple_ctid.ip_blkid.bi_lo = lob_pointer->bi_lo;
+    tuple_ctid.ip_posid = lob_pointer->ip_posid;
+    Relation relation = heap_open(lob_pointer->relid, RowExclusiveLock);
+    HeapTuple origin_tuple = get_tuple(relation, &tuple_ctid);
+    if (!HeapTupleIsValid(origin_tuple)) {
+        ereport(ERROR,
+            (errcode(ERRCODE_CACHE_LOOKUP_FAILED),
+            errmsg("cache lookup failed for tuple from relation %u", lob_pointer->relid)));
+    }
+    bool attr_is_null = false;
+    Datum attr = fastgetattr(origin_tuple, lob_pointer->columid, relation->rd_att, &attr_is_null);
+    if (!attr_is_null && VARATT_IS_HUGE_TOAST_POINTER(attr)) {
+        is_huge_clob = true;
+    }
+    heap_close(relation, NoLock);
+    heap_freetuple(origin_tuple);
+    return is_huge_clob;
+}
+
+void set_result_for_plpgsql_language_function_with_outparam(Oid funcOid, Datum *result, bool *isNull)
+{
+    if (!is_function_with_plpgsql_language_and_outparam(funcOid)) {
+        return;
+    }
+
+    HeapTupleHeader td = DatumGetHeapTupleHeader(*result);
+    TupleDesc tupdesc = lookup_rowtype_tupdesc_copy(HeapTupleHeaderGetTypeId(td), HeapTupleHeaderGetTypMod(td));
+    HeapTupleData tup;
+    tup.t_len = HeapTupleHeaderGetDatumLength(td);
+    tup.t_data = td;
+    Datum *values = (Datum *)palloc(sizeof(Datum) * tupdesc->natts);
+    bool *nulls = (bool *)palloc(sizeof(bool) * tupdesc->natts);
+    heap_deform_tuple(&tup, tupdesc, values, nulls);
+    *result = values[0];
+    *isNull = nulls[0];
+    pfree(values);
+    pfree(nulls);
 }

@@ -118,7 +118,7 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
         if (indexScan->xs_recheck) {
             econtext->ecxt_scantuple = slot;
             ResetExprContext(econtext);
-            if (!ExecQual(node->indexqualorig, econtext, false)) {
+            if (!ExecQual((ExprState*)node->indexqualorig, econtext)) {
                 /* Fails recheck, so drop it and loop back for another */
                 InstrCountFiltered2(node, 1);
                 continue;
@@ -152,7 +152,7 @@ static bool IndexRecheck(IndexScanState* node, TupleTableSlot* slot)
 
     ResetExprContext(econtext);
 
-    return ExecQual(node->indexqualorig, econtext, false);
+    return ExecQual((ExprState*)node->indexqualorig, econtext);
 }
 
 /* ----------------------------------------------------------------
@@ -667,9 +667,8 @@ IndexScanState* ExecInitIndexScan(IndexScan* node, EState* estate, int eflags)
      * would be nice to improve that.  (Problem is that any SubPlans present
      * in the expression must be found now...)
      */
-    index_state->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)index_state);
-    index_state->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)index_state);
-    index_state->indexqualorig = (List*)ExecInitExpr((Expr*)node->indexqualorig, (PlanState*)index_state);
+    index_state->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)index_state);
+    index_state->indexqualorig = (List*)ExecInitQual(node->indexqualorig, (PlanState*)index_state);
 
     /*
      * open the base relation and acquire appropriate lock on it.

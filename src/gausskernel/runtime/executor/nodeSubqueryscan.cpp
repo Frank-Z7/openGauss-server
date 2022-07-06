@@ -112,8 +112,7 @@ SubqueryScanState* ExecInitSubqueryScan(SubqueryScan* node, EState* estate, int 
     /*
      * initialize child expressions
      */
-    sub_query_state->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)sub_query_state);
-    sub_query_state->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)sub_query_state);
+    sub_query_state->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)sub_query_state);
 
     /*
      * tuple table initialization

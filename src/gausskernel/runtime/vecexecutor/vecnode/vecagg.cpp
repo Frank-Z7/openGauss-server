@@ -676,7 +676,8 @@ VecAggState* ExecInitVecAggregation(VecAgg* node, EState* estate, int eflags)
             else
                 aggstate->aggInfo[idx].vec_agg_function.flinfo->vec_fn_addr = aggstate->aggInfo[idx].vec_agg_cache[1];
 
-            if (OidIsValid(peraggstate->finalfn_oid)) {
+            if (OidIsValid(peraggstate->finalfn_oid) && aggstate->aggInfo[idx].vec_agg_cache[0] && 
+                aggstate->aggInfo[idx].vec_agg_final[0]) {
                 InitFunctionCallInfoData(aggstate->aggInfo[idx].vec_final_function,
                     &peraggstate->finalfn,
                     2,
@@ -1312,14 +1313,14 @@ VectorBatch* BaseAggRunner::ProducerBatch()
     /* To AP functio, set column to NULL when group columns has not include it. */
     prepare_projection_batch();
 
-    if (list_length(m_runtime->ss.ps.qual) != 0) {
+    if (list_length((List*)m_runtime->ss.ps.qual) != 0) {
         ScalarVector* p_vector = NULL;
 
         econtext = m_runtime->ss.ps.ps_ExprContext;
         econtext->ecxt_scanbatch = m_scanBatch;
         econtext->ecxt_aggbatch = m_scanBatch;
         econtext->ecxt_outerbatch = m_outerBatch;
-        p_vector = ExecVecQual(m_runtime->ss.ps.qual, econtext, false);
+        p_vector = ExecVecQual((List*)m_runtime->ss.ps.qual, econtext, false);
 
         if (p_vector == NULL) {
             return NULL;
