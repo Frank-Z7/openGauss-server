@@ -21,7 +21,7 @@ explain (analyze on, timing off, costs off) select /*+ set(try_vector_engine_str
    ->  Vector Limit (actual rows=10 loops=1)
          ->  Vector Sort (actual rows=10 loops=1)
                Sort Key: id
-               Sort Method: top-N heapsort  Memory:.*
+--?               Sort Method: top-N heapsort  Memory:.*
                ->  Vector Adapter(type: BATCH MODE) (actual rows=2495 loops=1)
                      Filter: ((id < 5000) AND (val1 < 500))
                      Rows Removed by Filter: 7505
@@ -36,7 +36,7 @@ explain (analyze on, timing off, costs off) select /*+ set(try_vector_engine_str
    ->  Vector Limit (actual rows=10 loops=1)
          ->  Vector Sort (actual rows=10 loops=1)
                Sort Key: id
-               Sort Method: top-N heapsort  Memory:.*
+--?               Sort Method: top-N heapsort  Memory:.*
                ->  Vector Hash Aggregate (actual rows=10000 loops=1)
                      Group By Key: id
                      ->  Vector Partition Iterator (actual rows=10000 loops=1)
