@@ -5769,43 +5769,6 @@ static Oid get_role_oid_or_public(const char* rolname)
 }
 
 /*
- * @Description: check whether role is independent role.
- * @in roleid : the role need to be check.
- * @return : true for independent and false for noindependent.
- */
-bool is_role_independent(Oid roleid)
-{
-    HeapTuple rtup = NULL;
-    bool isNull = false;
-    bool flag = false;
-
-    Relation relation = heap_open(AuthIdRelationId, AccessShareLock);
-
-    TupleDesc pg_authid_dsc = RelationGetDescr(relation);
-
-    /* Look up the information in pg_authid. */
-    rtup = SearchSysCache1(AUTHOID, ObjectIdGetDatum(roleid));
-    if (HeapTupleIsValid(rtup)) {
-        /*
-         * For upgrade reason,  we must get field value through heap_getattr function
-         * although it is a char type value.
-         */
-        Datum authidrolkindDatum = heap_getattr(rtup, Anum_pg_authid_rolkind, pg_authid_dsc, &isNull);
-
-        if (DatumGetChar(authidrolkindDatum) == ROLKIND_INDEPENDENT)
-            flag = true;
-        else
-            flag = false;
-
-        ReleaseSysCache(rtup);
-    }
-
-    heap_close(relation, AccessShareLock);
-
-    return flag;
-}
-
-/*
  * @Description: check whether role is iamauth role whose password has been disabled.
  * @in roleid : the role need to be check.
  * @return : true for iamauth and false for noiamauth role.

@@ -229,6 +229,23 @@ isPolicyadmin(Oid roleid)
 }
 
 /*
+ * @Description: check whether role is independent role.
+ * @in roleid : the role need to be check.
+ * @return : true for independent and false for noindependent.
+ */
+bool is_role_independent(Oid roleid)
+{
+    if (OidIsValid(u_sess->sec_cxt.last_roleid)
+        && u_sess->sec_cxt.last_roleid == roleid) {
+        return u_sess->sec_cxt.last_roleid_rolkind == ROLKIND_INDEPENDENT;
+    }
+
+    cacheSuperOrSysadmin(roleid);
+
+    return u_sess->sec_cxt.last_roleid_rolkind == ROLKIND_INDEPENDENT;
+}
+
+/*
  * @Description: check whether an user have privilege to use execute direct.
  * @in query : use for check auditor query
  * @return : return true if the role is an superuser or monitoradmin or auditor use pg_query_audit(),
@@ -290,6 +307,7 @@ static void cacheSuperOrSysadmin(Oid roleid)
     u_sess->sec_cxt.last_roleid_is_monitoradmin = false;
     u_sess->sec_cxt.last_roleid_is_operatoradmin = false;
     u_sess->sec_cxt.last_roleid_is_policyadmin = false;
+    u_sess->sec_cxt.last_roleid_rolkind = ROLKIND_NORMAL;
 
     /* OK, look up the information in pg_authid */
     Relation relation = heap_open(AuthIdRelationId, AccessShareLock);
@@ -334,6 +352,11 @@ static void cacheSuperOrSysadmin(Oid roleid)
             u_sess->sec_cxt.last_roleid_is_policyadmin = DatumGetBool(datum);
         } else if (u_sess->sec_cxt.last_roleid_is_super) {
             u_sess->sec_cxt.last_roleid_is_policyadmin = true;
+        }
+
+        datum = heap_getattr(rtup, Anum_pg_authid_rolkind, RelationGetDescr(relation), &is_null);
+        if (!is_null) {
+            u_sess->sec_cxt.last_roleid_rolkind = DatumGetChar(datum);
         }
 
         ReleaseSysCache(rtup);

@@ -5114,9 +5114,8 @@ AclMode pg_class_aclmask(Oid table_oid, Oid roleid, AclMode mask, AclMaskHow how
      * themselves.	ACL_USAGE is if we ever have system sequences.
      */
     if (!is_ddl_privileges && (mask & (ACL_INSERT | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE | ACL_USAGE)) 
-        && IsSystemClass(classForm) &&
-        classForm->relkind != RELKIND_VIEW && classForm->relkind != RELKIND_CONTQUERY && !has_rolcatupdate(roleid) &&
-        !g_instance.attr.attr_common.allowSystemTableMods) {
+        && !g_instance.attr.attr_common.allowSystemTableMods && IsSystemClass(classForm) &&
+        classForm->relkind != RELKIND_VIEW && classForm->relkind != RELKIND_CONTQUERY && !has_rolcatupdate(roleid)) {
 #ifdef ACLDEBUG
         elog(DEBUG2, "permission denied for system catalog update");
 #endif
@@ -5155,7 +5154,7 @@ AclMode pg_class_aclmask(Oid table_oid, Oid roleid, AclMode mask, AclMaskHow how
         return mask;
     }
 
-    if (is_security_policy_relation(table_oid) && isPolicyadmin(roleid)) {
+    if (isPolicyadmin(roleid) && is_security_policy_relation(table_oid)) {
         ReleaseSysCache(tuple);
         return mask;
     }

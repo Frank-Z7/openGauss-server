@@ -381,7 +381,6 @@ extern void grantNodeGroupToRole(Oid group_id, Oid roleid, AclMode privileges, b
 extern void check_nodegroup_privilege(Oid roleid, Oid ownerId, AclMode mode);
 extern Oid get_nodegroup_member_of(Oid roleid);
 extern Oid get_nodegroup_privs_of(Oid roleid);
-extern bool is_role_independent(Oid roleid);
 extern bool is_role_iamauth(Oid roleid);
 extern bool independent_priv_aclcheck(AclMode mask, char relkind);
 extern bool is_trust_language(Oid lang_oid);

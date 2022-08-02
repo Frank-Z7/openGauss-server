@@ -1087,6 +1087,7 @@ Oid GetNewRelFileNode(Oid reltablespace, Relation pg_class, char relpersistence)
 
 bool IsPackageSchemaOid(Oid relnamespace)
 {
+#ifdef ENABLE_MULTIPLE_NODES
     const char* packageSchemaList[] = {
         "dbe_lob",
         "dbe_random",
@@ -1102,7 +1103,7 @@ bool IsPackageSchemaOid(Oid relnamespace)
         "dbe_perf",
         "dbe_session"
     };
-    int schemaNum = 10;
+    int schemaNum = 13;
     char* schemaName = get_namespace_name(relnamespace);
     if (schemaName == NULL) {
         return false;
@@ -1114,10 +1115,14 @@ bool IsPackageSchemaOid(Oid relnamespace)
         }
     }
     return false;
+#else
+    return (relnamespace == PG_PKG_SERVICE_NAMESPACE || relnamespace == PG_DBEPERF_NAMESPACE);
+#endif
 }
 
 bool IsPackageSchemaName(const char* schemaName)
 {
+#ifdef ENABLE_MULTIPLE_NODES
     const char* packageSchemaList[] = {
         "dbe_lob",
         "dbe_random",
@@ -1128,13 +1133,20 @@ bool IsPackageSchemaName(const char* schemaName)
         "dbe_sql",
         "dbe_file",
         "pkg_service",
-        "pkg_util"
+        "pkg_util",
+        "dbe_match",
+        "dbe_perf",
+        "dbe_session"
     };
-    int schemaNum = 10;
+    int schemaNum = 13;
     for (int i = 0; i < schemaNum; ++i) {
         if (strcmp(schemaName, packageSchemaList[i]) == 0) {
             return true;
         }
     }
     return false;
+#else
+    return (strcmp(schemaName, "dbe_perf") == 0
+            || strcmp(schemaName, "pkg_service") == 0);
+#endif
 }

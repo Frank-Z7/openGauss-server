@@ -1134,7 +1134,7 @@ static List* AddDefaultOptionsIfNeed(List* options, const char relkind, CreateSt
                 (errcode(ERRCODE_INVALID_OPTION),
                     errmsg("It is not allowed to assign version option for non-dfs table.")));
         } else if (pg_strcasecmp(def->defname, "segment") == 0){
-            segment = true;
+            segment = defGetBoolean(def);
         } else {
             SetOneOfCompressOption(def, &tableCreateSupport);
         }
@@ -23175,7 +23175,7 @@ static void checkValidationForExchangeTable(Relation partTableRel, Relation ordT
                 int2 bucketId = InvalidBktId;
 
                 // get right partition oid for the tuple
-                targetPartOid = heapTupleGetPartitionId(partTableRel, (HeapTuple) tuple);
+                targetPartOid = heapTupleGetPartitionId(partTableRel, (HeapTuple)tuple, true);
 
                 searchFakeReationForPartitionOid(
                     partRelHTAB, CurrentMemoryContext, partTableRel, targetPartOid, partRel, part, RowExclusiveLock);
@@ -25099,11 +25099,11 @@ static void readTuplesAndInsertInternal(Relation tempTableRel, Relation partTabl
 
         /* tableam_tops_copy_tuple is not ready so we add UStore hack path */
         copyTuple = tableam_tops_copy_tuple(tuple);
-        targetPartOid = heapTupleGetPartitionId(partTableRel, (void *)tuple);
+        targetPartOid = heapTupleGetPartitionId(partTableRel, (void *)tuple, true);
         searchFakeReationForPartitionOid(
             partRelHTAB, CurrentMemoryContext, partTableRel, targetPartOid, partRel, part, RowExclusiveLock);
         if (RelationIsSubPartitioned(partTableRel)) {
-            targetPartOid = heapTupleGetPartitionId(partRel, (void *)tuple);
+            targetPartOid = heapTupleGetPartitionId(partRel, (void *)tuple, true);
             searchFakeReationForPartitionOid(partRelHTAB, CurrentMemoryContext, partRel, targetPartOid, subPartRel,
                                              subPart, RowExclusiveLock);
             partRel = subPartRel;

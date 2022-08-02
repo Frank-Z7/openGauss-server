@@ -65,7 +65,6 @@ void SetLatestFetchState(TransactionId transactionId, CommitSeqNo result)
 CommitSeqNo TransactionIdGetCommitSeqNo(TransactionId transactionId, bool isCommit, bool isMvcc, bool isNest,
     Snapshot snapshot)
 {
-    XLogRecPtr lsn;
     CommitSeqNo result;
     TransactionId xid = InvalidTransactionId;
     int retry_times = 0;
@@ -118,7 +117,7 @@ RETRY:
         if (isCommit) {
             result = COMMITSEQNO_FROZEN;
         } else {
-            if (CLogGetStatus(transactionId, &lsn) == CLOG_XID_STATUS_COMMITTED) {
+            if (TransactionLogFetch(transactionId) == CLOG_XID_STATUS_COMMITTED) {
                 result = COMMITSEQNO_FROZEN;
             } else {
                 result = COMMITSEQNO_ABORTED;

@@ -823,15 +823,13 @@ CXXFLAGS = @CFLAGS@
 ifeq ($(enable_memory_check), yes)
   CXXFLAGS += -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer
 else
-  CXXFLAGS += -fstack-protector
+  #CXXFLAGS += -fstack-protector
 endif
 
 ifeq ($(enable_thread_check), yes)
   CXXFLAGS += -fsanitize=thread -fno-omit-frame-pointer
 endif
 
-CXXFLAGS += -Wl,-z,relro,-z,now
-CXXFLAGS += -Wl,-z,noexecstack
 CXXFLAGS += -std=c++14
 override CXXFLAGS += $(PTHREAD_CFLAGS)
 # Kind-of compilers

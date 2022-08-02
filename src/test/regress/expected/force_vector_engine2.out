@@ -14,37 +14,37 @@ partition by range(id) (
 );
 insert into force_vector_partition values(generate_series(1, 10000), generate_series(1, 2000), generate_series(1, 5000));
 analyze force_vector_partition;
-explain (analyze on, timing off) select /*+ set(try_vector_engine_strategy force) */ id, val1*2, val2+val1 as val3 from force_vector_test where id < 5000 and val1 < 500 order by id limit 10;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
- Row Adapter  (cost=277.80..277.80 rows=10 width=13) (actual rows=10 loops=1)
-   ->  Vector Limit  (cost=277.77..277.80 rows=10 width=13) (actual rows=10 loops=1)
-         ->  Vector Sort  (cost=277.77..284.02 rows=2500 width=13) (actual rows=10 loops=1)
+explain (analyze on, timing off, costs off) select /*+ set(try_vector_engine_strategy force) */ id, val1*2, val2+val1 as val3 from force_vector_test where id < 5000 and val1 < 500 order by id limit 10;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Row Adapter (actual rows=10 loops=1)
+   ->  Vector Limit (actual rows=10 loops=1)
+         ->  Vector Sort (actual rows=10 loops=1)
                Sort Key: id
-               Sort Method: top-N heapsort  Memory: 4kB
-               ->  Vector Adapter(type: BATCH MODE)  (cost=223.75..223.75 rows=2500 width=13) (actual rows=2495 loops=1)
+--?               Sort Method: top-N heapsort  Memory:.*
+               ->  Vector Adapter(type: BATCH MODE) (actual rows=2495 loops=1)
                      Filter: ((id < 5000) AND (val1 < 500))
                      Rows Removed by Filter: 7505
-                     ->  Seq Scan on force_vector_test  (cost=0.00..223.75 rows=2500 width=13) (actual rows=10000 loops=1)
---?.*
+                     ->  Seq Scan on force_vector_test (actual rows=10000 loops=1)
+--? Total runtime:.*
 (10 rows)
 
-explain (analyze on, timing off) select /*+ set(try_vector_engine_strategy force) */ id, avg(val1), sum(val2) from force_vector_partition group by id order by id limit 10;
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
- Row Adapter  (cost=621.12..621.12 rows=10 width=172) (actual rows=10 loops=1)
-   ->  Vector Limit  (cost=621.10..621.12 rows=10 width=172) (actual rows=10 loops=1)
-         ->  Vector Sort  (cost=621.10..646.10 rows=10000 width=172) (actual rows=10 loops=1)
+explain (analyze on, timing off, costs off) select /*+ set(try_vector_engine_strategy force) */ id, avg(val1), sum(val2) from force_vector_partition group by id order by id limit 10;
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Row Adapter (actual rows=10 loops=1)
+   ->  Vector Limit (actual rows=10 loops=1)
+         ->  Vector Sort (actual rows=10 loops=1)
                Sort Key: id
-               Sort Method: top-N heapsort  Memory: 5kB
-               ->  Vector Hash Aggregate  (cost=255.00..405.00 rows=10000 width=172) (actual rows=10000 loops=1)
+--?               Sort Method: top-N heapsort  Memory:.*
+               ->  Vector Hash Aggregate (actual rows=10000 loops=1)
                      Group By Key: id
-                     ->  Vector Partition Iterator  (cost=0.00..155.00 rows=10000 width=12) (actual rows=10000 loops=1)
+                     ->  Vector Partition Iterator (actual rows=10000 loops=1)
                            Iterations: 5
-                           ->  Vector Adapter(type: BATCH MODE)  (cost=155.00..155.00 rows=10000 width=12) (actual rows=10000 loops=5)
-                                 ->  Partitioned Seq Scan on force_vector_partition  (cost=0.00..155.00 rows=10000 width=12) (actual rows=10000 loops=5)
+                           ->  Vector Adapter(type: BATCH MODE) (actual rows=10000 loops=5)
+                                 ->  Partitioned Seq Scan on force_vector_partition (actual rows=10000 loops=5)
                                        Selected Partitions:  1..5
---?.*
+--? Total runtime:.*
 (13 rows)
 
 drop table force_vector_test;

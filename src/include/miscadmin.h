@@ -400,6 +400,7 @@ extern bool isAuditadmin(Oid roleid);                    /* given user is audit 
 extern bool isMonitoradmin(Oid roleid);                 /* given user is monitor admin */
 extern bool isOperatoradmin(Oid roleid);                /* given user is operator admin */
 extern bool isPolicyadmin(Oid roleid);                  /* given user is policy admin */
+extern bool is_role_independent(Oid roleid);
 extern bool CheckExecDirectPrivilege(const char* query); /* check user have privilege to use execute direct */
 
 /*****************************************************************************
