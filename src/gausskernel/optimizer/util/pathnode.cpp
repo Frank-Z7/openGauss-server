@@ -4107,8 +4107,7 @@ bool equivalence_class_overlap(PlannerInfo* root, Relids outer_relids, Relids in
  * 'joinrel' is the join relation.
  * 'jointype' is the type of join required
  * 'workspace' is the result from initial_cost_nestloop
- * 'sjinfo' is extra info about the join for selectivity estimation
- * 'semifactors' contains valid data if jointype is SEMI or ANTI
+ * 'extra' contains various information about the join
  * 'outer_path' is the outer path
  * 'inner_path' is the inner path
  * 'restrict_clauses' are the RestrictInfo nodes to apply at the join
@@ -4118,7 +4117,7 @@ bool equivalence_class_overlap(PlannerInfo* root, Relids outer_relids, Relids in
  * Returns the resulting path node.
  */
 NestPath* create_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype, JoinCostWorkspace* workspace,
-    SpecialJoinInfo* sjinfo, SemiAntiJoinFactors* semifactors, Path* outer_path, Path* inner_path,
+    JoinPathExtraData *extra, Path* outer_path, Path* inner_path,
     List* restrict_clauses, List* pathkeys, Relids required_outer, int dop)
 {
     NestPath* pathnode = makeNode(NestPath);
@@ -4199,13 +4198,14 @@ NestPath* create_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType 
     pathnode->path.pathtype = T_NestLoop;
     pathnode->path.parent = joinrel;
     pathnode->path.param_info =
-        get_joinrel_parampathinfo(root, joinrel, outer_path, inner_path, sjinfo, required_outer, &restrict_clauses);
+        get_joinrel_parampathinfo(root, joinrel, outer_path, inner_path, extra->sjinfo, required_outer, &restrict_clauses);
     pathnode->path.pathkeys = pathkeys;
     if (IsA(outer_path, StreamPath) && NIL == outer_path->pathkeys) {
         pathnode->path.pathkeys = NIL;
     }
     pathnode->path.dop = dop;
     pathnode->jointype = jointype;
+    pathnode->inner_unique = extra->inner_unique;
     pathnode->outerjoinpath = outer_path;
     pathnode->innerjoinpath = inner_path;
     pathnode->joinrestrictinfo = restrict_clauses;
@@ -4223,7 +4223,7 @@ NestPath* create_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType 
     }
 #endif
 
-    final_cost_nestloop(root, pathnode, workspace, sjinfo, semifactors, hasalternative, dop);
+    final_cost_nestloop(root, pathnode, workspace, extra, hasalternative, dop);
 
     return pathnode;
 }
@@ -4236,7 +4236,7 @@ NestPath* create_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType 
  * 'joinrel' is the join relation
  * 'jointype' is the type of join required
  * 'workspace' is the result from initial_cost_mergejoin
- * 'sjinfo' is extra info about the join for selectivity estimation
+ * 'extra' contains various information about the join
  * 'outer_path' is the outer path
  * 'inner_path' is the inner path
  * 'restrict_clauses' are the RestrictInfo nodes to apply at the join
@@ -4248,7 +4248,7 @@ NestPath* create_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType 
  * 'innersortkeys' are the sort varkeys for the inner relation
  */
 MergePath* create_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype,
-    JoinCostWorkspace* workspace, SpecialJoinInfo* sjinfo, Path* outer_path, Path* inner_path, List* restrict_clauses,
+    JoinCostWorkspace* workspace, JoinPathExtraData *extra, Path* outer_path, Path* inner_path, List* restrict_clauses,
     List* pathkeys, Relids required_outer, List* mergeclauses, List* outersortkeys, List* innersortkeys)
 {
     MergePath* pathnode = makeNode(MergePath);
@@ -4257,9 +4257,10 @@ MergePath* create_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinTyp
     pathnode->jpath.path.pathtype = T_MergeJoin;
     pathnode->jpath.path.parent = joinrel;
     pathnode->jpath.path.param_info =
-        get_joinrel_parampathinfo(root, joinrel, outer_path, inner_path, sjinfo, required_outer, &restrict_clauses);
+        get_joinrel_parampathinfo(root, joinrel, outer_path, inner_path, extra->sjinfo, required_outer, &restrict_clauses);
     pathnode->jpath.path.pathkeys = pathkeys;
     pathnode->jpath.jointype = jointype;
+    pathnode->jpath.inner_unique = extra->inner_unique;
     pathnode->jpath.outerjoinpath = outer_path;
     pathnode->jpath.innerjoinpath = inner_path;
     pathnode->jpath.joinrestrictinfo = restrict_clauses;
@@ -4270,6 +4271,7 @@ MergePath* create_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinTyp
     pathnode->jpath.path.exec_type = SetExectypeForJoinPath(inner_path, outer_path);
 
     /* pathnode->materialize_inner will be set by final_cost_mergejoin */
+    /* pathnode->skip_mark_restore will be set by final_cost_mergejoin */
 #ifdef STREAMPLAN
     pathnode->jpath.path.locator_type = locator_type_join(outer_path->locator_type, inner_path->locator_type);
     ProcessRangeListJoinType(&pathnode->jpath.path, outer_path, inner_path);
@@ -4285,7 +4287,7 @@ MergePath* create_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinTyp
     final_cost_mergejoin(root,
         pathnode,
         workspace,
-        sjinfo,
+        extra,
         check_join_method_alternative(
             restrict_clauses, outer_path->parent, inner_path->parent, jointype, &try_eq_related_indirectly));
 
@@ -4299,7 +4301,7 @@ MergePath* create_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinTyp
  * 'joinrel' is the join relation
  * 'jointype' is the type of join required
  * 'workspace' is the result from initial_cost_hashjoin
- * 'sjinfo' is extra info about the join for selectivity estimation
+ * 'extra' contains various information about the join
  * 'semifactors' contains valid data if jointype is SEMI or ANTI
  * 'outer_path' is the cheapest outer path
  * 'inner_path' is the cheapest inner path
@@ -4309,7 +4311,7 @@ MergePath* create_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinTyp
  *		(this should be a subset of the restrict_clauses list)
  */
 HashPath* create_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype, JoinCostWorkspace* workspace,
-    SpecialJoinInfo* sjinfo, SemiAntiJoinFactors* semifactors, Path* outer_path, Path* inner_path,
+    JoinPathExtraData *extra, Path* outer_path, Path* inner_path,
     List* restrict_clauses, Relids required_outer, List* hashclauses, int dop)
 {
     HashPath* pathnode = makeNode(HashPath);
@@ -4318,7 +4320,7 @@ HashPath* create_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType 
     pathnode->jpath.path.pathtype = T_HashJoin;
     pathnode->jpath.path.parent = joinrel;
     pathnode->jpath.path.param_info =
-        get_joinrel_parampathinfo(root, joinrel, outer_path, inner_path, sjinfo, required_outer, &restrict_clauses);
+        get_joinrel_parampathinfo(root, joinrel, outer_path, inner_path, extra->sjinfo, required_outer, &restrict_clauses);
 
     /*
      * A hashjoin never has pathkeys, since its output ordering is
@@ -4334,6 +4336,7 @@ HashPath* create_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType 
     pathnode->jpath.path.pathkeys = NIL;
     pathnode->jpath.path.dop = dop;
     pathnode->jpath.jointype = jointype;
+    pathnode->jpath.inner_unique = extra->inner_unique;
     pathnode->jpath.outerjoinpath = outer_path;
     pathnode->jpath.innerjoinpath = inner_path;
     pathnode->jpath.joinrestrictinfo = restrict_clauses;
@@ -4356,8 +4359,7 @@ HashPath* create_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType 
     final_cost_hashjoin(root,
         pathnode,
         workspace,
-        sjinfo,
-        semifactors,
+        extra,
         check_join_method_alternative(
             restrict_clauses, outer_path->parent, inner_path->parent, jointype, &try_eq_related_indirectly),
         dop);
@@ -6323,6 +6325,12 @@ static JoinPath* add_join_redistribute_path(PlannerInfo* root, RelOptInfo* joinr
     List* stream_distribute_key_outer, bool replicate_inner, bool replicate_outer, NodeTag nodetag,
     Distribution* target_distribution, List* inner_pathkeys = NIL, List* outer_pathkeys = NIL)
 {
+    JoinPathExtraData extra;
+    extra.inner_unique = false;
+    extra.sjinfo = sjinfo;
+    extra.semifactors = {0,0};
+    if (semifactors)extra.semifactors = *semifactors;
+
     Path* stream_path_inner = inner_path;
     Path* stream_path_outer = outer_path;
     JoinPath* joinpath = NULL;
@@ -6402,14 +6410,13 @@ static JoinPath* add_join_redistribute_path(PlannerInfo* root, RelOptInfo* joinr
     /* Create join path. */
     if (nodetag == T_HashJoin) {
         initial_cost_hashjoin(
-            root, workspace, jointype, hashclauses, stream_path_outer, stream_path_inner, sjinfo, semifactors, joinDop);
+            root, workspace, jointype, hashclauses, stream_path_outer, stream_path_inner, &extra, joinDop);
 
         joinpath = (JoinPath*)create_hashjoin_path(root,
             joinrel,
             jointype,
             workspace,
-            sjinfo,
-            semifactors,
+            &extra,
             stream_path_outer,
             stream_path_inner,
             restrictlist,
@@ -6418,7 +6425,7 @@ static JoinPath* add_join_redistribute_path(PlannerInfo* root, RelOptInfo* joinr
             joinDop);
     } else {
         initial_cost_nestloop(
-            root, workspace, jointype, stream_path_outer, stream_path_inner, sjinfo, semifactors, joinDop);
+            root, workspace, jointype, stream_path_outer, stream_path_inner, &extra, joinDop);
 
         /*
          * When nestloop, hashclauses refer to pathkeys.
@@ -6432,8 +6439,7 @@ static JoinPath* add_join_redistribute_path(PlannerInfo* root, RelOptInfo* joinr
             joinrel,
             jointype,
             workspace,
-            sjinfo,
-            semifactors,
+            &extra,
             stream_path_outer,
             stream_path_inner,
             restrictlist,
@@ -6462,6 +6468,11 @@ static void add_hashjoin_broadcast_path(PlannerInfo* root, RelOptInfo* joinrel, 
     bool is_replicate, bool stream_outer, Distribution* target_distribution, ParallelDesc* need_smpDesc,
     ParallelDesc* non_smpDesc, int dop)
 {
+    JoinPathExtraData extra;
+    extra.inner_unique = false;
+    extra.sjinfo = sjinfo;
+    extra.semifactors = *semifactors;
+
     Path* streamed_path = NULL;
     Path* other_side = NULL;
     JoinPath* joinpath = NULL;
@@ -6518,14 +6529,13 @@ static void add_hashjoin_broadcast_path(PlannerInfo* root, RelOptInfo* joinrel, 
     new_inner_path = stream_outer ? other_side : streamed_path;
 
     initial_cost_hashjoin(
-        root, workspace, jointype, hashclauses, new_outer_path, new_inner_path, sjinfo, semifactors, dop);
+        root, workspace, jointype, hashclauses, new_outer_path, new_inner_path, &extra, dop);
 
     joinpath = (JoinPath*)create_hashjoin_path(root,
         joinrel,
         jointype,
         workspace,
-        sjinfo,
-        semifactors,
+        &extra,
         new_outer_path,
         new_inner_path,
         restrictlist,
@@ -6603,6 +6613,7 @@ static List* add_join_parallel_path(StreamType inner_stream, StreamType outer_st
     List* stream_distribute_key_outer, List* hashclauses, List* restrictlist, NodeTag nodetag,
     Distribution* target_distribution, List* inner_pathkeys = NIL, List* outer_pathkeys = NIL)
 {
+    
     /*
      * When the user turn on SMP, we need to add parallel path
      * to the alternative path list.
@@ -7113,6 +7124,12 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
     JoinCostWorkspace* workspace, SpecialJoinInfo* sjinfo, SemiAntiJoinFactors* semifactors, Path* outer_path,
     Path* inner_path, List* restrictlist, Relids required_outer, List* hashclauses, Distribution* target_distribution)
 {
+    JoinPathExtraData extra;
+    extra.inner_unique = false;
+    extra.sjinfo = sjinfo;
+    extra.semifactors = {0,0};
+    if (semifactors)extra.semifactors = *semifactors;
+
     bool redistribute_inner = true;
     bool redistribute_outer = true;
     bool replicate_inner = false;
@@ -7185,15 +7202,14 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
             if (!parallel_enable(inner_path_t, outer_path_t)) {
                 if (outer_path != outer_path_t || inner_path != inner_path_t) {
                     initial_cost_hashjoin(
-                        root, workspace, jointype, hashclauses, outer_path_t, inner_path_t, sjinfo, semifactors, 1);
+                        root, workspace, jointype, hashclauses, outer_path_t, inner_path_t, &extra, 1);
                 }
 
                 joinpath = (JoinPath*)create_hashjoin_path(root,
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
-                    semifactors,
+                    &extra,
                     outer_path_t,
                     inner_path_t,
                     restrictlist,
@@ -7272,14 +7288,13 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                     skew_stream,
                     target_distribution);
                 initial_cost_hashjoin(
-                    root, workspace, jointype, hashclauses, outer_path, stream_path_inner, sjinfo, semifactors, 1);
+                    root, workspace, jointype, hashclauses, outer_path, stream_path_inner, &extra, 1);
 
                 joinpath = (JoinPath*)create_hashjoin_path(root,
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
-                    semifactors,
+                    &extra,
                     outer_path,
                     (Path*)stream_path_inner,
                     restrictlist,
@@ -7422,14 +7437,13 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                         target_distribution);
 
                     initial_cost_hashjoin(
-                        root, workspace, jointype, hashclauses, stream_path_outer, inner_path, sjinfo, semifactors, 1);
+                        root, workspace, jointype, hashclauses, stream_path_outer, inner_path, &extra, 1);
 
                     joinpath = (JoinPath*)create_hashjoin_path(root,
                         joinrel,
                         jointype,
                         workspace,
-                        sjinfo,
-                        semifactors,
+                        &extra,
                         (Path*)stream_path_outer,
                         inner_path,
                         restrictlist,
@@ -7633,16 +7647,14 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                         hashclauses,
                         stream_path_outer,
                         stream_path_inner,
-                        sjinfo,
-                        semifactors,
+                        &extra,
                         1);
 
                     joinpath = (JoinPath*)create_hashjoin_path(root,
                         joinrel,
                         jointype,
                         workspace,
-                        sjinfo,
-                        semifactors,
+                        &extra,
                         (Path*)stream_path_outer,
                         (Path*)stream_path_inner,
                         restrictlist,
@@ -7802,16 +7814,14 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                             hashclauses,
                             outer_path,
                             stream_path_inner,
-                            sjinfo,
-                            semifactors,
+                            &extra,
                             1);
 
                         joinpath = (JoinPath*)create_hashjoin_path(root,
                             joinrel,
                             jointype,
                             workspace,
-                            sjinfo,
-                            semifactors,
+                            &extra,
                             outer_path,
                             (Path*)stream_path_inner,
                             restrictlist,
@@ -7873,16 +7883,14 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                             hashclauses,
                             stream_path_outer,
                             inner_path,
-                            sjinfo,
-                            semifactors,
+                            &extra,
                             1);
 
                         joinpath = (JoinPath*)create_hashjoin_path(root,
                             joinrel,
                             jointype,
                             workspace,
-                            sjinfo,
-                            semifactors,
+                            &extra,
                             (Path*)stream_path_outer,
                             inner_path,
                             restrictlist,
@@ -8011,8 +8019,7 @@ void add_hashjoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
-                    semifactors,
+                    &extra,
                     outer_path,
                     inner_path,
                     restrictlist,
@@ -8068,6 +8075,12 @@ static void add_nestloop_broadcast_path(PlannerInfo* root, RelOptInfo* joinrel, 
     List* stream_pathkeys, bool is_replicate, bool stream_outer, Distribution* target_distribution,
     ParallelDesc* need_smpDesc, ParallelDesc* non_smpDesc, int dop)
 {
+    JoinPathExtraData extra;
+    extra.inner_unique = false;
+    extra.sjinfo = sjinfo;
+    extra.semifactors = {0,0};
+    if (semifactors)extra.semifactors = *semifactors;
+
     Path* streamed_path = NULL;
     Path* other_side = NULL;
     JoinPath* joinpath = NULL;
@@ -8119,14 +8132,13 @@ static void add_nestloop_broadcast_path(PlannerInfo* root, RelOptInfo* joinrel, 
     new_outer_path = stream_outer ? streamed_path : other_side;
     new_inner_path = stream_outer ? other_side : streamed_path;
 
-    initial_cost_nestloop(root, workspace, jointype, new_outer_path, new_inner_path, sjinfo, semifactors, dop);
+    initial_cost_nestloop(root, workspace, jointype, new_outer_path, new_inner_path, &extra, dop);
 
     joinpath = (JoinPath*)create_nestloop_path(root,
         joinrel,
         jointype,
         workspace,
-        sjinfo,
-        semifactors,
+        &extra,
         new_outer_path,
         new_inner_path,
         restrict_clauses,
@@ -8152,6 +8164,12 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
 {
     /* Full-outer join doesn't support nestloop yet */
     AssertEreport(jointype != JOIN_FULL, MOD_OPT_JOIN, "Join type shouldn't be full join for nestloop");
+
+    JoinPathExtraData extra;
+    extra.inner_unique = false;
+    extra.sjinfo = sjinfo;
+    extra.semifactors = {0,0};
+    if (semifactors)extra.semifactors = *semifactors;
 
     bool redistribute_inner = false;
     bool redistribute_outer = false;
@@ -8218,15 +8236,14 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
             if (!parallel_enable(inner_path_t, outer_path_t)) {
                 if (outer_path != outer_path_t || inner_path != inner_path_t) {
                     initial_cost_nestloop(
-                        root, workspace, jointype, outer_path_t, inner_path_t, sjinfo, semifactors, 1);
+                        root, workspace, jointype, outer_path_t, inner_path_t, &extra, 1);
                 }
 
                 joinpath = (JoinPath*)create_nestloop_path(root,
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
-                    semifactors,
+                    &extra,
                     outer_path_t,
                     inner_path_t,
                     restrict_clauses,
@@ -8318,14 +8335,13 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                         target_distribution);
 
                     initial_cost_nestloop(
-                        root, workspace, jointype, outer_path, stream_path_inner, sjinfo, semifactors, 1);
+                        root, workspace, jointype, outer_path, stream_path_inner, &extra, 1);
 
                     joinpath = (JoinPath*)create_nestloop_path(root,
                         joinrel,
                         jointype,
                         workspace,
-                        sjinfo,
-                        semifactors,
+                        &extra,
                         outer_path,
                         (Path*)stream_path_inner,
                         restrict_clauses,
@@ -8478,14 +8494,13 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                         target_distribution);
 
                     initial_cost_nestloop(
-                        root, workspace, jointype, stream_path_outer, inner_path, sjinfo, semifactors, 1);
+                        root, workspace, jointype, stream_path_outer, inner_path, &extra, 1);
 
                     joinpath = (JoinPath*)create_nestloop_path(root,
                         joinrel,
                         jointype,
                         workspace,
-                        sjinfo,
-                        semifactors,
+                        &extra,
                         (Path*)stream_path_outer,
                         inner_path,
                         restrict_clauses,
@@ -8692,14 +8707,13 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                         target_distribution);
 
                     initial_cost_nestloop(
-                        root, workspace, jointype, stream_path_outer, stream_path_inner, sjinfo, semifactors, 1);
+                        root, workspace, jointype, stream_path_outer, stream_path_inner, &extra, 1);
 
                     joinpath = (JoinPath*)create_nestloop_path(root,
                         joinrel,
                         jointype,
                         workspace,
-                        sjinfo,
-                        semifactors,
+                        &extra,
                         (Path*)stream_path_outer,
                         (Path*)stream_path_inner,
                         restrict_clauses,
@@ -8863,14 +8877,13 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                             target_distribution);
 
                         initial_cost_nestloop(
-                            root, workspace, jointype, outer_path, stream_path_inner, sjinfo, semifactors, 1);
+                            root, workspace, jointype, outer_path, stream_path_inner, &extra, 1);
 
                         joinpath = (JoinPath*)create_nestloop_path(root,
                             joinrel,
                             jointype,
                             workspace,
-                            sjinfo,
-                            semifactors,
+                            &extra,
                             outer_path,
                             (Path*)stream_path_inner,
                             restrict_clauses,
@@ -8929,14 +8942,13 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                             target_distribution);
 
                         initial_cost_nestloop(
-                            root, workspace, jointype, stream_path_outer, inner_path, sjinfo, semifactors, 1);
+                            root, workspace, jointype, stream_path_outer, inner_path, &extra, 1);
 
                         joinpath = (JoinPath*)create_nestloop_path(root,
                             joinrel,
                             jointype,
                             workspace,
-                            sjinfo,
-                            semifactors,
+                            &extra,
                             (Path*)stream_path_outer,
                             inner_path,
                             restrict_clauses,
@@ -9072,8 +9084,7 @@ void add_nestloop_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointype
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
-                    semifactors,
+                    &extra,
                     outer_path,
                     inner_path,
                     restrict_clauses,
@@ -9120,6 +9131,11 @@ static void add_mergejoin_broadcast_path(PlannerInfo* root, RelOptInfo* joinrel,
     List* outersortkeys, List* innersortkeys, List* stream_pathkeys, List* non_stream_pathkeys, bool is_replicate,
     bool stream_outer, Distribution* target_distribution)
 {
+    JoinPathExtraData extra;
+    extra.inner_unique = false;
+    extra.sjinfo = sjinfo;
+    extra.semifactors = {0,0};
+
     Path* streamed_path = NULL;
     JoinPath* joinpath = NULL;
     Path* new_outer_path = NULL;
@@ -9153,13 +9169,13 @@ static void add_mergejoin_broadcast_path(PlannerInfo* root, RelOptInfo* joinrel,
     new_inner_path = stream_outer ? non_stream_path : streamed_path;
 
     initial_cost_mergejoin(
-        root, workspace, jointype, mergeclauses, new_outer_path, new_inner_path, outersortkeys, innersortkeys, sjinfo);
+        root, workspace, jointype, mergeclauses, new_outer_path, new_inner_path, outersortkeys, innersortkeys, &extra);
 
     joinpath = (JoinPath*)create_mergejoin_path(root,
         joinrel,
         jointype,
         workspace,
-        sjinfo,
+        &extra,
         new_outer_path,
         new_inner_path,
         restrict_clauses,
@@ -9191,6 +9207,11 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
     List* rrinfo_inner = NULL; 
     List* rrinfo_outer = NULL;
     List* stream_distribute_key = NIL;
+
+    JoinPathExtraData extra;
+    extra.inner_unique = false;
+    extra.sjinfo = sjinfo;
+    extra.semifactors = {0,0};
 
     /* Only create unparallel path for mergejoin. */
     if (inner_path->dop > 1 || outer_path->dop > 1)
@@ -9249,14 +9270,14 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
                     inner_path_t,
                     outersortkeys,
                     innersortkeys,
-                    sjinfo);
+                    &extra);
             }
 
             joinpath = (JoinPath*)create_mergejoin_path(root,
                 joinrel,
                 jointype,
                 workspace,
-                sjinfo,
+                &extra,
                 outer_path_t,
                 inner_path_t,
                 restrict_clauses,
@@ -9317,13 +9338,13 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
                     stream_path_inner,
                     outersortkeys,
                     innersortkeys,
-                    sjinfo);
+                    &extra);
 
                 joinpath = (JoinPath*)create_mergejoin_path(root,
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
+                    &extra,
                     outer_path,
                     (Path*)stream_path_inner,
                     restrict_clauses,
@@ -9416,13 +9437,13 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
                     inner_path,
                     outersortkeys,
                     innersortkeys,
-                    sjinfo);
+                    &extra);
 
                 joinpath = (JoinPath*)create_mergejoin_path(root,
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
+                    &extra,
                     (Path*)stream_path_outer,
                     inner_path,
                     restrict_clauses,
@@ -9568,13 +9589,13 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
                     stream_path_inner,
                     outersortkeys,
                     innersortkeys,
-                    sjinfo);
+                    &extra);
 
                 joinpath = (JoinPath*)create_mergejoin_path(root,
                     joinrel,
                     jointype,
                     workspace,
-                    sjinfo,
+                    &extra,
                     (Path*)stream_path_outer,
                     (Path*)stream_path_inner,
                     restrict_clauses,
@@ -9671,13 +9692,13 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
                         stream_path_inner,
                         outersortkeys,
                         innersortkeys,
-                        sjinfo);
+                        &extra);
 
                     joinpath = (JoinPath*)create_mergejoin_path(root,
                         joinrel,
                         jointype,
                         workspace,
-                        sjinfo,
+                        &extra,
                         outer_path,
                         (Path*)stream_path_inner,
                         restrict_clauses,
@@ -9723,13 +9744,13 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
                         inner_path,
                         outersortkeys,
                         innersortkeys,
-                        sjinfo);
+                        &extra);
 
                     joinpath = (JoinPath*)create_mergejoin_path(root,
                         joinrel,
                         jointype,
                         workspace,
-                        sjinfo,
+                        &extra,
                         (Path*)stream_path_outer,
                         inner_path,
                         restrict_clauses,
@@ -9800,7 +9821,7 @@ void add_mergejoin_path(PlannerInfo* root, RelOptInfo* joinrel, JoinType jointyp
                 joinrel,
                 jointype,
                 workspace,
-                sjinfo,
+                &extra,
                 outer_path,
                 inner_path,
                 restrict_clauses,

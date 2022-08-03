@@ -2336,6 +2336,7 @@ WARNING:  Hint BlockName(t2) will become invalid due to sub-query pulling up.
 ------------------------------------------------------------------
  Merge Join
    Output: t1.a
+   Inner Unique: true
    Merge Cond: (t1.a = t2.b)
    ->  Index Only Scan using hintt2_index on plan_hint.hint_t1 t1
          Output: t1.a
@@ -2347,7 +2348,7 @@ WARNING:  Hint BlockName(t2) will become invalid due to sub-query pulling up.
                Group By Key: t2.b
                ->  Seq Scan on plan_hint.hint_t2 t2
                      Output: t2.b
-(13 rows)
+(14 rows)
 
 -- bms double free issue
 explain (costs off) select /*+ leading((t1 (t2 t4) t3)) */

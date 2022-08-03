@@ -827,6 +827,7 @@ THR_LOCAL bool skip_read_extern_fields = false;
         /* Read Join */                       \
         _readJoin(&local_node->join);         \
                                               \
+        READ_BOOL_FIELD(skip_mark_restore);   \
         READ_NODE_FIELD(mergeclauses);        \
         LIST_LENGTH(mergeclauses);            \
         READ_OID_ARRAY_LEN(mergeFamilies);    \
@@ -4157,6 +4158,7 @@ static Join* _readJoin(Join* local_node)
     _readPlan(&local_node->plan);
 
     READ_ENUM_FIELD(jointype, JoinType);
+    READ_BOOL_FIELD(inner_unique);
     READ_NODE_FIELD(joinqual);
     READ_BOOL_FIELD(optimizable);
     READ_NODE_FIELD(nulleqqual);

@@ -1008,6 +1008,14 @@ typedef enum JoinType {
                               (1 << JOIN_RIGHT_ANTI) | (1 << JOIN_LEFT_ANTI_FULL) | (1 << JOIN_RIGHT_ANTI_FULL))) != \
         0)
 
+#define IS_PG_OUTER_JOIN(jointype) \
+    (((1 << (jointype)) & \
+      ((1 << JOIN_LEFT) | \
+       (1 << JOIN_FULL) | \
+       (1 << JOIN_RIGHT) | \
+       (1 << JOIN_ANTI))) != 0)
+
+
 typedef enum UpsertAction
 {
     UPSERT_NONE,            /* No "DUPLICATE KEY UPDATE" clause */
