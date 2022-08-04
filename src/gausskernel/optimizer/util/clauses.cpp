@@ -698,16 +698,38 @@ static void count_agg_clauses_walker_isa(Node* node, count_agg_clauses_context* 
         costs->transitionSpace += avgwidth + 2 * sizeof(void*);
         costs->aggWidth += avgwidth;
     } else if (aggtranstype == INTERNALOID) {
-        /*
-            * INTERNAL transition type is a special case: although INTERNAL
-            * is pass-by-value, it's almost certainly being used as a pointer
-            * to some large data structure.  We assume usage of
-            * ALLOCSET_DEFAULT_INITSIZE, which is a good guess if the data is
-            * being kept in a private memory context, as is done by
-            * array_agg() for instance.
-            */
-        costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
-        costs->aggWidth += ALLOCSET_DEFAULT_INITSIZE;
+        /* 
+         * XXX: we apply the pg commit 69c8fbac201652282e18b0e2e301d4ada991fbde
+         * but the difference of pg_aggregate bwtween pg and og
+         * we have to do some hard code here(og's pg_aggregate doesn't have the column aggtransspace)
+         */
+        switch (aggtransfn)
+        {
+            case 2746: /* int8_avg_accum */
+            case 1842: /* int8_sum */
+            case 1835: /* int_accum */
+            case 1834: /* int2_accum */
+                costs->transitionSpace +=48;
+                costs->aggWidth += 48;
+                break;
+            case 2858: /*numeric_avg_accum(PG_FUNCTION_ARGS)*/
+            case 1836: /*int8_accum(PG_FUNCTION_ARGS)*/
+            case 1833: /*numeric_accum(PG_FUNCTION_ARGS)*/
+                costs->transitionSpace += 128;
+                costs->aggWidth += 128;
+                break;
+            default:
+                /*
+                * INTERNAL transition type is a special case: although INTERNAL
+                * is pass-by-value, it's almost certainly being used as a pointer
+                * to some large data structure.  We assume usage of
+                * ALLOCSET_DEFAULT_INITSIZE, which is a good guess if the data is
+                * being kept in a private memory context, as is done by
+                * array_agg() for instance.
+                */
+                costs->transitionSpace += ALLOCSET_DEFAULT_INITSIZE;
+                costs->aggWidth += ALLOCSET_DEFAULT_INITSIZE;
+        }
     } else {
         costs->aggWidth += get_typavgwidth(aggtranstype, -1);
     }
