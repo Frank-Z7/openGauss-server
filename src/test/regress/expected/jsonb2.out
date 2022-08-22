@@ -422,9 +422,9 @@ select a, pk, fk from jsonbfk join jsonbpk on fk = pk order by 1,2;
 explain select a, pk, fk from jsonbfk join jsonbpk on fk = pk order by 1,2;
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
- Sort  (cost=142.63..145.72 rows=1238 width=68)
+ Sort  (cost=128.87..131.96 rows=1238 width=68)
    Sort Key: jsonbfk.a, jsonbpk.pk
-   ->  Hash Join  (cost=39.63..79.04 rows=1238 width=68)
+   ->  Hash Join  (cost=39.63..65.27 rows=1238 width=68)
          Hash Cond: (jsonbfk.fk = jsonbpk.pk)
          ->  Seq Scan on jsonbfk  (cost=0.00..22.38 rows=1238 width=36)
          ->  Hash  (cost=23.17..23.17 rows=1317 width=32)
