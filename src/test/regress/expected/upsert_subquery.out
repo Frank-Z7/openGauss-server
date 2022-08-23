@@ -368,7 +368,7 @@ explain (costs off, verbose) insert into aa values(4,4,4,4) on duplicate key upd
                        Output: data2.a, data2.b
                  ->  Hash
                        Output: data1.a
-                       ->  Hash Join
+                       ->  Hash Semi Join
                              Output: data1.a
                              Hash Cond: (data1.a = upserttest.aa.a1)
                              ->  Seq Scan on upserttest.data1

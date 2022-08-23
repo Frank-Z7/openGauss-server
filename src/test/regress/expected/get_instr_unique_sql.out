@@ -24,6 +24,7 @@ explain performance select * from unique_sql_test1 where b in (select b from uni
 --?.*
 --?   ->  Hash Join  (.*)
          Output: unique_sql_test1.a, unique_sql_test1.b
+         Inner Unique: true
          Hash Cond: (unique_sql_test1.b = unique_sql_test2.b)
 --?         (Buffers: .*)
 --?         (CPU: .*)
@@ -48,7 +49,7 @@ explain performance select * from unique_sql_test1 where b in (select b from uni
 --?                           (Buffers: .*)
 --?                           (CPU: .*)
 --? Total runtime: .*
-(32 rows)
+(33 rows)
 
 select * from unique_sql_test1 where b in (select b from unique_sql_test2) and a = 66 order by b;
  a  | b  

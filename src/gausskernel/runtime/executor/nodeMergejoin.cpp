@@ -783,10 +783,11 @@ TupleTableSlot* ExecMergeJoin(MergeJoinState* node)
                     }
 
                     /*
-                     * In a semijoin, we'll consider returning the first
-                     * match, but after that we're done with this outer tuple.
+                     * If we only need to join to the first matching inner
+                     * tuple, then consider returning this one, but after that
+                     * continue with next outer tuple.
                      */
-                    if (node->js.jointype == JOIN_SEMI)
+                    if (node->js.single_match)
                         node->mj_JoinState = EXEC_MJ_NEXTOUTER;
 
                     qual_result = (other_qual == NIL || ExecQual(other_qual, econtext, false));
@@ -1028,6 +1029,10 @@ TupleTableSlot* ExecMergeJoin(MergeJoinState* node)
                      * scan position to the first mark, and go join that tuple
                      * (and any following ones) to the new outer.
                      *
+                     * If we were able to determine mark and restore are not
+                     * needed, then we don't have to back up; the current
+                     * inner is already the first possible match.
+                     *
                      * NOTE: we do not need to worry about the MatchedInner
                      * state for the rescanned inner tuples.  We know all of
                      * them will match this new outer tuple and therefore
@@ -1040,16 +1045,20 @@ TupleTableSlot* ExecMergeJoin(MergeJoinState* node)
                      * forcing the merge clause to never match, so we never
                      * get here.
                      */
-                    ExecRestrPos(inner_plan);
+                    if (!node->mj_SkipMarkRestore)
+                    {
+                        ExecRestrPos(inner_plan);
 
-                    /*
-                     * ExecRestrPos probably should give us back a new Slot,
-                     * but since it doesn't, use the marked slot.  (The
-                     * previously returned mj_InnerTupleSlot cannot be assumed
-                     * to hold the required tuple.)
-                     */
-                    node->mj_InnerTupleSlot = inner_tuple_slot;
-                    /* we need not do MJEvalInnerValues again */
+                        /*
+                         * ExecRestrPos probably should give us back a new
+                         * Slot, but since it doesn't, use the marked slot.
+                         * (The previously returned mj_InnerTupleSlot cannot
+                         * be assumed to hold the required tuple.)
+                         */
+                        node->mj_InnerTupleSlot = inner_tuple_slot;
+                        /* we need not do MJEvalInnerValues again */
+                    }
+
                     node->mj_JoinState = EXEC_MJ_JOINTUPLES;
                 } else {
                     /* ----------------
@@ -1146,7 +1155,9 @@ TupleTableSlot* ExecMergeJoin(MergeJoinState* node)
                 MJ_DEBUG_COMPARE(compare_result);
 
                 if (compare_result == 0) {
-                    ExecMarkPos(inner_plan);
+                    if (!node->mj_SkipMarkRestore)
+                        ExecMarkPos(inner_plan);
+
                     if (node->mj_InnerTupleSlot == NULL) {
                         ereport(ERROR,
                                 (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
@@ -1433,13 +1444,22 @@ MergeJoinState* ExecInitMergeJoin(MergeJoin* node, EState* estate, int eflags)
     merge_state->js.nulleqqual = (List*)ExecInitExpr((Expr*)node->join.nulleqqual, (PlanState*)merge_state);
     merge_state->mj_ConstFalseJoin = false;
     /* merge_clauses are handled below */
+
     /*
      * initialize child nodes
      *
-     * inner child must support MARK/RESTORE.
+     * inner child must support MARK/RESTORE, unless we have detected that we
+     * don't need that.  Note that skip_mark_restore must never be set if
+     * there are non-mergeclause joinquals, since the logic wouldn't work.
      */
+    Assert(node->join.joinqual == NIL || !node->skip_mark_restore);
+    merge_state->mj_SkipMarkRestore = node->skip_mark_restore;
+
     outerPlanState(merge_state) = ExecInitNode(outerPlan(node), estate, eflags);
-    innerPlanState(merge_state) = ExecInitNode(innerPlan(node), estate, eflags | EXEC_FLAG_MARK);
+    innerPlanState(merge_state) = ExecInitNode(innerPlan(node), estate,
+                                                merge_state->mj_SkipMarkRestore ?
+                                                eflags :
+                                                (eflags | EXEC_FLAG_MARK));
 
     /*
      * For certain types of inner child nodes, it is advantageous to issue
@@ -1451,7 +1471,8 @@ MergeJoinState* ExecInitMergeJoin(MergeJoin* node, EState* estate, int eflags)
      * Currently, only Material wants the extra MARKs, and it will be helpful
      * only if eflags doesn't specify REWIND.
      */
-    if (IsA(innerPlan(node), Material) && (eflags & EXEC_FLAG_REWIND) == 0)
+    if (IsA(innerPlan(node), Material) && (eflags & EXEC_FLAG_REWIND) == 0
+        && !merge_state->mj_SkipMarkRestore)
         merge_state->mj_ExtraMarks = true;
     else
         merge_state->mj_ExtraMarks = false;
@@ -1464,6 +1485,12 @@ MergeJoinState* ExecInitMergeJoin(MergeJoin* node, EState* estate, int eflags)
     merge_state->mj_MarkedTupleSlot = ExecInitExtraTupleSlot(estate);
     ExecSetSlotDescriptor(merge_state->mj_MarkedTupleSlot, ExecGetResultType(innerPlanState(merge_state)));
 
+    /*
+     * detect whether we need only consider the first matching inner tuple
+     */
+    merge_state->js.single_match = (node->join.inner_unique || node->join.jointype == JOIN_SEMI);
+
+    /* set up null tuples for outer joins, if needed */
     switch (node->join.jointype) {
         case JOIN_INNER:
         case JOIN_SEMI:

@@ -34,6 +34,7 @@ extern VectorBatch* ExecVecAggregation(VecAggState* node);
 extern void ExecEndVecAggregation(VecAggState* node);
 extern void ExecReScanVecAggregation(VecAggState* node);
 extern void ExecEarlyFreeVecAggregation(VecAggState* node);
+extern void stddev_create_state_4_vector(PG_FUNCTION_ARGS);
 
 #define AGG_PREPARE 0
 #define AGG_BUILD 1

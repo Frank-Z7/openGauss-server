@@ -1284,17 +1284,15 @@ explain select * from (select * from student where rownum < 3 and id < 10) where
 
 --sublink
 explain select * from student where id in (select id from test where rownum < 4);
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
- Hash Join  (cost=0.16..24.51 rows=567 width=42)
+                                QUERY PLAN                                
+--------------------------------------------------------------------------
+ Hash Semi Join  (cost=0.12..29.98 rows=567 width=42)
    Hash Cond: (student.id = test.id)
    ->  Seq Scan on student  (cost=0.00..21.34 rows=1134 width=42)
-   ->  Hash  (cost=0.12..0.12 rows=3 width=4)
-         ->  HashAggregate  (cost=0.09..0.12 rows=3 width=4)
-               Group By Key: test.id
-               ->  Limit  (cost=0.00..0.06 rows=3 width=4)
-                     ->  Seq Scan on test  (cost=0.00..21.34 rows=1134 width=4)
-(8 rows)
+   ->  Hash  (cost=0.09..0.09 rows=3 width=4)
+         ->  Limit  (cost=0.00..0.06 rows=3 width=4)
+               ->  Seq Scan on test  (cost=0.00..21.34 rows=1134 width=4)
+(6 rows)
 
 explain select * from student where id in (select id from test where rownum < 4) and rownum < 6;
                                  QUERY PLAN                                 
@@ -1308,39 +1306,32 @@ explain select * from student where id in (select id from test where rownum < 4)
 (6 rows)
 
 explain select * from student where id in (select id from test where rownum < 4) and stuname in (select stuname from student where rownum < 6);
-                                        QUERY PLAN                                        
-------------------------------------------------------------------------------------------
- Hash Join  (cost=0.43..26.34 rows=284 width=42)
-   Hash Cond: ((public.student.stuname)::text = ("ANY_subquery".stuname)::text)
-   ->  Hash Join  (cost=0.16..24.51 rows=567 width=42)
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Hash Semi Join  (cost=0.33..34.46 rows=284 width=42)
+   Hash Cond: ((public.student.stuname)::text = (public.student.stuname)::text)
+   ->  Hash Semi Join  (cost=0.12..29.98 rows=567 width=42)
          Hash Cond: (public.student.id = test.id)
          ->  Seq Scan on student  (cost=0.00..21.34 rows=1134 width=42)
-         ->  Hash  (cost=0.12..0.12 rows=3 width=4)
-               ->  HashAggregate  (cost=0.09..0.12 rows=3 width=4)
-                     Group By Key: test.id
-                     ->  Limit  (cost=0.00..0.06 rows=3 width=4)
-                           ->  Seq Scan on test  (cost=0.00..21.34 rows=1134 width=4)
-   ->  Hash  (cost=0.21..0.21 rows=5 width=38)
-         ->  HashAggregate  (cost=0.16..0.21 rows=5 width=38)
-               Group By Key: ("ANY_subquery".stuname)::text
-               ->  Subquery Scan on "ANY_subquery"  (cost=0.00..0.14 rows=5 width=38)
-                     ->  Limit  (cost=0.00..0.09 rows=5 width=38)
-                           ->  Seq Scan on student  (cost=0.00..21.34 rows=1134 width=38)
-(16 rows)
+         ->  Hash  (cost=0.09..0.09 rows=3 width=4)
+               ->  Limit  (cost=0.00..0.06 rows=3 width=4)
+                     ->  Seq Scan on test  (cost=0.00..21.34 rows=1134 width=4)
+   ->  Hash  (cost=0.14..0.14 rows=5 width=38)
+         ->  Limit  (cost=0.00..0.09 rows=5 width=38)
+               ->  Seq Scan on student  (cost=0.00..21.34 rows=1134 width=38)
+(11 rows)
 
 explain select * from student where id in (select id from test where rownum < 4 and id < 7);
-                                  QUERY PLAN                                   
--------------------------------------------------------------------------------
- Hash Join  (cost=0.30..24.64 rows=567 width=42)
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Hash Semi Join  (cost=0.26..30.12 rows=567 width=42)
    Hash Cond: (student.id = test.id)
    ->  Seq Scan on student  (cost=0.00..21.34 rows=1134 width=42)
-   ->  Hash  (cost=0.26..0.26 rows=3 width=4)
-         ->  HashAggregate  (cost=0.23..0.26 rows=3 width=4)
-               Group By Key: test.id
-               ->  Limit  (cost=0.00..0.19 rows=3 width=4)
-                     ->  Seq Scan on test  (cost=0.00..24.18 rows=378 width=4)
-                           Filter: (id < 7)
-(9 rows)
+   ->  Hash  (cost=0.22..0.22 rows=3 width=4)
+         ->  Limit  (cost=0.00..0.19 rows=3 width=4)
+               ->  Seq Scan on test  (cost=0.00..24.18 rows=378 width=4)
+                     Filter: (id < 7)
+(7 rows)
 
 explain select * from student where id in (select id from test where rownum < 4) and rownum < 6 and id > 3;
                                  QUERY PLAN                                 

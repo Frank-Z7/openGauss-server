@@ -2857,11 +2857,10 @@ void cost_limit(Plan* plan, Plan* lefttree, int64 offset_est, int64 count_est)
  * 'jointype' is the type of join to be performed
  * 'outer_path' is the outer input to the join
  * 'inner_path' is the inner input to the join
- * 'sjinfo' is extra info about the join for selectivity estimation
- * 'semifactors' contains valid data if jointype is SEMI or ANTI
+ * 'extra' contains miscellaneous information about the join
  */
 void initial_cost_nestloop(PlannerInfo* root, JoinCostWorkspace* workspace, JoinType jointype, Path* outer_path,
-    Path* inner_path, SpecialJoinInfo* sjinfo, SemiAntiJoinFactors* semifactors, int dop)
+    Path* inner_path, JoinPathExtraData *extra, int dop)
 {
     Cost startup_cost = 0;
     Cost run_cost = 0;
@@ -2893,12 +2892,13 @@ void initial_cost_nestloop(PlannerInfo* root, JoinCostWorkspace* workspace, Join
     inner_run_cost = inner_path->total_cost - inner_path->startup_cost;
     inner_rescan_run_cost = inner_rescan_total_cost - inner_rescan_start_cost;
 
-    if (jointype == JOIN_SEMI || jointype == JOIN_ANTI) {
+    if (jointype == JOIN_SEMI || jointype == JOIN_ANTI || extra->inner_unique) {
         double outer_matched_rows;
         Selectivity inner_scan_frac;
 
         /*
-         * SEMI or ANTI join: executor will stop after first match.
+         * With a SEMI or ANTI join, or if the innerrel is known unique, the
+         * executor will stop after the first match.
          *
          * For an outer-rel row that has at least one match, we can expect the
          * inner scan to stop after a fraction 1/(match_count+1) of the inner
@@ -2917,8 +2917,8 @@ void initial_cost_nestloop(PlannerInfo* root, JoinCostWorkspace* workspace, Join
          */
         run_cost += inner_run_cost;
 
-        outer_matched_rows = rint(outer_path_rows * semifactors->outer_match_frac);
-        inner_scan_frac = 2.0 / (semifactors->match_count + 1.0);
+        outer_matched_rows = rint(outer_path_rows * extra->semifactors.outer_match_frac);
+        inner_scan_frac = 2.0 / (extra->semifactors.match_count + 1.0);
 
         /* Add inner run cost for additional outer tuples having matches */
         if (outer_matched_rows > 1)
@@ -2960,11 +2960,10 @@ void initial_cost_nestloop(PlannerInfo* root, JoinCostWorkspace* workspace, Join
  *
  * 'path' is already filled in except for the rows and cost fields
  * 'workspace' is the result from initial_cost_nestloop
- * 'sjinfo' is extra info about the join for selectivity estimation
- * 'semifactors' contains valid data if path->jointype is SEMI or ANTI
+ * 'extra' contains miscellaneous information about the join
  */
-void final_cost_nestloop(PlannerInfo* root, NestPath* path, JoinCostWorkspace* workspace, SpecialJoinInfo* sjinfo,
-    SemiAntiJoinFactors* semifactors, bool hasalternative, int dop)
+void final_cost_nestloop(PlannerInfo* root, NestPath* path, JoinCostWorkspace* workspace, JoinPathExtraData *extra,
+    bool hasalternative, int dop)
 {
     Path* outer_path = path->outerjoinpath;
     Path* inner_path = path->innerjoinpath;
@@ -3002,12 +3001,13 @@ void final_cost_nestloop(PlannerInfo* root, NestPath* path, JoinCostWorkspace* w
         startup_cost += g_instance.cost_cxt.disable_cost;
 
     /* cost of source data */
-    if (path->jointype == JOIN_SEMI || path->jointype == JOIN_ANTI) {
+    if (path->jointype == JOIN_SEMI || path->jointype == JOIN_ANTI || extra->inner_unique) {
         double outer_matched_rows = workspace->outer_matched_rows;
         Selectivity inner_scan_frac = workspace->inner_scan_frac;
 
         /*
-         * SEMI or ANTI join: executor will stop after first match.
+         * With a SEMI or ANTI join, or if the innerrel is known unique, the
+         * executor will stop after the first match.
          */
         /* Compute number of tuples processed (not number emitted!) */
         ntuples = outer_matched_rows * inner_path_rows * inner_scan_frac;
@@ -3090,13 +3090,13 @@ void final_cost_nestloop(PlannerInfo* root, NestPath* path, JoinCostWorkspace* w
  * 'inner_path' is the inner input to the join
  * 'outersortkeys' is the list of sort keys for the outer path
  * 'innersortkeys' is the list of sort keys for the inner path
- * 'sjinfo' is extra info about the join for selectivity estimation
+ * 'extra' contains miscellaneous information about the join
  *
  * Note: outersortkeys and innersortkeys should be NIL if no explicit
  * sort is needed because the respective source path is already ordered.
  */
 void initial_cost_mergejoin(PlannerInfo* root, JoinCostWorkspace* workspace, JoinType jointype, List* mergeclauses,
-    Path* outer_path, Path* inner_path, List* outersortkeys, List* innersortkeys, SpecialJoinInfo* sjinfo)
+    Path* outer_path, Path* inner_path, List* outersortkeys, List* innersortkeys, JoinPathExtraData *extra)
 {
     Cost startup_cost = 0;
     Cost run_cost = 0;
@@ -3308,24 +3308,31 @@ void initial_cost_mergejoin(PlannerInfo* root, JoinCostWorkspace* workspace, Joi
  * final_cost_mergejoin
  *	  Final estimate of the cost and result size of a mergejoin path.
  *
- * Unlike other costsize functions, this routine makes one actual decision:
- * whether we should materialize the inner path.  We do that either because
- * the inner path can't support mark/restore, or because it's cheaper to
- * use an interposed Material node to handle mark/restore.	When the decision
- * is cost-based it would be logically cleaner to build and cost two separate
- * paths with and without that flag set; but that would require repeating most
- * of the cost calculations, which are not all that cheap.	Since the choice
- * will not affect output pathkeys or startup cost, only total cost, there is
- * no possibility of wanting to keep both paths.  So it seems best to make
- * the decision here and record it in the path's materialize_inner field.
+ * Unlike other costsize functions, this routine makes two actual decisions:
+ * whether the executor will need to do mark/restore, and whether we should
+ * materialize the inner path.  It would be logically cleaner to build
+ * separate paths testing these alternatives, but that would require repeating
+ * most of the cost calculations, which are not all that cheap.  Since the
+ * choice will not affect output pathkeys or startup cost, only total cost,
+ * there is no possibility of wanting to keep more than one path.  So it seems
+ * best to make the decisions here and record them in the path's
+ * skip_mark_restore and materialize_inner fields.
+ *
+ * Mark/restore overhead is usually required, but can be skipped if we know
+ * that the executor need find only one match per outer tuple, and that the
+ * mergeclauses are sufficient to identify a match.
+ *
+ * We materialize the inner path if we need mark/restore and either the inner
+ * path can't support mark/restore, or it's cheaper to use an interposed
+ * Material node to handle mark/restore.
  *
  * 'path' is already filled in except for the rows and cost fields and
- *		materialize_inner
+ *		skip_mark_restore and materialize_inner
  * 'workspace' is the result from initial_cost_mergejoin
- * 'sjinfo' is extra info about the join for selectivity estimation
+ * 'extra' contains miscellaneous information about the join
  */
 void final_cost_mergejoin(
-    PlannerInfo* root, MergePath* path, JoinCostWorkspace* workspace, SpecialJoinInfo* sjinfo, bool hasalternative)
+    PlannerInfo* root, MergePath* path, JoinCostWorkspace* workspace, JoinPathExtraData *extra, bool hasalternative)
 {
     Path* outer_path = path->jpath.outerjoinpath;
     Path* inner_path = path->jpath.innerjoinpath;
@@ -3374,6 +3381,18 @@ void final_cost_mergejoin(
     cost_qual_eval(&qp_qual_cost, path->jpath.joinrestrictinfo, root);
     qp_qual_cost.startup -= merge_qual_cost.startup;
     qp_qual_cost.per_tuple -= merge_qual_cost.per_tuple;
+    
+    /*
+     * With a SEMI or ANTI join, or if the innerrel is known unique, the
+     * executor will stop scanning for matches after the first match.  When
+     * all the joinclauses are merge clauses, this means we don't ever need to
+     * back up the merge, and so we can skip mark/restore overhead.
+     */
+    if ((path->jpath.jointype == JOIN_SEMI || path->jpath.jointype == JOIN_ANTI || extra->inner_unique) &&
+        (list_length(path->jpath.joinrestrictinfo) == list_length(path->path_mergeclauses)))
+        path->skip_mark_restore = true;
+    else
+        path->skip_mark_restore = false;
 
     /*
      * Get approx # tuples passing the mergequals.	We use approx_tuple_count
@@ -3405,9 +3424,9 @@ void final_cost_mergejoin(
      * computations?
      *
      * The whole issue is moot if we are working from a unique-ified outer
-     * input.
+     * input, or if we know we don't need to mark/restore at all.
      */
-    if (IsA(outer_path, UniquePath))
+    if (IsA(outer_path, UniquePath) ||path->skip_mark_restore)
         rescannedtuples = 0;
     else {
         rescannedtuples = mergejointuples - inner_path_rows;
@@ -3448,11 +3467,19 @@ void final_cost_mergejoin(
     int inner_width = get_path_actual_total_width(inner_path, root->glob->vectorized, OP_MATERIAL);
     double inner_rel_size = relation_byte_size(inner_path_rows, inner_width, root->glob->vectorized, true, false);
     bool mat_spill_disk = (inner_rel_size > (u_sess->opt_cxt.op_work_mem * 1024L));
+
+    
+    /*
+     * If we don't need mark/restore at all, we don't need materialization.
+     */
+    if (path->skip_mark_restore)
+        path->materialize_inner = false;
+
     /*
      * Prefer materializing if it looks cheaper, unless the user has asked to
      * suppress materialization.
      */
-    if (u_sess->attr.attr_sql.enable_material && mat_inner_cost < bare_inner_cost)
+    else if (u_sess->attr.attr_sql.enable_material && mat_inner_cost < bare_inner_cost)
         path->materialize_inner = true;
 
     /*
@@ -3619,11 +3646,10 @@ MergeScanSelCache* cached_scansel(PlannerInfo* root, RestrictInfo* rinfo, PathKe
  * 'hashclauses' is the list of joinclauses to be used as hash clauses
  * 'outer_path' is the outer input to the join
  * 'inner_path' is the inner input to the join
- * 'sjinfo' is extra info about the join for selectivity estimation
- * 'semifactors' contains valid data if jointype is SEMI or ANTI
+ * 'extra' contains miscellaneous information about the join
  */
 void initial_cost_hashjoin(PlannerInfo* root, JoinCostWorkspace* workspace, JoinType jointype, List* hashclauses,
-    Path* outer_path, Path* inner_path, SpecialJoinInfo* sjinfo, SemiAntiJoinFactors* semifactors, int dop)
+    Path* outer_path, Path* inner_path, JoinPathExtraData *extra, int dop)
 {
     Cost startup_cost = 0;
     Cost run_cost = 0;
@@ -3881,11 +3907,10 @@ Selectivity compute_bucket_size(PlannerInfo* root, RestrictInfo* restrictinfo, d
  * 'path' is already filled in except for the rows and cost fields and
  *		num_batches
  * 'workspace' is the result from initial_cost_hashjoin
- * 'sjinfo' is extra info about the join for selectivity estimation
- * 'semifactors' contains valid data if path->jointype is SEMI or ANTI
+ * 'extra' contains miscellaneous information about the join
  */
-void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* workspace, SpecialJoinInfo* sjinfo,
-    SemiAntiJoinFactors* semifactors, bool hasalternative, int dop)
+void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* workspace, JoinPathExtraData *extra,
+    bool hasalternative, int dop)
 {
     Path* outer_path = path->jpath.outerjoinpath;
     Path* inner_path = path->jpath.innerjoinpath;
@@ -3962,7 +3987,7 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
                 "The NULL PlannerInfo is not allowed."
                 "when estimating the cost and result size of a hashjoin path.");
             (void)es->calculate_selectivity(
-                root, hashclauses, sjinfo, path->jpath.jointype, &path->jpath, ES_COMPUTEBUCKETSIZE);
+                root, hashclauses, extra->sjinfo, path->jpath.jointype, &path->jpath, ES_COMPUTEBUCKETSIZE);
             clauselist = es->unmatched_clause_group;
             (void)MemoryContextSwitchTo(oldcontext);
 
@@ -4032,7 +4057,7 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
              */
             if (bms_is_subset(restrictinfo->right_relids, inner_path->parent->relids)) {
                 thisbucketsize =
-                    compute_bucket_size(root, restrictinfo, virtualbuckets, inner_path, false, sjinfo, &innerdistinct);
+                    compute_bucket_size(root, restrictinfo, virtualbuckets, inner_path, false, extra->sjinfo, &innerdistinct);
                 outerkey = get_leftop(restrictinfo->clause);
             } else {
                 AssertEreport(bms_is_subset(restrictinfo->left_relids, inner_path->parent->relids),
@@ -4040,7 +4065,7 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
                     "The left relids is not subset of the relids of inner path's parent"
                     "when estimating the cost and result size of a hashjoin path.");
                 thisbucketsize =
-                    compute_bucket_size(root, restrictinfo, virtualbuckets, inner_path, true, sjinfo, &innerdistinct);
+                    compute_bucket_size(root, restrictinfo, virtualbuckets, inner_path, true, extra->sjinfo, &innerdistinct);
                 outerkey = get_rightop(restrictinfo->clause);
             }
 
@@ -4066,7 +4091,7 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
 
                     /* When calculating outerdistinct we have to take skew into consideration */
                     outerbucketsize =
-                        estimate_hash_bucketsize(root, outerkey, virtualbuckets, outer_path, sjinfo, NULL);
+                        estimate_hash_bucketsize(root, outerkey, virtualbuckets, outer_path, extra->sjinfo, NULL);
 
                     /*
                      * Restrict outerdistinct less than MIN_HASH_BUCKET_SIZE
@@ -4151,12 +4176,13 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
     qp_qual_cost.per_tuple -= hash_qual_cost.per_tuple;
 
     /* CPU costs */
-    if (path->jpath.jointype == JOIN_SEMI || path->jpath.jointype == JOIN_ANTI) {
+    if (path->jpath.jointype == JOIN_SEMI || path->jpath.jointype == JOIN_ANTI || extra->inner_unique) {
         double outer_matched_rows;
         Selectivity inner_scan_frac;
 
         /*
-         * SEMI or ANTI join: executor will stop after first match.
+         * With a SEMI or ANTI join, or if the innerrel is known unique, the
+         * executor will stop after the first match.
          *
          * For an outer-rel row that has at least one match, we can expect the
          * bucket scan to stop after a fraction 1/(match_count+1) of the
@@ -4166,8 +4192,8 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
          * to clamp inner_scan_frac to at most 1.0; but since match_count is
          * at least 1, no such clamp is needed now.)
          */
-        outer_matched_rows = rint(outer_path_rows * semifactors->outer_match_frac);
-        inner_scan_frac = 2.0 / (semifactors->match_count + 1.0);
+        outer_matched_rows = rint(outer_path_rows * extra->semifactors.outer_match_frac);
+        inner_scan_frac = 2.0 / (extra->semifactors.match_count + 1.0);
 
         startup_cost += hash_qual_cost.startup;
         double matching_cost = hash_qual_cost.per_tuple * clamp_row_est(outer_matched_rows * outer_scan_ratio) *
@@ -4203,10 +4229,10 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
                 errmsg("Add cpu cost: startup_cost: %lf, run_cost: %lf", startup_cost, run_cost)));
 
         /* Get # of tuples that will pass the basic join */
-        if (path->jpath.jointype == JOIN_SEMI)
-            hashjointuples = outer_matched_rows;
-        else
+        if (path->jpath.jointype == JOIN_ANTI)
             hashjointuples = outer_path_rows - outer_matched_rows;
+        else
+            hashjointuples = outer_matched_rows;
 
         ereport(DEBUG1,
             (errmodule(MOD_OPT_JOIN),
@@ -4242,9 +4268,9 @@ void final_cost_hashjoin(PlannerInfo* root, HashPath* path, JoinCostWorkspace* w
          *                N
          *       Hence, N' should be corrected, e.g.   N' = min (N', N * d1/d2)
          */
-        outer_matched_rows = rint(outer_path_rows * semifactors->outer_match_frac);
+        outer_matched_rows = rint(outer_path_rows * extra->semifactors.outer_match_frac);
         outer_matched_rows = Min(outer_matched_rows, outer_scan_ratio * outer_path_rows);
-        inner_matched_rows = rint(inner_path_rows * semifactors->match_count);
+        inner_matched_rows = rint(inner_path_rows * extra->semifactors.match_count);
 
         startup_cost += hash_qual_cost.startup;
 
@@ -4867,6 +4893,7 @@ static void get_restriction_qual_cost(
  *
  * In a hash or nestloop SEMI/ANTI join, the executor will stop scanning
  * inner rows as soon as it finds a match to the current outer row.
+ * The same happens if we have detected the inner rel is unique.
  * We should therefore adjust some of the cost components for this effect.
  * This function computes some estimates needed for these adjustments.
  * These estimates will be the same regardless of the particular paths used
@@ -4876,7 +4903,7 @@ static void get_restriction_qual_cost(
  * Input parameters:
  *	outerrel: outer relation under consideration
  *	innerrel: inner relation under consideration
- *	jointype: must be JOIN_SEMI or JOIN_ANTI
+ *	jointype: if not JOIN_SEMI or JOIN_ANTI, we assume it's inner_unique
  *	sjinfo: SpecialJoinInfo relevant to this join
  *	restrictlist: join quals
  * Output parameters:
@@ -4892,19 +4919,14 @@ void compute_semi_anti_join_factors(PlannerInfo* root, RelOptInfo* outerrel, Rel
     List* joinquals = NIL;
     ListCell* l = NULL;
 
-    /* Should only be called in these cases */
-    AssertEreport(jointype == JOIN_SEMI || jointype == JOIN_ANTI,
-        MOD_OPT,
-        "Only JOIN_SEMI or JOIN_ANTI can be supported"
-        "when estimating how much of the inner input a SEMI or ANTI join can be expected to scan.");
-
     /*
      * In an ANTI join, we must ignore clauses that are "pushed down", since
      * those won't affect the match logic.  In a SEMI join, we do not
      * distinguish joinquals from "pushed down" quals, so just use the whole
-     * restrictinfo list.
+     * restrictinfo list.  For other outer join types, we should consider only
+     * non-pushed-down quals, so that this devolves to an IS_OUTER_JOIN check.
      */
-    if (jointype == JOIN_ANTI) {
+    if (IS_PG_OUTER_JOIN(jointype)) {
         joinquals = NIL;
         foreach (l, restrictlist) {
             RestrictInfo* rinfo = (RestrictInfo*)lfirst(l);
@@ -4922,7 +4944,8 @@ void compute_semi_anti_join_factors(PlannerInfo* root, RelOptInfo* outerrel, Rel
     /*
      * Get the JOIN_SEMI or JOIN_ANTI selectivity of the join clauses.
      */
-    jselec = clauselist_selectivity(root, joinquals, 0, jointype, sjinfo);
+    jselec = clauselist_selectivity(root, joinquals, 0,
+                                    (jointype == JOIN_ANTI) ? JOIN_ANTI : JOIN_SEMI, sjinfo);
 
     /*
      * Also get the normal inner-join selectivity of the join clauses.
@@ -4943,7 +4966,7 @@ void compute_semi_anti_join_factors(PlannerInfo* root, RelOptInfo* outerrel, Rel
     nselec = clauselist_selectivity(root, joinquals, 0, JOIN_INNER, &norm_sjinfo);
 
     /* Avoid leaking a lot of ListCells */
-    if (jointype == JOIN_ANTI)
+    if (IS_PG_OUTER_JOIN(jointype))
         list_free_ext(joinquals);
 
     /*

@@ -260,23 +260,20 @@ explain (verbose on, costs off) DELETE FROM distribute_target_hash_01 WHERE c1 <
 (4 rows)
 
 explain (verbose on, costs off) DELETE FROM distribute_target_hash_01 WHERE c1 in (select c2 from distribute_source_hash_01 where c1 < 50);
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
  Delete on distribute_dml.distribute_target_hash_01
-   ->  Hash Join
+   ->  Hash Semi Join
          Output: distribute_target_hash_01.ctid, distribute_source_hash_01.ctid
          Hash Cond: ((distribute_target_hash_01.c1)::numeric = distribute_source_hash_01.c2)
          ->  Seq Scan on distribute_dml.distribute_target_hash_01
                Output: distribute_target_hash_01.ctid, distribute_target_hash_01.c1
          ->  Hash
                Output: distribute_source_hash_01.ctid, distribute_source_hash_01.c2
-               ->  HashAggregate
+               ->  Seq Scan on distribute_dml.distribute_source_hash_01
                      Output: distribute_source_hash_01.ctid, distribute_source_hash_01.c2
-                     Group By Key: distribute_source_hash_01.c2
-                     ->  Seq Scan on distribute_dml.distribute_source_hash_01
-                           Output: distribute_source_hash_01.ctid, distribute_source_hash_01.c2
-                           Filter: (distribute_source_hash_01.c1 < 50)
-(14 rows)
+                     Filter: (distribute_source_hash_01.c1 < 50)
+(11 rows)
 
 explain (verbose on, costs off) DELETE FROM distribute_target_hash_01 WHERE c3 in (select c2 from distribute_source_hash_01);
                                          QUERY PLAN                                          
@@ -481,6 +478,7 @@ explain (costs off, verbose on) delete from insert_tb1 where (a, b ,c) in (selec
  Delete on distribute_dml.insert_tb1
    ->  Hash Join
          Output: insert_tb1.ctid, insert_tb2.ctid
+         Inner Unique: true
          Hash Cond: ((insert_tb1.a = insert_tb2.a) AND (insert_tb1.b = insert_tb2.b) AND (insert_tb1.c = insert_tb2.c))
          ->  Seq Scan on distribute_dml.insert_tb1
                Output: insert_tb1.ctid, insert_tb1.a, insert_tb1.b, insert_tb1.c
@@ -491,7 +489,7 @@ explain (costs off, verbose on) delete from insert_tb1 where (a, b ,c) in (selec
                      Group By Key: insert_tb2.a, insert_tb2.b, insert_tb2.c
                      ->  Seq Scan on distribute_dml.insert_tb2
                            Output: insert_tb2.ctid, insert_tb2.a, insert_tb2.b, insert_tb2.c
-(13 rows)
+(14 rows)
 
 explain (costs off, verbose on) delete from insert_tb1 where (a, b) in (select a, b from insert_tb2);
                                       QUERY PLAN                                      
@@ -499,6 +497,7 @@ explain (costs off, verbose on) delete from insert_tb1 where (a, b) in (select a
  Delete on distribute_dml.insert_tb1
    ->  Hash Join
          Output: insert_tb1.ctid, insert_tb2.ctid
+         Inner Unique: true
          Hash Cond: ((insert_tb1.a = insert_tb2.a) AND (insert_tb1.b = insert_tb2.b))
          ->  Seq Scan on distribute_dml.insert_tb1
                Output: insert_tb1.ctid, insert_tb1.a, insert_tb1.b
@@ -509,7 +508,7 @@ explain (costs off, verbose on) delete from insert_tb1 where (a, b) in (select a
                      Group By Key: insert_tb2.a, insert_tb2.b
                      ->  Seq Scan on distribute_dml.insert_tb2
                            Output: insert_tb2.ctid, insert_tb2.a, insert_tb2.b
-(13 rows)
+(14 rows)
 
 insert into insert_tb2 select generate_series(1, 1000), generate_series(1, 1000), generate_series(1, 1000) from src;
 insert into insert_tb1  select * from insert_tb2;
@@ -629,6 +628,7 @@ explain (verbose on, costs off) delete from delete_t1 where b in (select b from 
  Delete on distribute_dml.delete_t1
    ->  Hash Join
          Output: delete_t1.ctid, delete_t2.ctid
+         Inner Unique: true
          Hash Cond: (delete_t1.b = delete_t2.b)
          ->  Seq Scan on distribute_dml.delete_t1
                Output: delete_t1.ctid, delete_t1.b
@@ -639,7 +639,7 @@ explain (verbose on, costs off) delete from delete_t1 where b in (select b from 
                      Group By Key: delete_t2.b
                      ->  Seq Scan on distribute_dml.delete_t2
                            Output: delete_t2.ctid, delete_t2.b
-(13 rows)
+(14 rows)
 
 insert into delete_t1 select generate_series(1, 1000), generate_series(1, 1000), generate_series(1, 1000) from src;
 insert into delete_t2 select generate_series(1, 1000), generate_series(1, 1000), generate_series(1, 1000) from src;
