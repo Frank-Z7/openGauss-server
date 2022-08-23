@@ -78,6 +78,7 @@ typedef enum ParseExprKind
     EXPR_KIND_CALL_ARGUMENT,    /* procedure argument in CALL */
     EXPR_KIND_COPY_WHERE,        /* WHERE condition in COPY FROM */
     EXPR_KIND_GENERATED_COLUMN, /* generation expression for a column */
+    EXPR_KIND_MERGE_WHEN,        /* WHEN condition in MERTE stmt */
 } ParseExprKind;
 
 /*
@@ -169,6 +170,7 @@ struct ParseState {
     /* Flags telling about things found in the query: */
     bool p_hasAggs;
     bool p_hasWindowFuncs;
+    bool p_hasTargetSRFs;
     bool p_hasSubLinks;
     bool p_hasModifyingCTE;
     bool p_is_insert;

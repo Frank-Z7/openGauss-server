@@ -151,6 +151,7 @@ extern void set_values_size_estimates(PlannerInfo* root, RelOptInfo* rel);
 extern void set_cte_size_estimates(PlannerInfo* root, RelOptInfo* rel, Plan* cteplan);
 extern void set_foreign_size_estimates(PlannerInfo* root, RelOptInfo* rel);
 extern void set_result_size_estimates(PlannerInfo *root, RelOptInfo *rel);
+extern PathTarget *set_pathtarget_cost_width(PlannerInfo *root, PathTarget *target);
 
 /*
  * prototypes for clausesel.c

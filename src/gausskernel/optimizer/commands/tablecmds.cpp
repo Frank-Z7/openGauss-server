@@ -12682,7 +12682,7 @@ static void ATPrepAlterColumnType(List** wqueue, AlteredTableInfo* tab, Relation
 
             addRTEtoQuery(pstate, rte, false, true, true);
 
-            transform = transformExpr(pstate, transform);
+            transform = transformExpr(pstate, transform, EXPR_KIND_ALTER_COL_TRANSFORM);
 
             if (RelationIsColStore(rel)) {
                 Bitmapset* attrs_referred = NULL;

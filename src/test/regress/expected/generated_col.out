@@ -61,7 +61,7 @@ ERROR:  cannot use window function in generated column expression
 CREATE TABLE gtest_err_7c (a int PRIMARY KEY, b int GENERATED ALWAYS AS ((SELECT a)) STORED);
 ERROR:  cannot use subquery in generated column expression
 CREATE TABLE gtest_err_7d (a int PRIMARY KEY, b int GENERATED ALWAYS AS (generate_series(1, a)) STORED);
-ERROR:  generated column expression must not return a set
+ERROR:  set-returning functions are not allowed in generation expression
 INSERT INTO gtest1 VALUES (1);
 INSERT INTO gtest1 VALUES (2, DEFAULT);
 INSERT INTO gtest1 VALUES (21, DEFAULT), (22, DEFAULT), (23, DEFAULT), (24, DEFAULT);

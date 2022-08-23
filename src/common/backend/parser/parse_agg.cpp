@@ -154,6 +154,7 @@ void transformAggregateCall(ParseState* pstate, Aggref* agg, List* args, List* a
         torder = transformSortClause(pstate,
             aggorder,
             &tlist,
+            EXPR_KIND_WINDOW_ORDER,
             true,  /* fix unknowns */
             true); /* force SQL99 rules */
 
@@ -1378,7 +1379,7 @@ Node* transformGroupingFunc(ParseState* pstate, GroupingFunc* p)
 
     foreach (lc, args) {
         Node* current_result = NULL;
-        current_result = transformExpr(pstate, (Node*)lfirst(lc));
+        current_result = transformExpr(pstate, (Node*)lfirst(lc), pstate->p_expr_kind);
         /* acceptability of expressions is checked later */
         result_list = lappend(result_list, current_result);
     }

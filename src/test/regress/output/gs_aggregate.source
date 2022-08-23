@@ -29,15 +29,17 @@ select
 from customer
 where length(c_birth_country)<5 and c_birth_month<9
 group by c_birth_day,c_birth_month;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate
-   Output: count(*), regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text), c_birth_day, c_birth_month
-   Group By Key: customer.c_birth_day, customer.c_birth_month
-   ->  Seq Scan on gs_aggregate.customer
-         Output: c_birth_day, c_birth_month
-         Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
-(6 rows)
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ ProjectSet
+   Output: (count(*)), regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text), c_birth_day, c_birth_month
+   ->  HashAggregate
+         Output: c_birth_day, c_birth_month, count(*)
+         Group By Key: customer.c_birth_day, customer.c_birth_month
+         ->  Seq Scan on gs_aggregate.customer
+               Output: c_birth_day, c_birth_month
+               Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
+(8 rows)
 
 explain (verbose on, costs off)
 select 
@@ -47,13 +49,15 @@ where length(c_birth_country)<5 and c_birth_month<9
 group by c_birth_day,c_birth_month;
                                                              QUERY PLAN                                                             
 ------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate
+ ProjectSet
    Output: regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text), c_birth_day, c_birth_month
-   Group By Key: customer.c_birth_day, customer.c_birth_month
-   ->  Seq Scan on gs_aggregate.customer
+   ->  HashAggregate
          Output: c_birth_day, c_birth_month
-         Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
-(6 rows)
+         Group By Key: customer.c_birth_day, customer.c_birth_month
+         ->  Seq Scan on gs_aggregate.customer
+               Output: c_birth_day, c_birth_month
+               Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
+(8 rows)
 
 explain (verbose on, costs off)
 select 
@@ -62,15 +66,19 @@ select
 from customer
 where length(c_birth_country)<5 and c_birth_month<9
 group by c_birth_day,c_birth_month;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate
-   Output: ((count(*))::text || regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text)), c_birth_day, c_birth_month
-   Group By Key: customer.c_birth_day, customer.c_birth_month
-   ->  Seq Scan on gs_aggregate.customer
-         Output: c_birth_day, c_birth_month
-         Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
-(6 rows)
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Result
+   Output: (((count(*)))::text || (regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text))), c_birth_day, c_birth_month
+   ->  ProjectSet
+         Output: regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text), (count(*)), c_birth_day, c_birth_month
+         ->  HashAggregate
+               Output: c_birth_day, c_birth_month, count(*)
+               Group By Key: customer.c_birth_day, customer.c_birth_month
+               ->  Seq Scan on gs_aggregate.customer
+                     Output: c_birth_day, c_birth_month
+                     Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
+(10 rows)
 
 explain (verbose on, costs off)
 select 
@@ -79,15 +87,17 @@ select
 from customer
 where length(c_birth_country)<5 and c_birth_month<9
 group by c_birth_day,c_birth_month;
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
- HashAggregate
-   Output: sum(c_birth_month), regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text), c_birth_day, c_birth_month
-   Group By Key: customer.c_birth_day, customer.c_birth_month
-   ->  Seq Scan on gs_aggregate.customer
-         Output: c_birth_day, c_birth_month
-         Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
-(6 rows)
+                                                                        QUERY PLAN                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ ProjectSet
+   Output: (sum(c_birth_month)), regexp_split_to_table(((c_birth_day)::text || (c_birth_month)::text), (c_birth_month)::text), c_birth_day, c_birth_month
+   ->  HashAggregate
+         Output: c_birth_day, c_birth_month, sum(c_birth_month)
+         Group By Key: customer.c_birth_day, customer.c_birth_month
+         ->  Seq Scan on gs_aggregate.customer
+               Output: c_birth_day, c_birth_month
+               Filter: ((customer.c_birth_month < 9) AND (length((customer.c_birth_country)::text) < 5))
+(8 rows)
 
 DROP TABLE customer;
 -- case 2
@@ -99,19 +109,21 @@ explain (verbose on, costs off) SELECT dataa, datab b, generate_series(1,2) g, c
  Sort
    Output: dataa, datab, (generate_series(1, 2)), (count(*))
    Sort Key: few.dataa, few.datab, (generate_series(1, 2)), (count(*))
-   ->  GroupAggregate
-         Output: dataa, datab, generate_series(1, 2), count(*)
-         Group By Key: few.dataa, few.datab
-         Group By Key: few.dataa
-         Group By Key: ()
-         Sort Key: few.datab
-           Group By Key: few.datab
-         ->  Sort
-               Output: dataa, datab
-               Sort Key: few.dataa, few.datab
-               ->  Seq Scan on gs_aggregate.few
+   ->  ProjectSet
+         Output: dataa, datab, generate_series(1, 2), (count(*))
+         ->  GroupAggregate
+               Output: dataa, datab, count(*)
+               Group By Key: few.dataa, few.datab
+               Group By Key: few.dataa
+               Group By Key: ()
+               Sort Key: few.datab
+                 Group By Key: few.datab
+               ->  Sort
                      Output: dataa, datab
-(15 rows)
+                     Sort Key: few.dataa, few.datab
+                     ->  Seq Scan on gs_aggregate.few
+                           Output: dataa, datab
+(17 rows)
 
 SELECT dataa, datab b, generate_series(1,2) g, count(*) FROM few GROUP BY CUBE(dataa, datab) ORDER BY 1,2,3,4;
  dataa |  b  | g | count 
@@ -144,11 +156,13 @@ explain (verbose on, costs off)  SELECT generate_series(1,2) ,sum(id) FROM few o
  Sort
    Output: (generate_series(1, 2)), (sum(id))
    Sort Key: (generate_series(1, 2)), (sum(few.id))
-   ->  Aggregate
-         Output: generate_series(1, 2), sum(id)
-         ->  Seq Scan on gs_aggregate.few
-               Output: id, dataa, datab
-(7 rows)
+   ->  ProjectSet
+         Output: generate_series(1, 2), (sum(id))
+         ->  Aggregate
+               Output: sum(id)
+               ->  Seq Scan on gs_aggregate.few
+                     Output: id, dataa, datab
+(9 rows)
 
 SELECT generate_series(1,2) ,sum(id) FROM few order by 1,2;
  generate_series | sum 
@@ -213,24 +227,26 @@ partition p10 values less than (10000),
 partition p11 values less than (maxvalue)
 );
 explain (verbose on, costs off) select count(*) from (select s_comment,regexp_split_to_table(s_comment, E' '),count(*) as num from supplier_part where S_SUPPKEY < 2000 group by 1  order by 1,2,3);
-                                                         QUERY PLAN                                                         
-----------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: count(*)
    ->  Sort
          Output: supplier_part.s_comment, (regexp_split_to_table((supplier_part.s_comment)::text, ' '::text)), (count(*))
          Sort Key: supplier_part.s_comment, (regexp_split_to_table((supplier_part.s_comment)::text, ' '::text)), (count(*))
-         ->  HashAggregate
-               Output: supplier_part.s_comment, regexp_split_to_table((supplier_part.s_comment)::text, ' '::text), count(*)
-               Group By Key: supplier_part.s_comment
-               ->  Partition Iterator
-                     Output: supplier_part.s_comment
-                     Iterations: 2
-                     ->  Partitioned Seq Scan on gs_aggregate.supplier_part
+         ->  ProjectSet
+               Output: supplier_part.s_comment, regexp_split_to_table((supplier_part.s_comment)::text, ' '::text), (count(*))
+               ->  HashAggregate
+                     Output: supplier_part.s_comment, count(*)
+                     Group By Key: supplier_part.s_comment
+                     ->  Partition Iterator
                            Output: supplier_part.s_comment
-                           Filter: (supplier_part.s_suppkey < 2000)
-                           Selected Partitions:  1..2
-(15 rows)
+                           Iterations: 2
+                           ->  Partitioned Seq Scan on gs_aggregate.supplier_part
+                                 Output: supplier_part.s_comment
+                                 Filter: (supplier_part.s_suppkey < 2000)
+                                 Selected Partitions:  1..2
+(17 rows)
 
 --force to do two-level agg
 SET enable_sort = off;
@@ -324,23 +340,27 @@ select distinct regexp_split_to_table(a||e,'a') ,count(*) from tmp join tmp1 on 
 union ALL
 select distinct regexp_split_to_table(nullif (a||e,'n'),'a') ,length(regexp_split_to_table(a||e,' ')) from tmp join tmp1 on a=e group by a,e order by 1,2
 );
-                                                                                                                                                     QUERY PLAN                                                                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate
    Output: count(*)
    ->  Sort
          Output: "*SELECT* 1".regexp_split_to_table, "*SELECT* 1".count
          Sort Key: "*SELECT* 1".regexp_split_to_table, "*SELECT* 1".count
          CTE tmp
-           ->  Seq Scan on gs_aggregate.customer_address
+           ->  ProjectSet
                  Output: regexp_split_to_table((customer_address.ca_street_name)::text, ' '::text), regexp_split_to_table((customer_address.ca_city)::text, ' '::text), regexp_split_to_table((customer_address.ca_county)::text, ' '::text), regexp_split_to_table((customer_address.ca_country)::text, ' '::text)
+                 ->  Seq Scan on gs_aggregate.customer_address
+                       Output: customer_address.ca_address_sk, customer_address.ca_address_id, customer_address.ca_street_number, customer_address.ca_street_name, customer_address.ca_street_type, customer_address.ca_suite_number, customer_address.ca_city, customer_address.ca_county, customer_address.ca_state, customer_address.ca_zip, customer_address.ca_country, customer_address.ca_gmt_offset, customer_address.ca_location_type
          CTE tmp1
-           ->  Partition Iterator
+           ->  ProjectSet
                  Output: regexp_split_to_table((web_site.web_street_name)::text, ' '::text), regexp_split_to_table((web_site.web_city)::text, ' '::text), regexp_split_to_table((web_site.web_county)::text, ' '::text)
-                 Iterations: 7
-                 ->  Partitioned Seq Scan on gs_aggregate.web_site
-                       Output: regexp_split_to_table((web_site.web_street_name)::text, ' '::text), regexp_split_to_table((web_site.web_city)::text, ' '::text), regexp_split_to_table((web_site.web_county)::text, ' '::text)
-                       Selected Partitions:  1..7
+                 ->  Partition Iterator
+                       Output: web_site.web_site_sk, web_site.web_site_id, web_site.web_rec_start_date, web_site.web_rec_end_date, web_site.web_name, web_site.web_open_date_sk, web_site.web_close_date_sk, web_site.web_class, web_site.web_manager, web_site.web_mkt_id, web_site.web_mkt_class, web_site.web_mkt_desc, web_site.web_market_manager, web_site.web_company_id, web_site.web_company_name, web_site.web_street_number, web_site.web_street_name, web_site.web_street_type, web_site.web_suite_number, web_site.web_city, web_site.web_county, web_site.web_state, web_site.web_zip, web_site.web_country, web_site.web_gmt_offset, web_site.web_tax_percentage
+                       Iterations: 7
+                       ->  Partitioned Seq Scan on gs_aggregate.web_site
+                             Output: web_site.web_site_sk, web_site.web_site_id, web_site.web_rec_start_date, web_site.web_rec_end_date, web_site.web_name, web_site.web_open_date_sk, web_site.web_close_date_sk, web_site.web_class, web_site.web_manager, web_site.web_mkt_id, web_site.web_mkt_class, web_site.web_mkt_desc, web_site.web_market_manager, web_site.web_company_id, web_site.web_company_name, web_site.web_street_number, web_site.web_street_name, web_site.web_street_type, web_site.web_suite_number, web_site.web_city, web_site.web_county, web_site.web_state, web_site.web_zip, web_site.web_country, web_site.web_gmt_offset, web_site.web_tax_percentage
+                             Selected Partitions:  1..7
          ->  Append
                ->  Subquery Scan on "*SELECT* 1"
                      Output: "*SELECT* 1".regexp_split_to_table, "*SELECT* 1".count
@@ -349,46 +369,52 @@ select distinct regexp_split_to_table(nullif (a||e,'n'),'a') ,length(regexp_spli
                            ->  Sort
                                  Output: (regexp_split_to_table((tmp.a || tmp1.e), 'a'::text)), (count(*)), tmp.a, tmp1.e
                                  Sort Key: (regexp_split_to_table((tmp.a || tmp1.e), 'a'::text)), (count(*))
-                                 ->  GroupAggregate
-                                       Output: regexp_split_to_table((tmp.a || tmp1.e), 'a'::text), count(*), tmp.a, tmp1.e
-                                       Group By Key: tmp.a, tmp1.e
-                                       ->  Merge Join
-                                             Output: tmp.a, tmp1.e
-                                             Merge Cond: (tmp.a = tmp1.e)
-                                             ->  Sort
-                                                   Output: tmp.a
-                                                   Sort Key: tmp.a
-                                                   ->  CTE Scan on tmp
+                                 ->  ProjectSet
+                                       Output: regexp_split_to_table((tmp.a || tmp1.e), 'a'::text), (count(*)), tmp.a, tmp1.e
+                                       ->  GroupAggregate
+                                             Output: tmp.a, tmp1.e, count(*)
+                                             Group By Key: tmp.a, tmp1.e
+                                             ->  Merge Join
+                                                   Output: tmp.a, tmp1.e
+                                                   Merge Cond: (tmp.a = tmp1.e)
+                                                   ->  Sort
                                                          Output: tmp.a
-                                             ->  Sort
-                                                   Output: tmp1.e
-                                                   Sort Key: tmp1.e
-                                                   ->  CTE Scan on tmp1
+                                                         Sort Key: tmp.a
+                                                         ->  CTE Scan on tmp
+                                                               Output: tmp.a
+                                                   ->  Sort
                                                          Output: tmp1.e
+                                                         Sort Key: tmp1.e
+                                                         ->  CTE Scan on tmp1
+                                                               Output: tmp1.e
                ->  Subquery Scan on "*SELECT* 2"
                      Output: "*SELECT* 2".regexp_split_to_table, "*SELECT* 2".length
                      ->  Unique
-                           Output: (regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text)), (length(regexp_split_to_table((tmp.a || tmp1.e), ' '::text))), tmp.a, tmp1.e
+                           Output: (regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text)), (length((regexp_split_to_table((tmp.a || tmp1.e), ' '::text)))), tmp.a, tmp1.e
                            ->  Sort
-                                 Output: (regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text)), (length(regexp_split_to_table((tmp.a || tmp1.e), ' '::text))), tmp.a, tmp1.e
-                                 Sort Key: (regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text)), (length(regexp_split_to_table((tmp.a || tmp1.e), ' '::text)))
-                                 ->  Group
-                                       Output: regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text), length(regexp_split_to_table((tmp.a || tmp1.e), ' '::text)), tmp.a, tmp1.e
-                                       Group By Key: tmp.a, tmp1.e
-                                       ->  Merge Join
-                                             Output: tmp.a, tmp1.e
-                                             Merge Cond: (tmp.a = tmp1.e)
-                                             ->  Sort
-                                                   Output: tmp.a
-                                                   Sort Key: tmp.a
-                                                   ->  CTE Scan on tmp
-                                                         Output: tmp.a
-                                             ->  Sort
-                                                   Output: tmp1.e
-                                                   Sort Key: tmp1.e
-                                                   ->  CTE Scan on tmp1
-                                                         Output: tmp1.e
-(62 rows)
+                                 Output: (regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text)), (length((regexp_split_to_table((tmp.a || tmp1.e), ' '::text)))), tmp.a, tmp1.e
+                                 Sort Key: (regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text)), (length((regexp_split_to_table((tmp.a || tmp1.e), ' '::text))))
+                                 ->  Result
+                                       Output: (regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text)), length((regexp_split_to_table((tmp.a || tmp1.e), ' '::text))), tmp.a, tmp1.e
+                                       ->  ProjectSet
+                                             Output: regexp_split_to_table(NULLIF((tmp.a || tmp1.e), 'n'::text), 'a'::text), regexp_split_to_table((tmp.a || tmp1.e), ' '::text), tmp.a, tmp1.e
+                                             ->  Group
+                                                   Output: tmp.a, tmp1.e
+                                                   Group By Key: tmp.a, tmp1.e
+                                                   ->  Merge Join
+                                                         Output: tmp.a, tmp1.e
+                                                         Merge Cond: (tmp.a = tmp1.e)
+                                                         ->  Sort
+                                                               Output: tmp.a
+                                                               Sort Key: tmp.a
+                                                               ->  CTE Scan on tmp
+                                                                     Output: tmp.a
+                                                         ->  Sort
+                                                               Output: tmp1.e
+                                                               Sort Key: tmp1.e
+                                                               ->  CTE Scan on tmp1
+                                                                     Output: tmp1.e
+(72 rows)
 
 select count(*) from 
 (

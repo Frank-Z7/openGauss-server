@@ -2292,7 +2292,7 @@ static bool simplify_EXISTS_query(Query* query)
 {
     /*
      * We don't try to simplify at all if the query uses set operations,
-     * aggregates, grouping sets, modifying CTEs, HAVING, OFFSET, or FOR
+     * aggregates, grouping sets, SRFs, modifying CTEs, HAVING, OFFSET, or FOR
      * UPDATE/SHARE; none of these seem likely in normal usage and their
      * possible effects are complex.  (Note: we could ignore an "OFFSET 0"
      * clause, but that traditionally is used as an optimization fence, so we
@@ -2300,14 +2300,7 @@ static bool simplify_EXISTS_query(Query* query)
      */
     if (query->commandType != CMD_SELECT || query->setOperations || query->hasAggs || query->groupingSets ||
         query->hasWindowFuncs || query->hasModifyingCTE || query->havingQual || query->limitOffset ||
-        query->limitCount || query->rowMarks)
-        return false;
-
-    /*
-     * Mustn't throw away the targetlist if it contains set-returning
-     * functions; those could affect whether zero rows are returned!
-     */
-    if (expression_returns_set((Node*)query->targetList))
+        query->limitCount || query->rowMarks || query->hasTargetSRFs)
         return false;
 
     /*
@@ -3202,6 +3195,7 @@ static Bitmapset* finalize_plan(PlannerInfo* root, Plan* plan, Bitmapset* valid_
             (void)finalize_primnode(((WindowAgg*)plan)->endOffset, &context);
             break;
 
+        case T_ProjectSet:
         case T_Hash:
         case T_Material:
         case T_Sort:
