@@ -116,6 +116,7 @@
 #include "executor/node/nodeValuesscan.h"
 #include "executor/node/nodeWindowAgg.h"
 #include "executor/node/nodeWorktablescan.h"
+#include "executor/node/nodeProjectSet.h"
 #include "executor/exec/execStream.h"
 #include "optimizer/clauses.h"
 #include "optimizer/encoding.h"
@@ -258,6 +259,8 @@ PlanState* ExecInitNodeByType(Plan* node, EState* estate, int eflags)
     switch (nodeTag(node)) {
         case T_BaseResult:
             return (PlanState*)ExecInitResult((BaseResult*)node, estate, eflags);
+        case T_ProjectSet:
+            return (PlanState*)ExecInitProjectSet((ProjectSet*)node, estate, eflags);
         case T_ModifyTable:
             return (PlanState*)ExecInitModifyTable((ModifyTable*)node, estate, eflags);
         case T_Append:
@@ -950,9 +953,15 @@ static inline TupleTableSlot *ExecStreamWrap(PlanState *node)
     return ExecStream((StreamState *)node);
 };
 
+static inline TupleTableSlot *ExecProjectSetWrap(PlanState *node)
+{
+    return ExecProjectSet((ProjectSetState*)node);
+}
+
 ExecProcFuncType g_execProcFuncTable[] = {
     ExecResultWrap,
     ExecVecToRowWrap,
+    ExecProjectSetWrap,
     DefaultExecProc,
     ExecModifyTableWrap,
     ExecModifyTableWrap,
@@ -1349,6 +1358,10 @@ static void ExecEndNodeByType(PlanState* node)
              */
         case T_ResultState:
             ExecEndResult((ResultState*)node);
+            break;
+        
+        case T_ProjectSetState:
+            ExecEndProjectSet((ProjectSetState*) node);
             break;
 
         case T_ModifyTableState:

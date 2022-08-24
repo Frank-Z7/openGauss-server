@@ -748,6 +748,13 @@ static void _outResult(StringInfo str, BaseResult* node)
     WRITE_NODE_FIELD(resconstantqual);
 }
 
+static void _outProjectSet(StringInfo str, const ProjectSet *node)
+{
+    WRITE_NODE_TYPE("PROJECTSET");
+
+    _outPlanInfo(str, (Plan *)node);
+}
+
 static void _outModifyTable(StringInfo str, ModifyTable* node)
 {
     WRITE_NODE_TYPE("MODIFYTABLE");
@@ -2877,6 +2884,7 @@ static void _outMergeAction(StringInfo str, const MergeAction* node)
  *
  * Note we do NOT print the parent, else we'd be in infinite recursion.
  * We can print the parent's relids for identification purposes, though.
+ * We print the pathtarget only if it's not the default one for the rel.
  * We also do not print the whole of param_info, since it's printed by
  * _outRelOptInfo; it's sufficient and less cluttering to print just the
  * required outer relids.
@@ -2886,6 +2894,12 @@ static void _outPathInfo(StringInfo str, Path* node)
     WRITE_ENUM_FIELD(pathtype, NodeTag);
     appendStringInfo(str, " :parent_relids ");
     _outBitmapset(str, node->parent->relids);
+    if (node->pathtarget != node->parent->reltarget) {
+        WRITE_NODE_FIELD(pathtarget->exprs);
+        WRITE_FLOAT_FIELD(pathtarget->cost.startup, "%.2f");
+        WRITE_FLOAT_FIELD(pathtarget->cost.per_tuple, "%.2f");
+        WRITE_INT_FIELD(pathtarget->width);
+    }
     appendStringInfo(str, " :required_outer ");
     if (node->param_info) {
         _outBitmapset(str, node->param_info->ppi_req_outer);
@@ -3075,6 +3089,25 @@ static void _outMaterialPath(StringInfo str, MaterialPath* node)
     WRITE_BOOL_FIELD(materialize_all);
 }
 
+static void _outProjectionPath(StringInfo str, const ProjectionPath *node)
+{
+    WRITE_NODE_TYPE("PROJECTIONPATH");
+
+    _outPathInfo(str, (Path *)node);
+
+    WRITE_NODE_FIELD(subpath);
+    WRITE_BOOL_FIELD(dummypp);
+}
+
+static void _outProjectSetPath(StringInfo str, const ProjectSetPath *node)
+{
+    WRITE_NODE_TYPE("PROJECTSETPATH");
+
+    _outPathInfo(str, (Path *)node);
+
+    WRITE_NODE_FIELD(subpath);
+}
+
 static void _outUniquePath(StringInfo str, UniquePath* node)
 {
     WRITE_NODE_TYPE("UNIQUEPATH");
@@ -3221,8 +3254,10 @@ static void _outRelOptInfo(StringInfo str, RelOptInfo* node)
     WRITE_BOOL_FIELD(isPartitionedTable);
     WRITE_ENUM_FIELD(partflag, PartitionFlag);
     WRITE_FLOAT_FIELD(rows, "%.0f");
-    WRITE_INT_FIELD(width);
-    WRITE_NODE_FIELD(reltargetlist);
+	WRITE_NODE_FIELD(reltarget->exprs);
+	WRITE_FLOAT_FIELD(reltarget->cost.startup, "%.2f");
+	WRITE_FLOAT_FIELD(reltarget->cost.per_tuple, "%.2f");
+	WRITE_INT_FIELD(reltarget->width);
     WRITE_NODE_FIELD(pathlist);
     WRITE_NODE_FIELD(ppilist);
     WRITE_NODE_FIELD(cheapest_startup_path);
@@ -3326,6 +3361,23 @@ static void _outPathKey(StringInfo str, PathKey* node)
     WRITE_OID_FIELD(pk_opfamily);
     WRITE_INT_FIELD(pk_strategy);
     WRITE_BOOL_FIELD(pk_nulls_first);
+}
+
+static void _outPathTarget(StringInfo str, const PathTarget *node)
+{
+    WRITE_NODE_TYPE("PATHTARGET");
+
+    WRITE_NODE_FIELD(exprs);
+    if (node->sortgrouprefs) {
+        int i;
+
+        appendStringInfoString(str, " :sortgrouprefs");
+        for (i = 0; i < list_length(node->exprs); i++)
+            appendStringInfo(str, " %u", node->sortgrouprefs[i]);
+    }
+    WRITE_FLOAT_FIELD(cost.startup, "%.2f");
+    WRITE_FLOAT_FIELD(cost.per_tuple, "%.2f");
+    WRITE_INT_FIELD(width);
 }
 
 static void _outParamPathInfo(StringInfo str, const ParamPathInfo* node)
@@ -4311,6 +4363,7 @@ static void _outQuery(StringInfo str, Query* node)
     WRITE_INT_FIELD(resultRelation);
     WRITE_BOOL_FIELD(hasAggs);
     WRITE_BOOL_FIELD(hasWindowFuncs);
+    WRITE_BOOL_FIELD(hasTargetSRFs);
     WRITE_BOOL_FIELD(hasSubLinks);
     WRITE_BOOL_FIELD(hasDistinctOn);
     WRITE_BOOL_FIELD(hasRecursive);
@@ -5649,6 +5702,9 @@ static void _outNode(StringInfo str, const void* obj)
             case T_BaseResult:
                 _outResult(str, (BaseResult*)obj);
                 break;
+            case T_ProjectSet:
+                _outProjectSet(str, (ProjectSet*)obj);
+                break;
             case T_ModifyTable:
                 _outModifyTable(str, (ModifyTable*)obj);
                 break;
@@ -6002,6 +6058,12 @@ static void _outNode(StringInfo str, const void* obj)
             case T_ResultPath:
                 _outResultPath(str, (ResultPath*)obj);
                 break;
+            case T_ProjectionPath:
+                _outProjectionPath(str, (ProjectionPath*) obj);
+                break;
+            case T_ProjectSetPath:
+                _outProjectSetPath(str, (ProjectSetPath*) obj);
+                break;
             case T_MaterialPath:
                 _outMaterialPath(str, (MaterialPath*)obj);
                 break;
@@ -6037,6 +6099,9 @@ static void _outNode(StringInfo str, const void* obj)
                 break;
             case T_PathKey:
                 _outPathKey(str, (PathKey*)obj);
+                break;
+			case T_PathTarget:
+                _outPathTarget(str, (PathTarget*)obj);
                 break;
             case T_ParamPathInfo:
                 _outParamPathInfo(str, (ParamPathInfo*)obj);

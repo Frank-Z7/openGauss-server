@@ -389,6 +389,17 @@ typedef struct VecResult : public BaseResult {
  * subplan(s); they can't contain any info that varies across subplans.
  * ----------------
  */
+
+/* ----------------
+ *	 ProjectSet node -
+ *		Apply a projection that includes set-returning functions to the
+ *		output tuples of the outer plan.
+ * ----------------
+ */
+typedef struct ProjectSet {
+    Plan plan;
+} ProjectSet;
+
 typedef struct ModifyTable {
     Plan plan;
     CmdType operation;     /* INSERT, UPDATE, or DELETE */

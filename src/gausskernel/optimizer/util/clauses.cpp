@@ -109,7 +109,6 @@ static bool contain_agg_clause_walker(Node* node, void* context);
 static bool contain_specified_agg_clause_walker(Node* node, void* context);
 static bool count_agg_clauses_walker(Node* node, count_agg_clauses_context* context);
 static bool find_window_functions_walker(Node* node, WindowLists* lists);
-static bool expression_returns_set_rows_walker(Node* node, double* count);
 static bool contain_subplans_walker(Node* node, void* context);
 template <bool isSimpleVar>
 static bool contain_specified_functions_walker(Node* node, check_function_context* context);
@@ -858,112 +857,33 @@ static bool find_window_functions_walker(Node* node, WindowLists* lists)
 /*
  * expression_returns_set_rows
  *	  Estimate the number of rows returned by a set-returning expression.
- *	  The result is 1 if there are no set-returning functions.
+ *	  The result is 1 if it's not a set-returning expression.
  *
- * We use the product of the rowcount estimates of all the functions in
- * the given tree (this corresponds to the behavior of ExecMakeFunctionResult
- * for nested set-returning functions).
+ * We should only examine the top-level function or operator; it used to be
+ * appropriate to recurse, but not anymore.  (Even if there are more SRFs in
+ * the function's inputs, their multipliers are accounted for separately.)
  *
  * Note: keep this in sync with expression_returns_set() in nodes/nodeFuncs.c.
  */
-double expression_returns_set_rows(Node* clause)
+double expression_returns_set_rows(Node *clause)
 {
-    double result = 1;
-
-    (void)expression_returns_set_rows_walker(clause, &result);
-    return clamp_row_est(result);
-}
-
-static void expression_returns_set_rows_walker_isa(Node* node, double* count)
-{
-    if (IsA(node, FuncExpr)) {
-        FuncExpr* expr = (FuncExpr*)node;
+    if (clause == NULL)
+        return 1.0;
+    if (IsA(clause, FuncExpr)) {
+        FuncExpr *expr = (FuncExpr *)clause;
 
         if (expr->funcretset)
-            *count *= get_func_rows(expr->funcid);
+            return clamp_row_est(get_func_rows(expr->funcid));
     }
-    if (IsA(node, OpExpr)) {
-        OpExpr* expr = (OpExpr*)node;
+    if (IsA(clause, OpExpr)) {
+        OpExpr *expr = (OpExpr *)clause;
 
         if (expr->opretset) {
             set_opfuncid(expr);
-            *count *= get_func_rows(expr->opfuncid);
+            return clamp_row_est(get_func_rows(expr->opfuncid));
         }
     }
-}
-
-static bool expression_returns_set_rows_walker(Node* node, double* count)
-{
-    if (node == NULL)
-        return false;
-
-    expression_returns_set_rows_walker_isa(node, count);
-
-    /* Avoid recursion for some cases that can't return a set */
-    if (IsA(node, Aggref))
-        return false;
-    if (IsA(node, WindowFunc))
-        return false;
-    if (IsA(node, DistinctExpr))
-        return false;
-    if (IsA(node, NullIfExpr))
-        return false;
-    if (IsA(node, ScalarArrayOpExpr))
-        return false;
-    if (IsA(node, BoolExpr))
-        return false;
-    if (IsA(node, SubLink))
-        return false;
-    if (IsA(node, SubPlan))
-        return false;
-    if (IsA(node, AlternativeSubPlan))
-        return false;
-    if (IsA(node, ArrayExpr))
-        return false;
-    if (IsA(node, RowExpr))
-        return false;
-    if (IsA(node, RowCompareExpr))
-        return false;
-    if (IsA(node, CoalesceExpr))
-        return false;
-    if (IsA(node, MinMaxExpr))
-        return false;
-    if (IsA(node, XmlExpr))
-        return false;
-
-    return expression_tree_walker(node, (bool (*)())expression_returns_set_rows_walker, (void*)count);
-}
-
-/*
- * tlist_returns_set_rows
- *	  Estimate the number of rows returned by a set-returning targetlist.
- *	  The result is 1 if there are no set-returning functions.
- *
- * Here, the result is the largest rowcount estimate of any of the tlist's
- * expressions, not the product as you would get from naively applying
- * expression_returns_set_rows() to the whole tlist.  The behavior actually
- * implemented by ExecTargetList produces a number of rows equal to the least
- * common multiple of the expression rowcounts, so that the product would be
- * a worst-case estimate that is typically not realistic.  Taking the max as
- * we do here is a best-case estimate that might not be realistic either,
- * but it's probably closer for typical usages.  We don't try to compute the
- * actual LCM because we're working with very approximate estimates, so their
- * LCM would be unduly noisy.
- */
-double tlist_returns_set_rows(List* tlist)
-{
-    double result = 1;
-    ListCell* lc = NULL;
-
-    foreach (lc, tlist) {
-        TargetEntry* tle = (TargetEntry*)lfirst(lc);
-        double colresult;
-
-        colresult = expression_returns_set_rows((Node*)tle->expr);
-        if (result < colresult)
-            result = colresult;
-    }
-    return result;
+    return 1.0;
 }
 
 /*****************************************************************************
@@ -4344,6 +4264,7 @@ static Expr* inline_function(Oid funcid, Oid result_type, Oid result_collid, Oid
         querytree->cteList || querytree->rtable || querytree->jointree->fromlist || querytree->jointree->quals ||
         querytree->groupClause || querytree->havingQual || querytree->windowClause || querytree->distinctClause ||
         querytree->sortClause || querytree->limitOffset || querytree->limitCount || querytree->setOperations ||
+        querytree->hasTargetSRFs ||
         list_length(querytree->targetList) != 1)
         goto fail;
 
@@ -4369,16 +4290,13 @@ static Expr* inline_function(Oid funcid, Oid result_type, Oid result_collid, Oid
     AssertEreport(!modifyTargetList, MOD_OPT, "");
 
     /*
-     * Additional validity checks on the expression.  It mustn't return a set,
-     * and it mustn't be more volatile than the surrounding function (this is
-     * to avoid breaking hacks that involve pretending a function is immutable
-     * when it really ain't).  If the surrounding function is declared strict,
-     * then the expression must contain only strict constructs and must use
-     * all of the function parameters (this is overkill, but an exact analysis
-     * is hard).
+     * Additional validity checks on the expression.  It mustn't be more
+     * volatile than the surrounding function (this is to avoid breaking hacks
+     * that involve pretending a function is immutable when it really ain't).
+     * If the surrounding function is declared strict, then the expression
+     * must contain only strict constructs and must use all of the function
+     * parameters (this is overkill, but an exact analysis is hard).
      */
-    if (expression_returns_set(newexpr))
-        goto fail;
 
     if (funcform->provolatile == PROVOLATILE_IMMUTABLE && contain_mutable_functions(newexpr))
         goto fail;

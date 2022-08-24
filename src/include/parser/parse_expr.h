@@ -16,7 +16,7 @@
 #include "parser/parse_node.h"
 #include "utils/plpgsql.h"
 
-extern Node* transformExpr(ParseState* pstate, Node* expr);
+extern Node* transformExpr(ParseState* pstate, Node* expr, ParseExprKind exprKind);
 extern Expr* make_distinct_op(ParseState* pstate, List* opname, Node* ltree, Node* rtree, int location);
 extern Oid getMultiFuncInfo(char* fun_expr, PLpgSQL_expr* expr);
 extern void lockSeqForNextvalFunc(Node* node);

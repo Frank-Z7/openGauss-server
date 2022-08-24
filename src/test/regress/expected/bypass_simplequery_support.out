@@ -402,12 +402,13 @@ select * from test_bypass_sq1 where col1=0 and col2=-1;
 
 --not bypass
 explain (costs off) insert into test_bypass_sq1 values(0,generate_series(1,100),'test');
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
- [No Bypass]reason: Bypass not executed because the expression of query is not support.
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ [No Bypass]reason: Bypass not executed because query combines insert operator with others.
  Insert on test_bypass_sq1
-   ->  Result
-(3 rows)
+   ->  ProjectSet
+         ->  Result
+(4 rows)
 
 explain (costs off) select * from test_bypass_sq1 where col3 is not null;
                                      QUERY PLAN                                     

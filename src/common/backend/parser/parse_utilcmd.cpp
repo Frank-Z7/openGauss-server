@@ -3728,7 +3728,7 @@ IndexStmt* transformIndexStmt(Oid relid, IndexStmt* stmt, const char* queryStrin
 
     /* take care of the where clause */
     if (stmt->whereClause) {
-        stmt->whereClause = transformWhereClause(pstate, stmt->whereClause, "WHERE");
+        stmt->whereClause = transformWhereClause(pstate, stmt->whereClause, EXPR_KIND_INDEX_PREDICATE, "WHERE");
         /* we have to fix its collations too */
         assign_expr_collations(pstate, stmt->whereClause);
     }
@@ -3743,7 +3743,7 @@ IndexStmt* transformIndexStmt(Oid relid, IndexStmt* stmt, const char* queryStrin
                 ielem->indexcolname = FigureIndexColname(ielem->expr);
 
             /* Now do parse transformation of the expression */
-            ielem->expr = transformExpr(pstate, ielem->expr);
+            ielem->expr = transformExpr(pstate, ielem->expr, EXPR_KIND_INDEX_EXPRESSION);
 
             /* We have to fix its collations too */
             assign_expr_collations(pstate, ielem->expr);
@@ -3756,8 +3756,6 @@ IndexStmt* transformIndexStmt(Oid relid, IndexStmt* stmt, const char* queryStrin
 #ifndef ENABLE_MULTIPLE_NODES
             ExcludeRownumExpr(pstate, (Node*)ielem->expr);
 #endif
-            if (expression_returns_set(ielem->expr))
-                ereport(ERROR, (errcode(ERRCODE_DATATYPE_MISMATCH), errmsg("index expression cannot return a set")));
         }
 
         if (IsElementExisted(indexElements, ielem)) {
@@ -3897,7 +3895,7 @@ void transformRuleStmt(RuleStmt* stmt, const char* queryString, List** actions, 
     }
 
     /* take care of the where clause */
-    *whereClause = transformWhereClause(pstate, (Node*)copyObject(stmt->whereClause), "WHERE");
+    *whereClause = transformWhereClause(pstate, (Node*)copyObject(stmt->whereClause), EXPR_KIND_WHERE, "WHERE");
     /* we have to fix its collations too */
     assign_expr_collations(pstate, *whereClause);
 
@@ -5564,7 +5562,7 @@ List* transformListPartitionValue(ParseState* pstate, List* boundary, bool needC
     /* scan value of partition key of per partition */
     foreach (valueCell, boundary) {
         elem = (Node*)lfirst(valueCell);
-        result = transformIntoConst(pstate, elem);
+        result = transformIntoConst(pstate, EXPR_KIND_PARTITION_BOUND, elem);
         if (PointerIsValid(result) && needCheck && ((Const*)result)->constisnull && !((Const*)result)->ismaxvalue) {
             ereport(ERROR,
                 (errcode(ERRCODE_SYNTAX_ERROR),
@@ -5644,7 +5642,7 @@ List* transformRangePartitionValueInternal(ParseState* pstate, List* boundary, b
     /* scan max value of partition key of per partition */
     foreach (valueCell, boundary) {
         maxElem = (Node*)lfirst(valueCell);
-        result = transformIntoConst(pstate, maxElem, isPartition);
+        result = transformIntoConst(pstate, EXPR_KIND_PARTITION_BOUND, maxElem, isPartition);
         if (PointerIsValid(result) && needCheck && ((Const*)result)->constisnull && !((Const*)result)->ismaxvalue) {
             ereport(ERROR,
                 (errcode(ERRCODE_SYNTAX_ERROR),
@@ -5671,12 +5669,12 @@ List* transformRangePartitionValueInternal(ParseState* pstate, List* boundary, b
  * Return		:
  * Notes		:
  */
-Node* transformIntoConst(ParseState* pstate, Node* maxElem, bool isPartition)
+Node* transformIntoConst(ParseState* pstate, ParseExprKind exprKind, Node* maxElem, bool isPartition)
 {
     Node* result = NULL;
     FuncExpr* funcexpr = NULL;
     /* transform expression first */
-    maxElem = transformExpr(pstate, maxElem);
+    maxElem = transformExpr(pstate, maxElem, exprKind);
 
     /* then, evaluate expression */
     switch (nodeTag(maxElem)) {

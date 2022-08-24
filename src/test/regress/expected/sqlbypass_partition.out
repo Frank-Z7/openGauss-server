@@ -135,12 +135,13 @@ insert into test_bypass_sql_partition values (null,null,null);
 ERROR:  inserted partition key does not map to any table partition
 --nobypass
 explain (costs off) insert into test_bypass_sql_partition values(0,generate_series(1,100),'test');
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
- [No Bypass]reason: Bypass not executed because the expression of query is not support.
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ [No Bypass]reason: Bypass not executed because query combines insert operator with others.
  Insert on test_bypass_sql_partition
-   ->  Result
-(3 rows)
+   ->  ProjectSet
+         ->  Result
+(4 rows)
 
 insert into test_bypass_sql_partition values(0,generate_series(1,100),'test');
 --select
@@ -1545,12 +1546,13 @@ explain (costs off) update test_bypass_sql_partition set col2=mod(5,3)  where co
 update test_bypass_sql_partition set col2=mod(5,3)  where col1=1 and col2=10;
 --not bypass
 explain (costs off) insert into test_bypass_sql_partition values(0,generate_series(1,100),'test');
-                                       QUERY PLAN                                       
-----------------------------------------------------------------------------------------
- [No Bypass]reason: Bypass not executed because the expression of query is not support.
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
+ [No Bypass]reason: Bypass not executed because query combines insert operator with others.
  Insert on test_bypass_sql_partition
-   ->  Result
-(3 rows)
+   ->  ProjectSet
+         ->  Result
+(4 rows)
 
 explain (costs off) select * from test_bypass_sql_partition where col3 is not null;
                                      QUERY PLAN                                     

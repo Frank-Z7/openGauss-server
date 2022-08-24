@@ -63,6 +63,7 @@ extern Oid LookupPackageNames(List* pkgname);
 extern Oid LookupAggNameTypeNames(List* aggname, List* argtypes, bool noError);
 extern Oid LookupTypeNameOid(const TypeName* typname);
 
+extern void check_srf_call_placement(ParseState *pstate, int location);
 extern void check_pg_get_expr_args(ParseState* pstate, Oid fnoid, List* args);
 extern int GetPriority(Oid typeoid);
 #endif /* PARSE_FUNC_H */

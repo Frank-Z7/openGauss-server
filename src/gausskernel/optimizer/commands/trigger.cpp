@@ -314,7 +314,7 @@ Oid CreateTrigger(CreateTrigStmt* stmt, const char* queryString, Oid relOid, Oid
         addRTEtoQuery(pstate, rte, false, true, true);
 
         /* Transform expression.  Copy to be sure we don't modify original */
-        whenClause = transformWhereClause(pstate, (Node*)copyObject(stmt->whenClause), "WHEN");
+        whenClause = transformWhereClause(pstate, (Node*)copyObject(stmt->whenClause), EXPR_KIND_TRIGGER_WHEN, "WHEN");
         /* we have to fix its collations too */
         assign_expr_collations(pstate, whenClause);
 
