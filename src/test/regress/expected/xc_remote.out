@@ -388,6 +388,7 @@ $$begin return 3;end $$ language plpgsql;
  Update on public.xcrem_employee e
    ->  Hash Join
          Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, ((e.salary + e.salary) + (.3 * e.bonus)), e.bonus, e.comm, e.ctid, (avg(xcrem_employee.salary)), ("substring"((xcrem_employee.workdept)::text, 1, 1))
+         Inner Unique: true
          Hash Cond: ("substring"((e.workdept)::text, 1, 1) = ("substring"((xcrem_employee.workdept)::text, 1, 1)))
          Join Filter: (e.salary > (avg(xcrem_employee.salary)))
          ->  Seq Scan on public.xcrem_employee e
@@ -399,7 +400,7 @@ $$begin return 3;end $$ language plpgsql;
                      Group By Key: "substring"((xcrem_employee.workdept)::text, 1, 1)
                      ->  Seq Scan on public.xcrem_employee
                            Output: "substring"((xcrem_employee.workdept)::text, 1, 1), xcrem_employee.salary
-(14 rows)
+(15 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary   |  bonus  
@@ -430,6 +431,7 @@ $$begin return 3;end $$ language plpgsql;
  Update on public.xcrem_employee e
    ->  Hash Join
          Output: e.empno, e.firstname, e.midinit, e.lastname, e.workdept, e.phoneno, e.hiredate, e.job, e.edlevel, e.sex, e.birthdate, e.salary, (e.bonus + (e.salary * .3)), e.comm, e.ctid, (avg(xcrem_employee.edlevel)), xcrem_employee.workdept
+         Inner Unique: true
          Hash Cond: (e.workdept = xcrem_employee.workdept)
          Join Filter: ((e.edlevel)::numeric > (avg(xcrem_employee.edlevel)))
          ->  Seq Scan on public.xcrem_employee e
@@ -441,7 +443,7 @@ $$begin return 3;end $$ language plpgsql;
                      Group By Key: xcrem_employee.workdept
                      ->  Seq Scan on public.xcrem_employee
                            Output: xcrem_employee.workdept, xcrem_employee.edlevel
-(14 rows)
+(15 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary   |  bonus   
@@ -558,6 +560,7 @@ insert into xcrem_employee select * from xcrem_temptable;
  Delete on public.xcrem_employee e
    ->  Hash Join
          Output: e.ctid, (avg(xcrem_employee.edlevel)), xcrem_employee.workdept
+         Inner Unique: true
          Hash Cond: (e.workdept = xcrem_employee.workdept)
          Join Filter: ((e.edlevel)::numeric > (avg(xcrem_employee.edlevel)))
          ->  Seq Scan on public.xcrem_employee e
@@ -569,7 +572,7 @@ insert into xcrem_employee select * from xcrem_temptable;
                      Group By Key: xcrem_employee.workdept
                      ->  Seq Scan on public.xcrem_employee
                            Output: xcrem_employee.workdept, xcrem_employee.edlevel
-(14 rows)
+(15 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary  | bonus  
@@ -597,6 +600,7 @@ insert into xcrem_employee select * from xcrem_temptable;
  Delete on public.xcrem_employee e
    ->  Hash Join
          Output: e.ctid, (avg(xcrem_employee.salary)), ("substring"((xcrem_employee.workdept)::text, 1, 1))
+         Inner Unique: true
          Hash Cond: ("substring"((e.workdept)::text, 1, 1) = ("substring"((xcrem_employee.workdept)::text, 1, 1)))
          Join Filter: (e.salary > (avg(xcrem_employee.salary)))
          ->  Seq Scan on public.xcrem_employee e
@@ -608,7 +612,7 @@ insert into xcrem_employee select * from xcrem_temptable;
                      Group By Key: "substring"((xcrem_employee.workdept)::text, 1, 1)
                      ->  Seq Scan on public.xcrem_employee
                            Output: "substring"((xcrem_employee.workdept)::text, 1, 1), xcrem_employee.salary
-(14 rows)
+(15 rows)
 
 :SEL;
  empno  | edlevel | lastname  |  salary  | bonus  

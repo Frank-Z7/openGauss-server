@@ -725,6 +725,7 @@ static void _outJoinPlanInfo(StringInfo str, Join* node)
     _outPlanInfo(str, (Plan*)node);
 
     WRITE_ENUM_FIELD(jointype, JoinType);
+    WRITE_BOOL_FIELD(inner_unique);
     WRITE_NODE_FIELD(joinqual);
     WRITE_BOOL_FIELD(optimizable);
     WRITE_NODE_FIELD(nulleqqual);
@@ -1556,6 +1557,7 @@ static void _outCommonJoinPart(StringInfo str, T* node)
 
     _outJoinPlanInfo(str, (Join*)node);
 
+    WRITE_BOOL_FIELD(skip_mark_restore);
     WRITE_NODE_FIELD(mergeclauses);
 
     numCols = list_length(node->mergeclauses);
@@ -2925,6 +2927,7 @@ static void _outJoinPathInfo(StringInfo str, JoinPath* node)
     _outPathInfo(str, (Path*)node);
 
     WRITE_ENUM_FIELD(jointype, JoinType);
+    WRITE_BOOL_FIELD(inner_unique);
     WRITE_NODE_FIELD(outerjoinpath);
     WRITE_NODE_FIELD(innerjoinpath);
     WRITE_NODE_FIELD(joinrestrictinfo);
@@ -3135,6 +3138,7 @@ static void _outMergePath(StringInfo str, MergePath* node)
     WRITE_NODE_FIELD(path_mergeclauses);
     WRITE_NODE_FIELD(outersortkeys);
     WRITE_NODE_FIELD(innersortkeys);
+    WRITE_BOOL_FIELD(skip_mark_restore);
     WRITE_BOOL_FIELD(materialize_inner);
 }
 
@@ -3277,6 +3281,7 @@ static void _outRelOptInfo(StringInfo str, RelOptInfo* node)
     WRITE_NODE_FIELD(subplan);
     WRITE_NODE_FIELD(subroot);
     /* we don't try to print fdwroutine or fdw_private */
+    /* can't print unique_for_rels/non_unique_for_rels; BMSes aren't Nodes */
     WRITE_NODE_FIELD(baserestrictinfo);
     WRITE_UINT_FIELD(baserestrict_min_security);
     WRITE_NODE_FIELD(joininfo);

@@ -578,6 +578,7 @@ explain (verbose true, costs false) delete from test_drop_column_1 where a in (s
  Delete on public.test_drop_column_1
    ->  Hash Join
          Output: test_drop_column_1.ctid, test_drop_column_2.ctid
+         Inner Unique: true
          Hash Cond: (test_drop_column_1.a = test_drop_column_2.a)
          ->  Seq Scan on public.test_drop_column_1
                Output: test_drop_column_1.ctid, test_drop_column_1.a
@@ -588,7 +589,7 @@ explain (verbose true, costs false) delete from test_drop_column_1 where a in (s
                      Group By Key: test_drop_column_2.a
                      ->  Seq Scan on public.test_drop_column_2
                            Output: test_drop_column_2.ctid, test_drop_column_2.a
-(13 rows)
+(14 rows)
 
 delete from test_drop_column_1 where a in (select a from test_drop_column_2);
 create table test_drop_column_cstore_1 (a int, b int, c int) with (orientation = column);
