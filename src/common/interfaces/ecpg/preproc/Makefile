@@ -38,7 +38,10 @@ OBJS=	preproc.o type.o ecpg.o output.o parser.o \
 	keywords.o c_keywords.o ecpg_keywords.o kwlookup.o ../ecpglib/typename.o descriptor.o variable.o \
 	$(WIN32RES)
 
-GEN_KEYWORDLIST = $(top_srcdir)/src/tools/gen_keywordlist.pl
+# where to find gen_keywordlist.pl and subsidiary files
+TOOLSDIR = $(top_srcdir)/src/tools
+GEN_KEYWORDLIST = $(PERL) -I $(TOOLSDIR) $(TOOLSDIR)/gen_keywordlist.pl
+GEN_KEYWORDLIST_DEPS = $(TOOLSDIR)/gen_keywordlist.pl $(TOOLSDIR)/PerfectHash.pm
 
 all: ecpg
 
@@ -72,11 +75,11 @@ preproc.y: ../../../../common/backend/parser/gram.y parse.pl ecpg.addons ecpg.he
 	$(PERL) $(srcdir)/check_rules.pl $(srcdir) $<
 
 # generate keyword headers
-c_kwlist_d.h: c_kwlist.h $(GEN_KEYWORDLIST)
-	$(PERL) $(GEN_KEYWORDLIST) --varname ScanCKeywords $<
+c_kwlist_d.h: c_kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(GEN_KEYWORDLIST) --varname ScanCKeywords $<
 
-ecpg_kwlist_d.h: ecpg_kwlist.h $(GEN_KEYWORDLIST)
-	$(PERL) $(GEN_KEYWORDLIST) --varname ScanECPGKeywords $<
+ecpg_kwlist_d.h: ecpg_kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(GEN_KEYWORDLIST) --varname ScanECPGKeywords $<
 
 # Force these dependencies to be known even without dependency info built:
 ecpg_keywords.o c_keywords.o keywords.o preproc.o parser.o: preproc.hpp

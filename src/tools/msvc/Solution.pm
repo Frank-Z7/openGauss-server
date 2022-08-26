@@ -274,7 +274,7 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
 			'src/include/parser/kwlist.h'))
 	{
 		print "Generating kwlist_d.h...\n";
-		system('perl src/tools/gen_keywordlist.pl --extern -o src/include/parser src/include/parser/kwlist.h');
+		system('perl -I src/tools src/tools/gen_keywordlist.pl --extern -o src/include/parser src/include/parser/kwlist.h');
 	}
 
 	if (IsNewer(
@@ -286,8 +286,8 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
 	{
 		print "Generating pl_reserved_kwlist_d.h and pl_unreserved_kwlist_d.h...\n";
 		chdir('src/pl/plpgsql/src');
-		system('perl ../../../tools/gen_keywordlist.pl --varname ReservedPLKeywords pl_reserved_kwlist.h');
-		system('perl ../../../tools/gen_keywordlist.pl --varname UnreservedPLKeywords pl_unreserved_kwlist.h');
+		system('perl -I ../../../tools ../../../tools/gen_keywordlist.pl --varname ReservedPLKeywords pl_reserved_kwlist.h');
+		system('perl -I ../../../tools ../../../tools/gen_keywordlist.pl --varname UnreservedPLKeywords pl_unreserved_kwlist.h');
 		chdir('../../../..');
 	}
 
@@ -300,8 +300,8 @@ s{PG_VERSION_STR "[^"]+"}{__STRINGIFY(x) #x\n#define __STRINGIFY2(z) __STRINGIFY
 	{
 		print "Generating c_kwlist_d.h and ecpg_kwlist_d.h...\n";
 		chdir('src/interfaces/ecpg/preproc');
-		system('perl ../../../tools/gen_keywordlist.pl --varname ScanCKeywords c_kwlist.h');
-		system('perl ../../../tools/gen_keywordlist.pl --varname ScanECPGKeywords ecpg_kwlist.h');
+		system('perl -I ../../../tools ../../../tools/gen_keywordlist.pl --varname ScanCKeywords --no-case-fold c_kwlist.h');
+		system('perl -I ../../../tools ../../../tools/gen_keywordlist.pl --varname ScanECPGKeywords ecpg_kwlist.h');
 		chdir('../../../..');
 	}
 

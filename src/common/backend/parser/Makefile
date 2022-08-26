@@ -81,11 +81,16 @@ else
 	sed -i 's/YY_NULL nullptr/YY_NULL 0/g' hint_gram.cpp
 endif
 
+# where to find gen_keywordlist.pl and subsidiary files
+TOOLSDIR = $(top_srcdir)/src/tools
+GEN_KEYWORDLIST = $(PERL) -I $(TOOLSDIR) $(TOOLSDIR)/gen_keywordlist.pl
+GEN_KEYWORDLIST_DEPS = $(TOOLSDIR)/gen_keywordlist.pl $(TOOLSDIR)/PerfectHash.pm
+
 distprep: kwlist_d.h
 
 # generate SQL keyword lookup table to be included into keywords*.o.
-kwlist_d.h: $(top_srcdir)/src/include/parser/kwlist.h $(top_srcdir)/src/tools/gen_keywordlist.pl
-	$(PERL) $(top_srcdir)/src/tools/gen_keywordlist.pl --extern -o $(top_srcdir)/src/include/parser $(top_srcdir)/src/include/parser/kwlist.h
+kwlist_d.h: $(top_srcdir)/src/include/parser/kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(GEN_KEYWORDLIST) --extern -o $(top_srcdir)/src/include/parser $(top_srcdir)/src/include/parser/kwlist.h
 
 hint_scan.inc: hint_scan.l | scan.inc
 ifdef FLEX

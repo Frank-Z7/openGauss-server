@@ -30,7 +30,10 @@ DATA = plpgsql.control plpgsql--1.0.sql plpgsql--unpackaged--1.0.sql
 
 TARGET= libplpgsql.a
 
-GEN_KEYWORDLIST = $(top_srcdir)/src/tools/gen_keywordlist.pl
+# where to find gen_keywordlist.pl and subsidiary files
+TOOLSDIR = $(top_srcdir)/src/tools
+GEN_KEYWORDLIST = $(PERL) -I $(TOOLSDIR) $(TOOLSDIR)/gen_keywordlist.pl
+GEN_KEYWORDLIST_DEPS = $(TOOLSDIR)/gen_keywordlist.pl $(TOOLSDIR)/PerfectHash.pm
 
 all: libplpgsql.a
 
@@ -77,11 +80,11 @@ plerrcodes.h: $(top_srcdir)/src/common/backend/utils/errcodes.txt generate-plerr
 	$(PERL) $(srcdir)/generate-plerrcodes.pl $< > $@
 
 # generate keyword headers for the scanner
-pl_reserved_kwlist_d.h: pl_reserved_kwlist.h $(GEN_KEYWORDLIST)
-	$(PERL) $(GEN_KEYWORDLIST) --varname ReservedPLKeywords $<
+pl_reserved_kwlist_d.h: pl_reserved_kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(GEN_KEYWORDLIST) --varname ReservedPLKeywords $<
 
-pl_unreserved_kwlist_d.h: pl_unreserved_kwlist.h $(GEN_KEYWORDLIST)
-	$(PERL) $(GEN_KEYWORDLIST) --varname UnreservedPLKeywords $<
+pl_unreserved_kwlist_d.h: pl_unreserved_kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(GEN_KEYWORDLIST) --varname UnreservedPLKeywords $<
 
 distprep: pl_gram.hpp pl_gram.cpp plerrcodes.h pl_reserved_kwlist_d.h pl_unreserved_kwlist_d.h
 
