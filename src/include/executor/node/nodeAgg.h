@@ -62,16 +62,27 @@ typedef struct AggWriteFileControl {
 } AggWriteFileControl;
 
 /*
- * AggStatePerAggData - per-aggregate working state for the Agg scan
+ * AggStatePerTransData - per aggregate state value information
+ *
+ * Working state for updating the aggregate's state value, by calling the
+ * transition function with an input row. This struct does not store the
+ * information needed to produce the final aggregate result from the transition
+ * state, that's stored in AggStatePerAggData instead. This separation allows
+ * multiple aggregate results to be produced from a single state value.
  */
-typedef struct AggStatePerAggData {
+typedef struct AggStatePerTransData {
     /*
      * These values are set up during ExecInitAgg() and do not change
      * thereafter:
      */
 
-    /* Links to Aggref expr and state nodes this working state is for */
-    AggrefExprState* aggrefstate;
+    /*
+     * Link to an Aggref expr this state value is for.
+     *
+     * There can be multiple Aggref's sharing the same state value, as long as
+     * the inputs and transition function are identical. This points to the
+     * first one of them.
+     */
     Aggref* aggref;
 
     /* number of input arguments for aggregate function proper */
@@ -92,20 +103,21 @@ typedef struct AggStatePerAggData {
      */
     int numTransInputs;
 
-    /* Oids of transfer functions */
+    /* Oid of the state transition function */
     Oid transfn_oid;
-    Oid finalfn_oid; /* may be InvalidOid */
-#ifdef PGXC
-    Oid collectfn_oid; /* may be InvalidOid */
-#endif                 /* PGXC */
+    /* Oid of state value's datatype */
+    Oid aggtranstype;
+
+    /* ExprStates of the FILTER and argument expressions. */
+    ExprState  *aggfilter;		/* state of FILTER expression, if any */
+    List	   *args;			/* states of aggregated-argument expressions */
+    List	   *aggdirectargs;	/* states of direct-argument expressions */
 
     /*
-     * fmgr lookup data for transfer functions --- only valid when
-     * corresponding oid is not InvalidOid.  Note in particular that fn_strict
-     * flags are kept here.
+     * fmgr lookup data for transition function.  Note in particular that the
+     * fn_strict flag is kept here.
      */
     FmgrInfo transfn;
-    FmgrInfo finalfn;
 #ifdef PGXC
     FmgrInfo collectfn;
 #endif /* PGXC */
@@ -188,14 +200,75 @@ typedef struct AggStatePerAggData {
      * This field is a pre-initialized FunctionCallInfo struct used for
      * calling this aggregate's transfn.  We save a few cycles per row by not
      * re-initializing the unchanging fields; which isn't much, but it seems
-     * worth the extra space consumption. cached for transfn and collectfn now.
+     * worth the extra space consumption.
      */
     FunctionCallInfoData transfn_fcinfo;
+
+    FunctionCallInfoData collectfn_fcinfo;
+
     /* XXX: use for vector engine now, better remove later*/
     TupleDesc	evaldesc;		/* descriptor of input tuples */
     ProjectionInfo *evalproj;	/* projection machinery */
     TupleTableSlot *evalslot;	/* current input tuple */
-} AggStatePerAggData;
+} AggStatePerTransData;
+
+/*
+ * AggStatePerAggData - per-aggregate information
+ *
+ * This contains the information needed to call the final function, to produce
+ * a final aggregate result from the state value. If there are multiple
+ * identical Aggrefs in the query, they can all share the same per-agg data.
+ *
+ * These values are set up during ExecInitAgg() and do not change thereafter.
+ */
+typedef struct AggStatePerAggData
+{
+    /*
+     * Link to an Aggref expr this state value is for.
+     *
+     * There can be multiple identical Aggref's sharing the same per-agg. This
+     * points to the first one of them.
+     */
+    Aggref   *aggref;
+
+    /* index to the state value which this agg should use */
+    int transno;
+
+    /* Optional Oid of final function (may be InvalidOid) */
+    Oid finalfn_oid;
+
+    /*
+     * fmgr lookup data for final function --- only valid when finalfn_oid oid
+     * is not InvalidOid.
+     */
+    FmgrInfo finalfn;
+#ifdef PGXC
+    FmgrInfo collectfn;
+#endif /* PGXC */
+
+    /* ExprStates for any direct-argument expressions */
+    List *aggdirectargs;
+
+    /*
+     * Number of arguments to pass to the finalfn.  This is always at least 1
+     * (the transition state value) plus any ordered-set direct args. If the
+     * finalfn wants extra args then we pass nulls corresponding to the
+     * aggregated input columns.
+     */
+    int numFinalArgs;
+
+    /*
+     * We need the len and byval info for the agg's result data type in order
+     * to know how to copy/delete values.
+     */
+    int16 resulttypeLen;
+    bool resulttypeByVal;
+#ifdef PGXC
+    bool is_avg;
+#endif /* PGXC */
+
+}	AggStatePerAggData;
+
 
 /*
  * AggStatePerPhaseData - per-grouping-set-phase state
@@ -209,12 +282,14 @@ typedef struct AggStatePerAggData {
  * information, plus each phase after the first also has a sort order.
  */
 typedef struct AggStatePerPhaseData {
+    AggStrategy aggstrategy;    /* strategy mode */
     int numsets;              /* number of grouping sets (or 0) */
     int* gset_lengths;        /* lengths of grouping sets */
     Bitmapset** grouped_cols; /* column groupings for rollup */
     FmgrInfo* eqfunctions;    /* per-grouping-field equality fns */
     Agg* aggnode;             /* Agg node for phase data */
     Sort* sortnode;           /* Sort node for input ordering for phase */
+    ExprState  *evaltrans;		/* evaluation of transition functions  */
 } AggStatePerPhaseData;
 
 /*
@@ -236,9 +311,10 @@ typedef struct AggStatePerPhaseData {
 typedef struct AggStatePerGroupData {
     Datum transValue;   /* current transition value */
     Datum collectValue; /* current collection value */
-    bool transValueIsNull;
 
+    bool transValueIsNull;
     bool noTransValue; /* true if transValue not set yet */
+
     bool collectValueIsNull;
     bool noCollectValue; /* true if the collectValue not set yet */
 

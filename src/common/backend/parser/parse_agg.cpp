@@ -1269,6 +1269,137 @@ void build_trans_aggregate_fnexprs(int agg_num_inputs, int agg_num_direct_inputs
     /* finalfn is currently never treated as variadic */
 }
 
+
+/*
+ * Create an expression tree for the transition function of an aggregate.
+ * This is needed so that polymorphic functions can be used within an
+ * aggregate --- without the expression tree, such functions would not know
+ * the datatypes they are supposed to use.  (The trees will never actually
+ * be executed, however, so we can skimp a bit on correctness.)
+ *
+ * agg_input_types and agg_state_type identifies the input types of the
+ * aggregate.  These should be resolved to actual types (ie, none should
+ * ever be ANYELEMENT etc).
+ * agg_input_collation is the aggregate function's input collation.
+ *
+ * For an ordered-set aggregate, remember that agg_input_types describes
+ * the direct arguments followed by the aggregated arguments.
+ *
+ * transfn_oid and invtransfn_oid identify the funcs to be called; the
+ * latter may be InvalidOid, however if invtransfn_oid is set then
+ * transfn_oid must also be set.
+ *
+ * Pointers to the constructed trees are returned into *transfnexpr,
+ * *invtransfnexpr. If there is no invtransfn, the respective pointer is set
+ * to NULL.  Since use of the invtransfn is optional, NULL may be passed for
+ * invtransfnexpr.
+ */
+void
+build_aggregate_transfn_expr(Oid *agg_input_types,
+                                             int agg_num_inputs,
+                                             int agg_num_direct_inputs,
+                                             bool agg_variadic,
+                                             Oid agg_state_type,
+                                             Oid agg_input_collation,
+                                             Oid transfn_oid,
+                                             Expr **transfnexpr)
+{
+    Param      *argp;
+    List       *args;
+    FuncExpr   *fexpr;
+    int i;
+
+    /*
+     * Build arg list to use in the transfn FuncExpr node. We really only care
+     * that transfn can discover the actual argument types at runtime using
+     * get_fn_expr_argtype(), so it's okay to use Param nodes that don't
+     * correspond to any real Param.
+     */
+    argp = makeNode(Param);
+    argp->paramkind = PARAM_EXEC;
+    argp->paramid = -1;
+    argp->paramtype = agg_state_type;
+    argp->paramtypmod = -1;
+    argp->paramcollid = agg_input_collation;
+    argp->location = -1;
+
+    args = list_make1(argp);
+
+    for (i = agg_num_direct_inputs; i < agg_num_inputs; i++)
+    {
+        argp = makeNode(Param);
+        argp->paramkind = PARAM_EXEC;
+        argp->paramid = -1;
+        argp->paramtype = agg_input_types[i];
+        argp->paramtypmod = -1;
+        argp->paramcollid = agg_input_collation;
+        argp->location = -1;
+        args = lappend(args, argp);
+    }
+
+    fexpr = makeFuncExpr(transfn_oid,
+                         agg_state_type,
+                         args,
+                         InvalidOid,
+                         agg_input_collation,
+                         COERCE_EXPLICIT_CALL);
+    fexpr->funcvariadic = agg_variadic;
+    *transfnexpr = (Expr *) fexpr;
+
+}
+
+/*
+ * Like build_aggregate_transfn_expr, but creates an expression tree for the
+ * final function of an aggregate, rather than the transition function.
+ */
+void
+build_aggregate_finalfn_expr(Oid *agg_input_types,
+                                             int num_finalfn_inputs,
+                                             Oid agg_state_type,
+                                             Oid agg_result_type,
+                                             Oid agg_input_collation,
+                                             Oid finalfn_oid,
+                                             Expr **finalfnexpr)
+{
+    Param      *argp;
+    List       *args;
+    int i;
+
+    /*
+     * Build expr tree for final function
+     */
+    argp = makeNode(Param);
+    argp->paramkind = PARAM_EXEC;
+    argp->paramid = -1;
+    argp->paramtype = agg_state_type;
+    argp->paramtypmod = -1;
+    argp->paramcollid = agg_input_collation;
+    argp->location = -1;
+    args = list_make1(argp);
+
+    /* finalfn may take additional args, which match agg's input types */
+    for (i = 0; i < num_finalfn_inputs - 1; i++)
+    {
+        argp = makeNode(Param);
+        argp->paramkind = PARAM_EXEC;
+        argp->paramid = -1;
+        argp->paramtype = agg_input_types[i];
+        argp->paramtypmod = -1;
+        argp->paramcollid = agg_input_collation;
+        argp->location = -1;
+        args = lappend(args, argp);
+    }
+
+    *finalfnexpr = (Expr *) makeFuncExpr(finalfn_oid,
+                                         agg_result_type,
+                                         args,
+                                         InvalidOid,
+                                         agg_input_collation,
+                                         COERCE_EXPLICIT_CALL);
+    /* finalfn is currently never treated as variadic */
+}
+
+
 /*
  * Expand a groupingSets clause to a flat list of grouping sets.
  * The returned list is sorted by length, shortest sets first.

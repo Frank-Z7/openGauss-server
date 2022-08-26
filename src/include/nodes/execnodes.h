@@ -2461,14 +2461,18 @@ typedef struct AggState {
     ScanState ss;               /* its first field is NodeTag */
     List* aggs;                 /* all Aggref nodes in targetlist & quals */
     int numaggs;                /* length of list (could be zero!) */
+	int numtrans;               /* number of pertrans items */
+    AggStrategy aggstrategy;	/* strategy mode */
     AggStatePerPhase phase;     /* pointer to current phase data */
     int numphases;              /* number of phases */
     int current_phase;          /* current phase number */
     FmgrInfo* hashfunctions;    /* per-grouping-field hash fns */
     AggStatePerAgg peragg;      /* per-Aggref information */
+    AggStatePerTrans pertrans;	/* per-Trans state information */
     MemoryContext* aggcontexts; /* memory context for long-lived data */
     ExprContext* tmpcontext;    /* econtext for input expressions */
-    AggStatePerAgg curperagg;   /* identifies currently active aggregate */
+    MemoryContext curaggcontext; /* currently active aggcontext */
+    AggStatePerTrans curpertrans;  /* currently active trans state */
     bool input_done;            /* indicates end of input */
     bool agg_done;              /* indicates completion of Agg scan */
     int projected_set;          /* The last projected grouping set */
@@ -2489,6 +2493,7 @@ typedef struct AggState {
     TupleTableSlot* hashslot;   /* slot for loading hash table */
     List* hash_needed;          /* list of columns needed in hash table */
     bool table_filled;          /* hash table filled yet? */
+    int num_hashes;
     TupleHashIterator hashiter; /* for iterating through hash table */
 #ifdef PGXC
     bool is_final; /* apply the final step for aggregates */
@@ -2499,6 +2504,8 @@ typedef struct AggState {
     TupleTableSlot *evalslot;	/* slot for agg inputs */
     ProjectionInfo *evalproj;	/* projection machinery */
     TupleDesc	evaldesc;      /* descriptor of input tuples */
+    AggStatePerGroup hash_pergroup;	 /* grouping set indexed array of* per-group pointers */
+    AggStatePerGroup all_pergroups;	/* array of first ->pergroups, than * ->hash_pergroup */
 } AggState;
 
 /* ----------------
