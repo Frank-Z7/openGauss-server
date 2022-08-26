@@ -86,8 +86,8 @@ extern void check_indicator(struct ECPGtype*);
 extern void remove_typedefs(int);
 extern void remove_variables(int);
 extern struct variable* new_variable(const char*, struct ECPGtype*, int);
-extern const ScanKeyword* ScanCKeywordLookup(const char*);
-extern const ScanKeyword* ScanECPGKeywordLookup(const char* text);
+extern int ScanCKeywordLookup(const char*);
+extern int ScanECPGKeywordLookup(const char *text)
 extern void scanner_init(const char*);
 extern void parser_init(void);
 extern void scanner_finish(void);

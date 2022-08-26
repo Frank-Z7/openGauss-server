@@ -21,7 +21,7 @@
 
 #include <ctype.h>
 
-#include "parser/keywords.h"
+#include "parser/kwlookup.h"
 
 /*
  * ScanKeywordLookup - see if a given word is a keyword
@@ -35,56 +35,57 @@
  * keywords are to be matched in this way even though non-keyword identifiers
  * receive a different case-normalization mapping.
  */
-const ScanKeyword* ScanKeywordLookup(const char* text, const ScanKeyword* keywords, int num_keywords)
+int ScanKeywordLookup(const char *text,
+				      const ScanKeywordList *keywords)
 {
-    int len, i;
-    char word[NAMEDATALEN] = {0};
-    const ScanKeyword* low = NULL;
-    const ScanKeyword* high = NULL;
+	int			len,
+				i;
+	char		word[NAMEDATALEN];
+	const char *kw_string;
+	const uint16 *kw_offsets;
+	const uint16 *low;
+	const uint16 *high;
 
-    if (text == NULL) {
-        return NULL;
-    }
+	len = strlen(text);
 
-    len = strlen(text);
-    /* We assume all keywords are shorter than NAMEDATALEN. */
-    if (len >= NAMEDATALEN) {
-        return NULL;
-    }
+	if (len > keywords->max_kw_len)
+		return -1;				/* too long to be any keyword */
 
-    /*
-     * Apply an ASCII-only downcasing.	We must not use tolower() since it may
-     * produce the wrong translation in some locales (eg, Turkish).
-     */
-    for (i = 0; i < len; i++) {
-        char ch = text[i];
+	/*
+	 * Apply an ASCII-only downcasing.  We must not use tolower() since it may
+	 * produce the wrong translation in some locales (eg, Turkish).
+	 */
+	for (i = 0; i < len; i++)
+	{
+		char		ch = text[i];
 
-        if (ch >= 'A' && ch <= 'Z') {
-            ch += 'a' - 'A';
-        }
-        word[i] = ch;
-    }
-    word[len] = '\0';
+		if (ch >= 'A' && ch <= 'Z')
+			ch += 'a' - 'A';
+		word[i] = ch;
+	}
+	word[len] = '\0';
 
-    /*
-     * Now do a binary search using plain strcmp() comparison.
-     */
-    low = keywords;
-    high = keywords + (num_keywords - 1);
-    while (low <= high) {
-        const ScanKeyword* middle = NULL;
-        int difference;
+	/*
+	 * Now do a binary search using plain strcmp() comparison.
+	 */
+	kw_string = keywords->kw_string;
+	kw_offsets = keywords->kw_offsets;
+	low = kw_offsets;
+	high = kw_offsets + (keywords->num_keywords - 1);
+	while (low <= high)
+	{
+		const uint16 *middle;
+		int			difference;
 
-        middle = low + (high - low) / 2;
-        difference = strcmp(middle->name, word);
-        if (difference == 0) {
-            return middle;
-        } else if (difference < 0) {
-            low = middle + 1;
-        } else {
-            high = middle - 1;
-        }
-    }
+		middle = low + (high - low) / 2;
+		difference = strcmp(kw_string + *middle, word);
+		if (difference == 0)
+			return middle - kw_offsets;
+		else if (difference < 0)
+			low = middle + 1;
+		else
+			high = middle - 1;
+	}
 
-    return NULL;
+	return -1;
 }

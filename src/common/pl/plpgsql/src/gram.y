@@ -126,7 +126,7 @@ static int   	yylex_outparam(char** fieldnames,
                                bool overload = false);
 
 static bool is_function(const char *name, bool is_assign, bool no_parenthesis, List* funcNameList = NULL);
-static bool is_unreservedkeywordfunction(ScanKeyword* keyword, bool no_parenthesis, const char *name);
+static bool is_unreservedkeywordfunction(int kwnum, bool no_parenthesis, const char *name);
 static bool is_paren_friendly_datatype(TypeName *name);
 static void 	plpgsql_parser_funcname(const char *s, char **output,
                                         int numidents);
@@ -6485,9 +6485,9 @@ is_unreserved_keyword_func(const char *name)
  * Notes                : 
  */
 static bool
-is_unreservedkeywordfunction(ScanKeyword* keyword, bool no_parenthesis, const char *name)
+is_unreservedkeywordfunction(int kwnum, bool no_parenthesis, const char *name)
 {
-    if (keyword && no_parenthesis && UNRESERVED_KEYWORD == keyword->category && !is_unreserved_keyword_func(name))
+    if (kwnum >= 0 && no_parenthesis && ScanKeywordCategories[kwnum] != UNRESERVED_KEYWORD && !is_unreserved_keyword_func(name))
         return false;
     else
         return true;
@@ -6505,7 +6505,6 @@ is_unreservedkeywordfunction(ScanKeyword* keyword, bool no_parenthesis, const ch
 static bool 
 is_function(const char *name, bool is_assign, bool no_parenthesis, List* funcNameList)
 {
-    ScanKeyword * keyword = NULL;
     List *funcname = NIL;
     FuncCandidateList clist = NULL;
     bool have_outargs = false;
@@ -6540,12 +6539,12 @@ is_function(const char *name, bool is_assign, bool no_parenthesis, List* funcNam
             pg_strcasecmp("ts_debug", cp[0]) == 0)
             return false;
 
-        keyword = (ScanKeyword *)ScanKeywordLookup(cp[0], ScanKeywords, NumScanKeywords);
+        int kwnum = ScanKeywordLookup(cp[0], &ScanKeywords);
         /* function name can not be reserved keyword */
-        if (keyword && RESERVED_KEYWORD == keyword->category)
+        if (kwnum >= 0 && ScanKeywordCategories[kwnum] != UNRESERVED_KEYWORD)
             return false;
         /* function name can not be unreserved keyword when no-parenthesis function is called. except log function*/
-        if (!is_unreservedkeywordfunction(keyword, no_parenthesis, cp[0]))
+        if (!is_unreservedkeywordfunction(kwnum, no_parenthesis, cp[0]))
 	{
             return false;
         }
