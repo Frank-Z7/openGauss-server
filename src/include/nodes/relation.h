@@ -142,6 +142,20 @@ typedef struct OpMemInfo {
 /* PSORT_SPREAD_MAXMEM_RATIO can increase 20% for partition table's one part on extended limit. */
 #define PSORT_SPREAD_MAXMEM_RATIO 1.2
 
+/*
+ * This enum identifies the different types of "upper" (post-scan/join)
+ * relations that we might deal with during planning.
+ */
+typedef enum UpperRelationKind {
+    UPPERREL_SETOP,     /* result of UNION/INTERSECT/EXCEPT, if any */
+    UPPERREL_GROUP_AGG, /* result of grouping/aggregation, if any */
+    UPPERREL_WINDOW,    /* result of window functions, if any */
+    UPPERREL_DISTINCT,  /* result of "SELECT DISTINCT", if any */
+    UPPERREL_ORDERED,   /* result of ORDER BY, if any */
+    UPPERREL_FINAL      /* result of any remaining top-level actions */
+                        /* NB: UPPERREL_FINAL must be last enum entry; it's used to size arrays */
+} UpperRelationKind;
+
 /* ----------
  * PlannerGlobal
  *		Global information for planning/optimization
@@ -345,6 +359,12 @@ typedef struct PlannerInfo {
     List* distinct_pathkeys; /* distinctClause pathkeys, if any */
     List* sort_pathkeys;     /* sortClause pathkeys, if any */
 
+    /* Use fetch_upper_rel() to get any particular upper rel */
+    List *upper_rels[UPPERREL_FINAL + 1]; /* upper-rel RelOptInfos */
+
+    /* Result tlists chosen by grouping_planner for upper-stage processing */
+    struct PathTarget *upper_targets[UPPERREL_FINAL + 1];
+    
     List* minmax_aggs; /* List of MinMaxAggInfos */
 
     List* initial_rels; /* RelOptInfos we are now trying to join */

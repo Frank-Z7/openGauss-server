@@ -97,7 +97,7 @@ TupleTableSlot* ExecGroup(GroupState* node)
          * Check the qual (HAVING clause); if the group does not match, ignore
          * it and fall into scan loop.
          */
-        if (ExecQual(node->ss.ps.qual, econtext, false)) {
+        if (ExecQual((ExprState*)node->ss.ps.qual, econtext)) {
             /*
              * Form and return a projection tuple using the first input tuple.
              */
@@ -152,7 +152,7 @@ TupleTableSlot* ExecGroup(GroupState* node)
          * Check the qual (HAVING clause); if the group does not match, ignore
          * it and loop back to scan the rest of the group.
          */
-        if (ExecQual(node->ss.ps.qual, econtext, false)) {
+        if (ExecQual((ExprState*)node->ss.ps.qual, econtext)) {
             /*
              * Form and return a projection tuple using the first input tuple.
              */
@@ -209,8 +209,7 @@ GroupState* ExecInitGroup(Group* node, EState* estate, int eflags)
     /*
      * initialize child expressions
      */
-    grpstate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->plan.targetlist, (PlanState*)grpstate);
-    grpstate->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->plan.qual, (PlanState*)grpstate);
+    grpstate->ss.ps.qual = (List*)ExecInitQual(node->plan.qual, (PlanState*)grpstate);
 
     /*
      * initialize child nodes

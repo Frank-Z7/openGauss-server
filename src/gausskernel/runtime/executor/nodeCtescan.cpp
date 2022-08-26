@@ -236,8 +236,7 @@ CteScanState* ExecInitCteScan(CteScan* node, EState* estate, int eflags)
     /*
      * initialize child expressions
      */
-    scanstate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)scanstate);
-    scanstate->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)scanstate);
+    scanstate->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)scanstate);
 
     /*
      * tuple table initialization

@@ -270,9 +270,7 @@ StartWithOpState* ExecInitStartWithOp(StartWithOp* node, EState* estate, int efl
     /*
      * initialize child expressions
      */
-    state->ps.targetlist = (List*)ExecInitExpr((Expr*)node->plan.targetlist,
-                (PlanState*)state);
-    state->ps.qual = (List*)ExecInitExpr((Expr*)node->plan.qual, (PlanState*)state);
+    state->ps.qual = (List*)ExecInitQual(node->plan.qual, (PlanState*)state);
 
     /*
      * initialize child nodes
@@ -581,7 +579,7 @@ bool ExecStartWithRowLevelQual(RecursiveUnionState* node, TupleTableSlot* dstSlo
      * node so we set filtering tuple as ecxt_scantuple
      */
     expr->ecxt_scantuple = dstSlot;
-    if (!ExecQual(node->swstate->ps.qual, expr, false)) {
+    if (!ExecQual((ExprState*)node->swstate->ps.qual, expr)) {
         return false;
     }
     return true;
@@ -1107,7 +1105,7 @@ static List *GetCurrentArrayColArray(const FunctionCallInfo fcinfo,
      * specified, so the eval-context's argument only have one argument with *Var*
      * node ported
      */
-    List *vars = pull_var_clause((Node*)exprstate->expr,
+    List *vars = pull_var_clause((Node*)exprstate,
                 PVC_RECURSE_AGGREGATES, PVC_INCLUDE_PLACEHOLDERS);
 
     /* handle case where */
@@ -1142,7 +1140,7 @@ static List *GetCurrentArrayColArray(const FunctionCallInfo fcinfo,
     variable = (Var *)linitial(vars);
     if (!IsA(variable, Var)) {
         elog(ERROR, "connect_by_root pass int invalid argument type:%d",
-             nodeTag(exprstate->expr));
+             nodeTag(exprstate));
     }
 
     /*

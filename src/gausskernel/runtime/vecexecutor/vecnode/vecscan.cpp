@@ -81,7 +81,7 @@ VectorBatch* ExecVecScan(ScanState* node, ExecVecScanAccessMtd accessMtd, /* fun
     /*
      * Fetch data from node
      */
-    List* qual = node->ps.qual;
+    List* qual = (List*)node->ps.qual;
     proj_info = node->ps.ps_ProjInfo;
     econtext = node->ps.ps_ExprContext;
 

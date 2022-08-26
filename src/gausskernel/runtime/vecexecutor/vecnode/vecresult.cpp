@@ -41,7 +41,7 @@ VectorBatch* ExecVecResult(VecResultState* node)
     ExprContext* expr_context = NULL;
     VectorBatch* batch = NULL;
     VectorBatch* res_batch = NULL;
-    List* qual = node->ps.qual;
+    List* qual = (List*)node->ps.qual;
 
     expr_context = node->ps.ps_ExprContext;
 
@@ -49,7 +49,7 @@ VectorBatch* ExecVecResult(VecResultState* node)
      * check constant qualifications like (2 > 1), if not already done
      */
     if (node->rs_checkqual) {
-        bool qual_result = ExecQual((List*)node->resconstantqual, expr_context, false);
+        bool qual_result = ExecQual(node->resconstantqual, expr_context);
         node->rs_checkqual = false;
         if (!qual_result) {
             node->rs_done = true;
@@ -177,7 +177,7 @@ VecResultState* ExecInitVecResult(VecResult* node, EState* estate, int eflags)
     res_state->ps.targetlist = (List*)ExecInitVecExpr((Expr*)node->plan.targetlist, (PlanState*)res_state);
     res_state->ps.qual = (List*)ExecInitVecExpr((Expr*)node->plan.qual, (PlanState*)res_state);
 
-    res_state->resconstantqual = ExecInitExpr((Expr*)node->resconstantqual, (PlanState*)res_state);
+    res_state->resconstantqual = ExecInitQual((List*)node->resconstantqual, (PlanState*)res_state);
 
     /*
      * initialize child nodes

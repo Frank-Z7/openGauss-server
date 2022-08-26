@@ -60,7 +60,7 @@ static TupleTableSlot* FunctionNext(FunctionScanState* node)
      */
     if (tuplestorestate == NULL) {
         node->tuplestorestate = tuplestorestate = ExecMakeTableFunctionResult(
-            node->funcexpr, node->ss.ps.ps_ExprContext, node->tupdesc, node->eflags & EXEC_FLAG_BACKWARD, node);
+            node->setexpr, node->ss.ps.ps_ExprContext, node->tupdesc, node->eflags & EXEC_FLAG_BACKWARD, node);
     }
 
     /*
@@ -138,8 +138,7 @@ FunctionScanState* ExecInitFunctionScan(FunctionScan* node, EState* estate, int 
     /*
      * initialize child expressions
      */
-    scanstate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)scanstate);
-    scanstate->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)scanstate);
+    scanstate->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)scanstate);
 
     /*
      * Now determine if the function returns a simple or composite type, and
@@ -192,7 +191,9 @@ FunctionScanState* ExecInitFunctionScan(FunctionScan* node, EState* estate, int 
      * Other node-specific setup
      */
     scanstate->tuplestorestate = NULL;
-    scanstate->funcexpr = ExecInitExpr((Expr*)node->funcexpr, (PlanState*)scanstate);
+    scanstate->setexpr = ExecInitTableFunctionResult((Expr *)node->funcexpr,
+										scanstate->ss.ps.ps_ExprContext,
+										&scanstate->ss.ps);
 
     scanstate->ss.ps.ps_TupFromTlist = false;
 

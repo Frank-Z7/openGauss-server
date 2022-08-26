@@ -233,7 +233,7 @@ TupleTableSlot* ExecNestLoop(NestLoopState* node)
 
                 ENL1_printf("testing qualification for outer-join tuple");
 
-                if (otherqual == NIL || ExecQual(otherqual, econtext, false)) {
+                if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
                     /*
                      * qualification was satisfied so we project and return
                      * the slot containing the result tuple using
@@ -269,7 +269,7 @@ TupleTableSlot* ExecNestLoop(NestLoopState* node)
          */
         ENL1_printf("testing qualification");
 
-        if (ExecQual(joinqual, econtext, false)) {
+        if (ExecQual((ExprState*)joinqual, econtext)) {
             node->nl_MatchedOuter = true;
 
             /* In an antijoin, we never return a matched tuple */
@@ -286,7 +286,7 @@ TupleTableSlot* ExecNestLoop(NestLoopState* node)
             if (node->js.single_match)
                 node->nl_NeedNewOuter = true;
 
-            if (otherqual == NIL || ExecQual(otherqual, econtext, false)) {
+            if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
                 /*
                  * qualification was satisfied so we project and return the
                  * slot containing the result tuple using ExecProject().
@@ -352,10 +352,9 @@ NestLoopState* ExecInitNestLoop(NestLoop* node, EState* estate, int eflags)
     /*
      * initialize child expressions
      */
-    nlstate->js.ps.targetlist = (List*)ExecInitExpr((Expr*)node->join.plan.targetlist, (PlanState*)nlstate);
-    nlstate->js.ps.qual = (List*)ExecInitExpr((Expr*)node->join.plan.qual, (PlanState*)nlstate);
+    nlstate->js.ps.qual = (List*)ExecInitQual(node->join.plan.qual, (PlanState*)nlstate);
     nlstate->js.jointype = node->join.jointype;
-    nlstate->js.joinqual = (List*)ExecInitExpr((Expr*)node->join.joinqual, (PlanState*)nlstate);
+    nlstate->js.joinqual = (List*)ExecInitQual(node->join.joinqual, (PlanState*)nlstate);
     Assert(node->join.nulleqqual == NIL);
 
     /*

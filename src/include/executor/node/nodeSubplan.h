@@ -17,16 +17,14 @@
 #include "nodes/execnodes.h"
 
 extern SubPlanState* ExecInitSubPlan(SubPlan* subplan, PlanState* parent);
-
+extern Datum ExecSubPlan(SubPlanState* node, ExprContext* econtext, bool* isNull, ExprDoneCond* isDone);
 extern AlternativeSubPlanState* ExecInitAlternativeSubPlan(AlternativeSubPlan* asplan, PlanState* parent);
-
+extern Datum ExecAlternativeSubPlan(AlternativeSubPlanState *node, ExprContext *econtext, bool *isNull, ExprDoneCond* isDone);
 extern void ExecReScanSetParamPlan(SubPlanState* node, PlanState* parent);
-
 extern void ExecSetParamPlan(SubPlanState* node, ExprContext* econtext);
 extern void buildSubPlanHash(SubPlanState* node, ExprContext* econtext);
 extern bool slotAllNulls(TupleTableSlot* slot);
 extern bool slotNoNulls(TupleTableSlot* slot);
-
 extern bool findPartialMatch(TupleHashTable hashtable, TupleTableSlot* slot, FmgrInfo* eqfunctions);
 
 #endif /* NODESUBPLAN_H */

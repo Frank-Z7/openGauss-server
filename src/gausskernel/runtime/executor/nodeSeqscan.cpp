@@ -390,14 +390,14 @@ RangeScanInRedis reset_scan_qual(Relation curr_heap_rel, ScanState* node, bool i
     if (u_sess->attr.attr_sql.enable_cluster_resize && RelationInRedistribute(curr_heap_rel)) {
         List* new_qual = eval_ctid_funcs(curr_heap_rel, node->ps.plan->qual, &node->rangeScanInRedis);
         if (!node->scanBatchMode) {
-            node->ps.qual = (List*)ExecInitExpr((Expr*)new_qual, (PlanState*)&node->ps);
+            node->ps.qual = (List*)ExecInitQual(new_qual, (PlanState*)&node->ps);
         } else {
             node->ps.qual = (List*)ExecInitVecExpr((Expr*)new_qual, (PlanState*)&node->ps);
         }
         node->ps.qual_is_inited = true;
     } else if (!node->ps.qual_is_inited) {
         if (!node->scanBatchMode) {
-            node->ps.qual = (List*)ExecInitExpr((Expr*)node->ps.plan->qual, (PlanState*)&node->ps);
+            node->ps.qual = (List*)ExecInitQual(node->ps.plan->qual, (PlanState*)&node->ps);
         } else {
             node->ps.qual = (List*)ExecInitVecExpr((Expr*)node->ps.plan->qual, (PlanState*)&node->ps);
         }
@@ -612,7 +612,7 @@ void InitScanRelation(SeqScanState* node, EState* estate, int eflags)
             current_scan_desc = BeginScanRelation(node, current_part_rel, relfrozenxid64, eflags);
         } else {
             node->ss_currentPartition = NULL;
-            node->ps.qual = (List*)ExecInitExpr((Expr*)node->ps.plan->qual, (PlanState*)&node->ps);
+            node->ps.qual = (List*)ExecInitQual(node->ps.plan->qual, (PlanState*)&node->ps);
         }
     }
     node->ss_currentRelation = current_relation;
@@ -921,8 +921,6 @@ SeqScanState* ExecInitSeqScan(SeqScan* node, EState* estate, int eflags)
     /*
      * initialize child expressions
      */
-    scanstate->ps.targetlist = (List*)ExecInitExpr((Expr*)node->plan.targetlist, (PlanState*)scanstate);
-
     if (node->tablesample) {
         scanstate->sampleScanInfo.args = (List*)ExecInitExpr((Expr*)tsc->args, (PlanState*)scanstate);
         scanstate->sampleScanInfo.repeatable = ExecInitExpr(tsc->repeatable, (PlanState*)scanstate);

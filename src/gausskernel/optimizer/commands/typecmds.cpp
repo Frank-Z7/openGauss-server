@@ -3033,7 +3033,7 @@ List* GetDomainConstraints(Oid typeOid)
             r = makeNode(DomainConstraintState);
             r->constrainttype = DOM_CONSTRAINT_CHECK;
             r->name = pstrdup(NameStr(c->conname));
-            r->check_expr = ExecInitExpr(check_expr, NULL);
+            r->check_expr = check_expr;
 
             /*
              * use lcons() here because constraints of lower domains should be

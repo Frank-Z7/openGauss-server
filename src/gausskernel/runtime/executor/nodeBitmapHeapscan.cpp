@@ -446,7 +446,7 @@ static TupleTableSlot* BitmapHeapTblNext(BitmapHeapScanState* node)
             econtext->ecxt_scantuple = slot;
             ResetExprContext(econtext);
 
-            if (!ExecQual(node->bitmapqualorig, econtext, false)) {
+            if (!ExecQual((ExprState*)node->bitmapqualorig, econtext)) {
                 /* Fails recheck, so drop it and loop back for another */
                 InstrCountFiltered2(node, 1);
                 (void)ExecClearTuple(slot);
@@ -601,7 +601,7 @@ static bool BitmapHeapRecheck(BitmapHeapScanState* node, TupleTableSlot* slot)
 
     ResetExprContext(econtext);
 
-    return ExecQual(node->bitmapqualorig, econtext, false);
+    return ExecQual((ExprState*)node->bitmapqualorig, econtext);
 }
 
 /* ----------------------------------------------------------------
@@ -785,9 +785,8 @@ BitmapHeapScanState* ExecInitBitmapHeapScan(BitmapHeapScan* node, EState* estate
     /*
      * initialize child expressions
      */
-    scanstate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)scanstate);
-    scanstate->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)scanstate);
-    scanstate->bitmapqualorig = (List*)ExecInitExpr((Expr*)node->bitmapqualorig, (PlanState*)scanstate);
+    scanstate->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)scanstate);
+    scanstate->bitmapqualorig = (List*)ExecInitQual(node->bitmapqualorig, (PlanState*)scanstate);
 
     /*
      * open the base relation and acquire appropriate lock on it.

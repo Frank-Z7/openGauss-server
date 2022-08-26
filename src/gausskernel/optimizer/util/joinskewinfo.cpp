@@ -1821,7 +1821,7 @@ int StreamSkew::chooseStreamType(TupleTableSlot* tuple)
 
     foreach(lc, m_skewQual) {
         qsstate = (QualSkewState*)lfirst(lc);
-        if (ExecQual(qsstate->skew_quals_state, m_econtext, false)) {
+        if (ExecQual((ExprState*)qsstate->skew_quals_state, m_econtext)) {
             switch (qsstate->skew_stream_type) {
                 case PART_REDISTRIBUTE_PART_BROADCAST:
                 case PART_LOCAL_PART_BROADCAST:

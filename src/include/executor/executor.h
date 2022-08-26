@@ -16,6 +16,7 @@
 #define EXECUTOR_H
 
 #include "executor/exec/execdesc.h"
+#include "parser/parse_coerce.h"
 #include "nodes/parsenodes.h"
 #include "nodes/params.h"
 #include "pgxc/pgxc.h"
@@ -118,13 +119,6 @@ extern inline bool is_errmodule_enable(int elevel, ModuleId mod_id);
 
 #define HAS_INSTR(node, dnonly) \
     (!dnonly || IS_PGXC_DATANODE) && u_sess->instr_cxt.global_instr != NULL && (node)->ps.instrument != NULL
-
-/*
- * ExecEvalExpr was formerly a function containing a switch statement;
- * now it's just a macro invoking the function pointed to by an ExprState
- * node.  Beware of double evaluation of the ExprState argument!
- */
-#define ExecEvalExpr(expr, econtext, isNull, isDone) ((*(expr)->evalfunc)(expr, econtext, isNull, isDone))
 
 /*
  * recursive union macro
@@ -258,33 +252,177 @@ extern bool NeedStubExecution(Plan* plan);
 extern long ExecGetPlanMemCost(Plan* node);
 
 /*
- * prototypes from functions in execQual.c
+ * prototypes from functions in execExpr.c
  */
-extern Datum GetAttributeByNum(HeapTupleHeader tuple, AttrNumber attrno, bool* isNull);
-extern Datum GetAttributeByName(HeapTupleHeader tuple, const char* attname, bool* isNull);
-extern Tuplestorestate* ExecMakeTableFunctionResult(
-    ExprState* funcexpr, ExprContext* econtext, TupleDesc expectedDesc, bool randomAccess, FunctionScanState* node);
-extern Datum ExecEvalExprSwitchContext(
-    ExprState* expression, ExprContext* econtext, bool* isNull, ExprDoneCond* isDone);
 extern ExprState* ExecInitExpr(Expr* node, PlanState* parent);
+extern ExprState *ExecInitQual(List *qual, PlanState *parent);
+extern ExprState *ExecInitCheck(List *qual, PlanState *parent);
+extern List *ExecInitExprList(List *nodes, PlanState *parent);
+extern ProjectionInfo* ExecBuildProjectionInfo(List *targetList, 
+    ExprContext *econtext, TupleTableSlot *slot, PlanState *parent, TupleDesc inputDesc);
 extern ExprState* ExecPrepareExpr(Expr* node, EState* estate);
-extern bool ExecQual(List* qual, ExprContext* econtext, bool resultForNull);
-extern int ExecTargetListLength(List* targetlist);
-extern int ExecCleanTargetListLength(List* targetlist);
-extern TupleTableSlot* ExecProject(ProjectionInfo* projInfo, ExprDoneCond* isDone);
-extern Datum ExecMakeFunctionResultSet(FuncExprState *fcache,
+extern Datum ExecMakeFunctionResultSet(SetExprState *fcache,
+                            ExprContext *econtext,
+                            bool *isNull,
+                            ExprDoneCond *isDone);
+extern ExprState *ExecPrepareQual(List *qual, EState *estate);
+extern ExprState *ExecPrepareCheck(List *qual, EState *estate);
+extern List *ExecPrepareExprList(List *nodes, EState *estate);
+extern bool ExecCheck(ExprState *state, ExprContext *context);
+
+/*
+ * ExecEvalExpr
+ *
+ * Evaluate expression identified by "state" in the execution context
+ * given by "econtext".  *isNull is set to the is-null flag for the result,
+ * and the Datum value is the function result.
+ *
+ * The caller should already have switched into the temporary memory
+ * context econtext->ecxt_per_tuple_memory.  The convenience entry point
+ * ExecEvalExprSwitchContext() is provided for callers who don't prefer to
+ * do the switch in an outer loop.
+ */
+#ifndef FRONTEND
+static inline Datum
+ExecEvalExpr(ExprState *state,
+			 ExprContext *econtext,
+			 bool *isNull,
+			 ExprDoneCond* isDone)
+{
+	return state->evalfunc(state, econtext, isNull, isDone);
+}
+#endif
+
+/*
+ * ExecEvalExprSwitchContext
+ *
+ * Same as ExecEvalExpr, but get into the right allocation context explicitly.
+ */
+#ifndef FRONTEND
+Datum
+static inline ExecEvalExprSwitchContext(ExprState *state,
 						  ExprContext *econtext,
 						  bool *isNull,
-						  ExprDoneCond *isDone);
+						  ExprDoneCond *isDone)
+{
+	Datum		retDatum;
+	MemoryContext oldContext;
 
+	oldContext = MemoryContextSwitchTo(econtext->ecxt_per_tuple_memory);
+	retDatum = state->evalfunc(state, econtext, isNull, isDone);
+	MemoryContextSwitchTo(oldContext);
+	return retDatum;
+}
+#endif
+
+/*
+ * ExecProject
+ *
+ * Projects a tuple based on projection info and stores it in the slot passed
+ * to ExecBuildProjectInfo().
+ *
+ * Note: the result is always a virtual tuple; therefore it may reference
+ * the contents of the exprContext's scan tuples and/or temporary results
+ * constructed in the exprContext.  If the caller wishes the result to be
+ * valid longer than that data will be valid, he must call ExecMaterializeSlot
+ * on the result slot.
+ */
+#ifndef FRONTEND
+static inline TupleTableSlot *
+ExecProject(ProjectionInfo *projInfo, ExprDoneCond* isDone)
+{
+	ExprContext *econtext = projInfo->pi_exprContext;
+	ExprState  *state = &projInfo->pi_state;
+	TupleTableSlot *slot = state->resultslot;
+	bool		isnull;
+    ListCell *lc;
+    char* resname = NULL;
+    /* Assume single result row until proven otherwise */
+    if (isDone) {
+        *isDone = ExprSingleResult;
+    }
+    
+	/*
+	 * Clear any former contents of the result slot.  This makes it safe for
+	 * us to use the slot's Datum/isnull arrays as workspace.
+	 */
+	ExecClearTuple(slot);
+
+    if (state->expr) {
+        lc = list_head((List*)(state->expr));
+        TargetEntry *te = (TargetEntry*)lfirst(lc);
+        state->current_targetentry = lc;
+        resname = te->resname;
+    }
+
+    ELOG_FIELD_NAME_START(resname);
+
+    /* Run the expression, discarding scalar result from the last column. */
+	(void) ExecEvalExprSwitchContext(state, econtext, &isnull, isDone);
+
+    ELOG_FIELD_NAME_END;
+
+	/*
+	 * Successfully formed a result row.  Mark the result slot as containing a
+	 * valid virtual tuple (inlined version of ExecStoreVirtualTuple()).
+	 */
+	slot->tts_isempty = false;
+	slot->tts_nvalid = slot->tts_tupleDescriptor->natts;
+
+	return slot;
+}
+#endif
+
+/*
+ * ExecQual - evaluate a qual prepared with ExecInitQual (possibly via
+ * ExecPrepareQual).  Returns true if qual is satisfied, else false.
+ *
+ * Note: ExecQual used to have a third argument "resultForNull".  The
+ * behavior of this function now corresponds to resultForNull == false.
+ * If you want the resultForNull == true behavior, see ExecCheck.
+ */
+#ifndef FRONTEND
+static inline bool
+ExecQual(ExprState *state, ExprContext *econtext)
+{
+	Datum		ret;
+	bool		isnull;
+	ExprDoneCond isDone = ExprSingleResult;
+
+	/* short-circuit (here and in ExecInitQual) for empty restriction list */
+	if (state == NULL)
+		return true;
+
+	/* verify that expression was compiled using ExecInitQual */
+	Assert(state->flags & EEO_FLAG_IS_QUAL);
+
+	ret = ExecEvalExprSwitchContext(state, econtext, &isnull, &isDone);
+
+	/* EEOP_QUAL should never return NULL */
+	Assert(!isnull);
+
+	return DatumGetBool(ret);
+}
+#endif
+
+/*
+ * prototypes from functions in execSRF.c
+ */
+extern SetExprState *ExecInitTableFunctionResult(Expr *expr,
+							ExprContext *econtext, PlanState *parent);
+extern SetExprState *ExecInitFunctionResultSet(Expr *expr, ExprContext *econtext, PlanState *parent);
+Tuplestorestate* ExecMakeTableFunctionResult(
+    SetExprState* setexpr, ExprContext* econtext, TupleDesc expectedDesc, bool randomAccess, FunctionScanState* node);
+
+/*
+ * prototypes from functions in execScan.c
+ */
 extern TupleTableSlot* ExecScan(ScanState* node, ExecScanAccessMtd accessMtd, ExecScanRecheckMtd recheckMtd);
 extern void ExecAssignScanProjectionInfo(ScanState* node);
 extern void ExecScanReScan(ScanState* node);
 extern void initExecTableOfIndexInfo(ExecTableOfIndexInfo* execTableOfIndexInfo, ExprContext* econtext);
 extern bool ExecEvalParamExternTableOfIndexById(ExecTableOfIndexInfo* execTableOfIndexInfo);
 extern void ExecEvalParamExternTableOfIndex(Node* node, ExecTableOfIndexInfo* execTableOfIndexInfo);
-extern bool is_external_clob(Oid type_oid, bool is_null, Datum value);
-extern bool is_huge_clob(Oid type_oid, bool is_null, Datum value);
 
 /*
  * prototypes from functions in execTuples.c
@@ -345,6 +483,15 @@ extern ExprContext* CreateExprContext(EState* estate);
 extern ExprContext* CreateStandaloneExprContext(void);
 extern void FreeExprContext(ExprContext* econtext, bool isCommit);
 extern void ReScanExprContext(ExprContext* econtext);
+extern Datum GetAttributeByNum(HeapTupleHeader tuple, AttrNumber attrno, bool* isNull);
+extern Datum GetAttributeByName(HeapTupleHeader tuple, const char* attname, bool* isNull);
+extern int ExecTargetListLength(List* targetlist);
+extern int ExecCleanTargetListLength(List* targetlist);
+extern bool is_external_clob(Oid type_oid, bool is_null, Datum value);
+extern bool is_huge_clob(Oid type_oid, bool is_null, Datum value);
+extern bool func_has_refcursor_args(Oid Funcid, FunctionCallInfoData* fcinfo);
+extern void set_result_for_plpgsql_language_function_with_outparam(Oid funcOid, Datum *result, bool *isNull);
+extern bool expr_func_has_refcursor_args(Oid Funcid);
 
 #define ResetExprContext(econtext) MemoryContextReset((econtext)->ecxt_per_tuple_memory)
 
@@ -378,8 +525,7 @@ extern void ExecAssignResultType(PlanState* planstate, TupleDesc tupDesc);
 extern void ExecAssignResultTypeFromTL(PlanState* planstate, TableAmType tam = TAM_HEAP);
 extern TupleDesc ExecGetResultType(PlanState* planstate);
 extern void ExecAssignVectorForExprEval(ExprContext* econtext);
-extern ProjectionInfo* ExecBuildProjectionInfo(
-    List* targetList, ExprContext* econtext, TupleTableSlot* slot, TupleDesc inputDesc);
+
 extern void ExecAssignProjectionInfo(PlanState* planstate, TupleDesc inputDesc);
 extern void ExecAssignScanProjectionInfoWithVarno(ScanState* node, Index varno);
 extern void ExecFreeExprContext(PlanState* planstate);

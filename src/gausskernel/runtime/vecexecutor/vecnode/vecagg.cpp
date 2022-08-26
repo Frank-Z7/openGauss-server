@@ -1313,14 +1313,14 @@ VectorBatch* BaseAggRunner::ProducerBatch()
     /* To AP functio, set column to NULL when group columns has not include it. */
     prepare_projection_batch();
 
-    if (list_length(m_runtime->ss.ps.qual) != 0) {
+    if (list_length((List*)m_runtime->ss.ps.qual) != 0) {
         ScalarVector* p_vector = NULL;
 
         econtext = m_runtime->ss.ps.ps_ExprContext;
         econtext->ecxt_scanbatch = m_scanBatch;
         econtext->ecxt_aggbatch = m_scanBatch;
         econtext->ecxt_outerbatch = m_outerBatch;
-        p_vector = ExecVecQual(m_runtime->ss.ps.qual, econtext, false);
+        p_vector = ExecVecQual((List*)m_runtime->ss.ps.qual, econtext, false);
 
         if (p_vector == NULL) {
             return NULL;

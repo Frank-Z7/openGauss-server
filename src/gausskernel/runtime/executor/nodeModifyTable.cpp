@@ -526,7 +526,7 @@ checktest:
 
     ExecProject(resultRelInfo->ri_updateProj, NULL);
     /* Evaluate where qual if exists, add to count if filtered */
-    if (ExecQual(upsertState->us_updateWhere, econtext, false)) {
+    if (ExecQual((ExprState*)upsertState->us_updateWhere, econtext)) {
         *returning = ExecUpdate(conflictTid, oldPartitionOid, bucketid, NULL,
             upsertState->us_updateproj, planSlot, &mtstate->mt_epqstate,
             mtstate, canSetTag, ((ModifyTable*)mtstate->ps.plan)->partKeyUpdated);
@@ -3363,11 +3363,9 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
         result_rel_info = mt_state->resultRelInfo;
         foreach (l, node->returningLists) {
             List* rlist = (List*)lfirst(l);
-            List* rliststate = NIL;
 
-            rliststate = (List*)ExecInitExpr((Expr*)rlist, &mt_state->ps);
             result_rel_info->ri_projectReturning =
-                ExecBuildProjectionInfo(rliststate, econtext, slot, result_rel_info->ri_RelationDesc->rd_att);
+                ExecBuildProjectionInfo(rlist, econtext, slot, &mt_state->ps, result_rel_info->ri_RelationDesc->rd_att);
             result_rel_info++;
         }
     } else {
@@ -3388,7 +3386,6 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
     result_rel_info = mt_state->resultRelInfo;
     if (node->upsertAction == UPSERT_UPDATE) {
         ExprContext* econtext = NULL;
-        ExprState* setexpr = NULL;
         TupleDesc tupDesc;
 
         /* insert may only have one plan, inheritance is not expanded */
@@ -3415,14 +3412,13 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
         ExecSetSlotDescriptor(upsertState->us_updateproj, tupDesc);
 
         /* build UPDATE SET expression and projection state */
-        setexpr = ExecInitExpr((Expr*)node->updateTlist, &mt_state->ps);
         result_rel_info->ri_updateProj =
-        ExecBuildProjectionInfo((List*)setexpr, econtext,
-            upsertState->us_updateproj, result_rel_info->ri_RelationDesc->rd_att);
+        ExecBuildProjectionInfo(node->updateTlist, econtext,
+            upsertState->us_updateproj, &mt_state->ps, result_rel_info->ri_RelationDesc->rd_att);
 
         /* initialize expression state to evaluate update where clause if exists */
         if (node->upsertWhere) {
-            upsertState->us_updateWhere = (List*)ExecInitExpr((Expr*)node->upsertWhere, &mt_state->ps);
+            upsertState->us_updateWhere = (List*)ExecInitQual((List*)node->upsertWhere, &mt_state->ps);
         }
     }
 

@@ -268,6 +268,7 @@ typedef enum NodeTag {
     T_FuncExprState,
     T_ScalarArrayOpExprState,
     T_BoolExprState,
+    T_SetExprState,
     T_SubPlanState,
     T_AlternativeSubPlanState,
     T_FieldSelectState,

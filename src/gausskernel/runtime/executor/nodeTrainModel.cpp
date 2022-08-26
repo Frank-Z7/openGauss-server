@@ -99,7 +99,6 @@ TrainModelState* ExecInitTrainModel(TrainModel* pnode, EState* estate, int eflag
     
     // initialize child expressions
     ExecAssignExprContext(estate, &pstate->ss.ps);
-    pstate->ss.ps.targetlist = (List *)ExecInitExpr((Expr *)pnode->plan.targetlist, (PlanState *)pstate);
     
     // initialize outer plan
     PlanState *outer_plan_state = ExecInitNode(outer_plan, estate, eflags);

@@ -773,7 +773,7 @@ static void postgresBeginForeignScan(ForeignScanState *node, int eflags)
      * benefit, and it'd require postgres_fdw to know more than is desirable
      * about Param evaluation.)
      */
-    fsstate->param_exprs = (List *)ExecInitExpr((Expr *)fsplan->fdw_exprs, (PlanState *)node);
+    fsstate->param_exprs = ExecInitExprList(fsplan->fdw_exprs, (PlanState *)node);
 
     /*
      * Allocate buffer for text form of query parameters, if any.

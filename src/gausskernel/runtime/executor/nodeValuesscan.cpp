@@ -108,7 +108,7 @@ static TupleTableSlot* ValuesNext(ValuesScanState* node)
          * is a SubPlan, and there shouldn't be any (any subselects in the
          * VALUES list should be InitPlans).
          */
-        expr_state_list = (List*)ExecInitExpr((Expr*)expr_list, NULL);
+        expr_state_list = ExecInitExprList(expr_list, NULL);
 
         /* parser should have checked all sublists are the same length */
         Assert(list_length(expr_state_list) == slot->tts_tupleDescriptor->natts);
@@ -210,8 +210,7 @@ ValuesScanState* ExecInitValuesScan(ValuesScan* node, EState* estate, int eflags
     /*
      * initialize child expressions
      */
-    scan_state->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)scan_state);
-    scan_state->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)scan_state);
+    scan_state->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)scan_state);
 
     /*
      * get info about values list

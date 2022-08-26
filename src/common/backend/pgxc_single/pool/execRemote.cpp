@@ -3770,8 +3770,7 @@ RemoteQueryState* ExecInitRemoteQuery(RemoteQuery* node, EState* estate, int efl
     ExecAssignExprContext(estate, &remotestate->ss.ps);
 
     /* Initialise child expressions */
-    remotestate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->scan.plan.targetlist, (PlanState*)remotestate);
-    remotestate->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->scan.plan.qual, (PlanState*)remotestate);
+    remotestate->ss.ps.qual = (List*)ExecInitQual(node->scan.plan.qual, (PlanState*)remotestate);
 
     /* check for unsupported flags */
     Assert(!(eflags & (EXEC_FLAG_MARK)));

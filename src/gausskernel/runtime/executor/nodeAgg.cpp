@@ -1093,7 +1093,7 @@ static TupleTableSlot* project_aggregates(AggState* aggstate)
     /*
      * Check the qual (HAVING clause); if the group does not match, ignore it.
      */
-    if (ExecQual(aggstate->ss.ps.qual, econtext, false)) {
+    if (ExecQual((ExprState*)aggstate->ss.ps.qual, econtext)) {
         /*
          * Form and return or store a projection tuple using the aggregate
          * results and the representative input tuple.
@@ -2079,8 +2079,7 @@ AggState* ExecInitAgg(Agg* node, EState* estate, int eflags)
      * that is true, we don't need to worry about evaluating the aggs in any
      * particular order.
      */
-    aggstate->ss.ps.targetlist = (List*)ExecInitExpr((Expr*)node->plan.targetlist, (PlanState*)aggstate);
-    aggstate->ss.ps.qual = (List*)ExecInitExpr((Expr*)node->plan.qual, (PlanState*)aggstate);
+    aggstate->ss.ps.qual = (List*)ExecInitQual(node->plan.qual, (PlanState*)aggstate);
 
     /*
      * initialize child nodes
@@ -2243,7 +2242,7 @@ AggState* ExecInitAgg(Agg* node, EState* estate, int eflags)
     aggno = -1;
     foreach (l, aggstate->aggs) {
         AggrefExprState* aggrefstate = (AggrefExprState*)lfirst(l);
-        Aggref* aggref = (Aggref*)aggrefstate->xprstate.expr;
+        Aggref* aggref = aggrefstate->aggref;
         AggStatePerAgg peraggstate;
         Oid inputTypes[FUNC_MAX_ARGS];
         int numArguments;
@@ -2648,8 +2647,7 @@ AggState* ExecInitAgg(Agg* node, EState* estate, int eflags)
     /* and then create a projection for that targetlist */
     aggstate->evaldesc = ExecTypeFromTL(combined_inputeval, false);
     aggstate->evalslot = ExecInitExtraTupleSlot(estate);
-    combined_inputeval = (List *) ExecInitExpr((Expr *)combined_inputeval, (PlanState *)aggstate);
-    aggstate->evalproj = ExecBuildProjectionInfo(combined_inputeval, aggstate->tmpcontext, aggstate->evalslot, NULL);
+    aggstate->evalproj = ExecBuildProjectionInfo(combined_inputeval, aggstate->tmpcontext, aggstate->evalslot, &aggstate->ss.ps, NULL);
     ExecSetSlotDescriptor(aggstate->evalslot, aggstate->evaldesc);
 
     AggWriteFileControl* TempFilePara = (AggWriteFileControl*)palloc(sizeof(AggWriteFileControl));

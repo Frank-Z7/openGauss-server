@@ -213,8 +213,7 @@ HashState* ExecInitHash(Hash* node, EState* estate, int eflags)
     /*
      * initialize child expressions
      */
-    hashstate->ps.targetlist = (List*)ExecInitExpr((Expr*)node->plan.targetlist, (PlanState*)hashstate);
-    hashstate->ps.qual = (List*)ExecInitExpr((Expr*)node->plan.qual, (PlanState*)hashstate);
+    hashstate->ps.qual = (List*)ExecInitQual(node->plan.qual, (PlanState*)hashstate);
 
     /*
      * initialize child nodes
@@ -1373,8 +1372,8 @@ bool ExecScanHashBucket(HashJoinState* hjstate, ExprContext* econtext)
             ResetExprContext(econtext);
 
             /* we allow null = null in special case, so an additional judgement is needed*/
-            if (ExecQual(hjclauses, econtext, false) ||
-                (hjstate->js.nulleqqual != NIL && ExecQual(hjstate->js.nulleqqual, econtext, false))) {
+            if (ExecQual((ExprState*)hjclauses, econtext) ||
+                (hjstate->js.nulleqqual != NIL && ExecQual((ExprState*)hjstate->js.nulleqqual, econtext))) {
                 hjstate->hj_CurTuple = hashTuple;
                 return true;
             }

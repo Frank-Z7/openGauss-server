@@ -7165,7 +7165,6 @@ ProjectSet *make_project_set(List *tlist, Plan *subplan)
     ProjectSet *node = makeNode(ProjectSet);
     Plan *plan = &node->plan;
 
-
 #ifdef STREAMPLAN
     if (IS_STREAM_PLAN && subplan) {
         inherit_plan_locator_info(plan, subplan);
