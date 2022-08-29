@@ -260,8 +260,6 @@ StartWithOpState* ExecInitStartWithOp(StartWithOp* node, EState* estate, int efl
      */
     ExecAssignExprContext(estate, &state->ps);
 
-    state->ps.ps_TupFromTlist = false;
-
     /*
      * tuple table initialization
      */

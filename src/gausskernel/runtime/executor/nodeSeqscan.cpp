@@ -953,8 +953,6 @@ SeqScanState* ExecInitSeqScan(SeqScan* node, EState* estate, int eflags)
         scanstate->ps.stubType = PST_Scan;
     }
 
-    scanstate->ps.ps_TupFromTlist = false;
-
     /*
      * Initialize result tuple type and projection info.
      */

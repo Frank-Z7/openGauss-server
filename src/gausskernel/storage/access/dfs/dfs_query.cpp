@@ -1409,7 +1409,7 @@ void BuildRunTimePredicates(dfs::reader::ReaderState *readerState)
         MemoryContext oldContext = MemoryContextSwitchTo(econtext->ecxt_per_tuple_memory);
         Datum scanvalue;
         bool isNull = false;
-        scanvalue = ExecEvalExpr(runTimeParamPredicate->paraExecExpr, econtext, &isNull, NULL);
+        scanvalue = ExecEvalExpr(runTimeParamPredicate->paraExecExpr, econtext, &isNull);
         MemoryContextSwitchTo(oldContext);
 
         switch (runTimeParamPredicate->varTypeOid) {

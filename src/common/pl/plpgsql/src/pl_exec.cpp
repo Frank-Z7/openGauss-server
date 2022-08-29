@@ -9907,7 +9907,7 @@ static bool exec_eval_simple_expr(
     }
     plpgsql_estate->curr_nested_table_type = InvalidOid;
 
-    *result = ExecEvalExpr(expr->expr_simple_state, econtext, isNull, NULL);
+    *result = ExecEvalExpr(expr->expr_simple_state, econtext, isNull);
     /* for nested table, we need use nested table type as result type */
     if (plpgsql_estate && plpgsql_estate->curr_nested_table_type != InvalidOid) {
         HeapTuple tp;

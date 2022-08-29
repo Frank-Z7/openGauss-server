@@ -2628,7 +2628,7 @@ static void validateDomainConstraint(Oid domainoid, char* ccbin)
                 econtext->domainValue_datum = d;
                 econtext->domainValue_isNull = isNull;
 
-                conResult = ExecEvalExprSwitchContext(exprstate, econtext, &isNull, NULL);
+                conResult = ExecEvalExprSwitchContext(exprstate, econtext, &isNull);
 
                 if (!isNull && !DatumGetBool(conResult))
                     ereport(ERROR,

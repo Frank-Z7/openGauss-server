@@ -182,8 +182,6 @@ DfsScanState* ExecInitDfsScan(DfsScan* node, Relation parentHeapRel, EState* est
      */
     ExecAssignExprContext(estate, &scanState->ps);
 
-    scanState->ps.ps_TupFromTlist = false;
-
     /*
      * Initialize child expressions.
      */

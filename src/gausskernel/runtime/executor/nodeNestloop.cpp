@@ -99,20 +99,6 @@ TupleTableSlot* ExecNestLoop(NestLoopState* node)
     PlanState* inner_plan = innerPlanState(node);
     ExprContext* econtext = node->js.ps.ps_ExprContext;
 
-    /*
-     * Check to see if we're still projecting out tuples from a previous join
-     * tuple (because there is a function-returning-set in the projection
-     * expressions).  If so, try to project another one.
-     */
-    if (node->js.ps.ps_TupFromTlist) {
-        ExprDoneCond is_done;
-
-        TupleTableSlot* result = ExecProject(node->js.ps.ps_ProjInfo, &is_done);
-        if (is_done == ExprMultipleResult)
-            return result;
-        /* Done with that source tuple... */
-        node->js.ps.ps_TupFromTlist = false;
-    }
 
     /*
      * Reset per-tuple memory context to free any expression evaluation
@@ -239,16 +225,11 @@ TupleTableSlot* ExecNestLoop(NestLoopState* node)
                      * the slot containing the result tuple using
                      * function ExecProject.
                      */
-                    ExprDoneCond is_done;
 
                     ENL1_printf("qualification succeeded, projecting tuple");
 
-                    TupleTableSlot* result = ExecProject(node->js.ps.ps_ProjInfo, &is_done);
+                    return ExecProject(node->js.ps.ps_ProjInfo);
 
-                    if (is_done != ExprEndResult) {
-                        node->js.ps.ps_TupFromTlist = (is_done == ExprMultipleResult);
-                        return result;
-                    }
                 } else
                     InstrCountFiltered2(node, 1);
             }
@@ -291,24 +272,16 @@ TupleTableSlot* ExecNestLoop(NestLoopState* node)
                  * qualification was satisfied so we project and return the
                  * slot containing the result tuple using ExecProject().
                  */
-                ExprDoneCond is_done;
 
                 ENL1_printf("qualification succeeded, projecting tuple");
 
-                TupleTableSlot* result = ExecProject(node->js.ps.ps_ProjInfo, &is_done);
+                TupleTableSlot* result = ExecProject(node->js.ps.ps_ProjInfo);
 
-                if (is_done != ExprEndResult) {
-                    node->js.ps.ps_TupFromTlist = (is_done == ExprMultipleResult);
-                    /*
-                     * @hdfs
-                     * Optimize plan by informational constraint.
-                     */
-                    if (((NestLoop*)(node->js.ps.plan))->join.optimizable) {
-                        node->nl_NeedNewOuter = true;
-                    }
-
-                    return result;
+                if (((NestLoop *)(node->js.ps.plan))->join.optimizable) {
+                    node->nl_NeedNewOuter = true;
                 }
+
+                return result;
             } else
                 InstrCountFiltered2(node, 1);
         } else
@@ -411,7 +384,6 @@ NestLoopState* ExecInitNestLoop(NestLoop* node, EState* estate, int eflags)
     /*
      * finally, wipe the current outer tuple clean.
      */
-    nlstate->js.ps.ps_TupFromTlist = false;
     nlstate->nl_NeedNewOuter = true;
     nlstate->nl_MatchedOuter = false;
 
@@ -480,7 +452,6 @@ void ExecReScanNestLoop(NestLoopState* node)
      * re-scanned from here or you'll get troubles from inner index scans when
      * outer Vars are used as run-time keys...
      */
-    node->js.ps.ps_TupFromTlist = false;
     node->nl_NeedNewOuter = true;
     node->nl_MatchedOuter = false;
 }

@@ -780,8 +780,6 @@ BitmapHeapScanState* ExecInitBitmapHeapScan(BitmapHeapScan* node, EState* estate
      */
     ExecAssignExprContext(estate, &scanstate->ss.ps);
 
-    scanstate->ss.ps.ps_TupFromTlist = false;
-
     /*
      * initialize child expressions
      */

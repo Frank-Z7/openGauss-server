@@ -3788,9 +3788,6 @@ RemoteQueryState* ExecInitRemoteQuery(RemoteQuery* node, EState* estate, int efl
     ExecInitScanTupleSlot(estate, &remotestate->ss);
     scan_type = ExecTypeFromTL(node->base_tlist, false);
     ExecAssignScanType(&remotestate->ss, scan_type);
-
-    remotestate->ss.ps.ps_TupFromTlist = false;
-
     /*
      * If there are parameters supplied, get them into a form to be sent to the
      * Datanodes with bind message. We should not have had done this before.
@@ -3882,7 +3879,7 @@ PGXCNodeAllHandles* get_exec_connections(
 
                 ExprState* estate = ExecInitExpr(expr, (PlanState*)planstate);
 
-                Datum partvalue = ExecEvalExpr(estate, planstate->ss.ps.ps_ExprContext, &isnull, NULL);
+                Datum partvalue = ExecEvalExpr(estate, planstate->ss.ps.ps_ExprContext, &isnull);
                 MemoryContextSwitchTo(oldContext);
 
                 values[i] = partvalue;

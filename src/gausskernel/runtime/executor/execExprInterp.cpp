@@ -140,7 +140,7 @@ static ExprEvalOpLookup reverse_dispatch_table[EEOP_LAST];
 		EEO_DISPATCH(); \
 	} while (0)
 
-static Datum ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
+static Datum ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull);
 static void ExecInitInterpreter(void);
 
 /* support functions */
@@ -152,16 +152,16 @@ static void ExecEvalRowNullInt(ExprState *state, ExprEvalStep *op,
 				   ExprContext *econtext, bool checkisnull);
 
 /* fast-path evaluation functions */
-static Datum ExecJustInnerVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustOuterVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustOuterVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustScanVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustScanVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustAssignInnerVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustAssignOuterVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
-static Datum ExecJustAssignScanVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone);
+static Datum ExecJustInnerVarFirst(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustOuterVarFirst(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustOuterVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustScanVarFirst(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustScanVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustAssignInnerVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustAssignOuterVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustAssignScanVar(ExprState *state, ExprContext *econtext, bool *isnull);
 
 extern bool func_has_refcursor_args(Oid Funcid, FunctionCallInfoData* fcinfo);
 extern void check_huge_clob_paramter(FunctionCallInfoData* fcinfo, bool is_have_huge_clob);
@@ -309,7 +309,6 @@ ExecMakeFunctionResultNoSets(ExprState *state, ExprEvalStep *op,ExprContext *eco
 	
     bool savedIsSTP = u_sess->SPI_cxt.is_stp;
     bool savedProConfigIsSet = u_sess->SPI_cxt.is_proconfig_set;
-    bool proIsProcedure = false;
     bool supportTranaction = false;
     bool is_have_huge_clob = false;
 	bool needResetErrMsg = (u_sess->SPI_cxt.forbidden_commit_rollback_err_msg[0] == '\0');
@@ -489,7 +488,7 @@ ExecMakeFunctionResultNoSets(ExprState *state, ExprEvalStep *op,ExprContext *eco
  * (Only applies when EEO_USE_COMPUTED_GOTO is defined.)
  */
 static Datum
-ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op;
 	TupleTableSlot *resultslot;
@@ -596,9 +595,6 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCo
 	innerslot = econtext->ecxt_innertuple;
 	outerslot = econtext->ecxt_outertuple;
 	scanslot = econtext->ecxt_scantuple;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 #if defined(EEO_USE_COMPUTED_GOTO)
 	EEO_DISPATCH();
@@ -1817,14 +1813,11 @@ ShutdownTupleDescRef(Datum arg)
 
 /* Simple reference to inner Var, first time through */
 static Datum
-ExecJustInnerVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustInnerVarFirst(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[1];
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_innertuple;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 	CheckVarSlotCompatibility(slot, attnum, op->d.var.vartype);
 	op->opcode = EEOP_INNER_VAR;	/* just for cleanliness */
@@ -1840,14 +1833,11 @@ ExecJustInnerVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, Exp
 
 /* Simple reference to inner Var */
 static Datum
-ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[1];
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_innertuple;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 	/* See comments in ExecJustInnerVarFirst */
 	return tableam_tslot_getattr(slot, attnum, isnull);
@@ -1855,14 +1845,11 @@ ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDone
 
 /* Simple reference to outer Var, first time through */
 static Datum
-ExecJustOuterVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustOuterVarFirst(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[1];
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_outertuple;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 	CheckVarSlotCompatibility(slot, attnum, op->d.var.vartype);
 	op->opcode = EEOP_OUTER_VAR;	/* just for cleanliness */
@@ -1874,14 +1861,11 @@ ExecJustOuterVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, Exp
 
 /* Simple reference to outer Var */
 static Datum
-ExecJustOuterVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustOuterVar(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[1];
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_outertuple;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 	/* See comments in ExecJustInnerVarFirst */
 	return tableam_tslot_getattr(slot, attnum, isnull);
@@ -1889,14 +1873,11 @@ ExecJustOuterVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDone
 
 /* Simple reference to scan Var, first time through */
 static Datum
-ExecJustScanVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustScanVarFirst(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[1];
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_scantuple;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 	CheckVarSlotCompatibility(slot, attnum, op->d.var.vartype);
 	op->opcode = EEOP_SCAN_VAR; /* just for cleanliness */
@@ -1908,14 +1889,11 @@ ExecJustScanVarFirst(ExprState *state, ExprContext *econtext, bool *isnull, Expr
 
 /* Simple reference to scan Var */
 static Datum
-ExecJustScanVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustScanVar(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[1];
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_scantuple;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 	/* See comments in ExecJustInnerVarFirst */
 	return tableam_tslot_getattr(slot, attnum, isnull);
@@ -1923,15 +1901,12 @@ ExecJustScanVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneC
 
 /* implementation of ExecJustAssign(Inner|Outer|Scan)Var */
 static inline Datum
-ExecJustAssignVarImpl(ExprState *state, TupleTableSlot *inslot, bool *isnull, ExprDoneCond* isDone)
+ExecJustAssignVarImpl(ExprState *state, TupleTableSlot *inslot, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[1];
 	int			attnum = op->d.assign_var.attnum + 1;
 	int			resultnum = op->d.assign_var.resultnum;
 	TupleTableSlot *outslot = state->resultslot;
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 
 	/*
 	 * We do not need CheckVarSlotCompatibility here; that was taken care of
@@ -1950,12 +1925,9 @@ ExecJustAssignVarImpl(ExprState *state, TupleTableSlot *inslot, bool *isnull, Ex
 
 /* Simple Const expression */
 static Datum
-ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	ExprEvalStep *op = &state->steps[0];
-
-	if (isDone != NULL)
-        *isDone = ExprSingleResult;
 		
 	*isnull = op->d.constval.isnull;
 
@@ -1971,23 +1943,23 @@ ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCon
 
 /* Evaluate inner Var and assign to appropriate column of result tuple */
 static Datum
-ExecJustAssignInnerVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustAssignInnerVar(ExprState *state, ExprContext *econtext, bool *isnull)
 {
-	return ExecJustAssignVarImpl(state, econtext->ecxt_innertuple, isnull, isDone);
+	return ExecJustAssignVarImpl(state, econtext->ecxt_innertuple, isnull);
 }
 
 /* Evaluate outer Var and assign to appropriate column of result tuple */
 static Datum
-ExecJustAssignOuterVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustAssignOuterVar(ExprState *state, ExprContext *econtext, bool *isnull)
 {
-	return ExecJustAssignVarImpl(state, econtext->ecxt_outertuple, isnull, isDone);
+	return ExecJustAssignVarImpl(state, econtext->ecxt_outertuple, isnull);
 }
 
 /* Evaluate scan Var and assign to appropriate column of result tuple */
 static Datum
-ExecJustAssignScanVar(ExprState *state, ExprContext *econtext, bool *isnull, ExprDoneCond* isDone)
+ExecJustAssignScanVar(ExprState *state, ExprContext *econtext, bool *isnull)
 {
-	return ExecJustAssignVarImpl(state, econtext->ecxt_scantuple, isnull, isDone);
+	return ExecJustAssignVarImpl(state, econtext->ecxt_scantuple, isnull);
 }
 
 #if defined(EEO_USE_COMPUTED_GOTO)
@@ -2022,7 +1994,7 @@ ExecInitInterpreter(void)
 		int			i;
 
 		dispatch_table = (const void **)
-			DatumGetPointer(ExecInterpExpr(NULL, NULL, NULL, NULL));
+			DatumGetPointer(ExecInterpExpr(NULL, NULL, NULL));
 
 		/* build reverse lookup table */
 		for (i = 0; i < EEOP_LAST; i++)
@@ -3578,7 +3550,7 @@ ExecEvalSubPlan(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 	/* could potentially be nested, so make sure there's enough stack */
 	check_stack_depth();
 
-	*op->resvalue = ExecSubPlan(sstate, econtext, op->resnull, NULL);
+	*op->resvalue = ExecSubPlan(sstate, econtext, op->resnull);
 }
 
 /*
@@ -3592,7 +3564,7 @@ ExecEvalAlternativeSubPlan(ExprState *state, ExprEvalStep *op, ExprContext *econ
 	/* could potentially be nested, so make sure there's enough stack */
 	check_stack_depth();
 
-	*op->resvalue = ExecAlternativeSubPlan(asstate, econtext, op->resnull, NULL);
+	*op->resvalue = ExecAlternativeSubPlan(asstate, econtext, op->resnull);
 }
 
 void

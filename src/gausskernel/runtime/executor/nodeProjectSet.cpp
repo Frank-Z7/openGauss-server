@@ -187,7 +187,7 @@ execMakeExprResult(Node *arg, ExprContext *econtext, MemoryContext argContext,
 		*hassrf = true;
     } else {
         /* Non-SRF tlist expression, just evaluate normally. */
-        result = ExecEvalExpr((ExprState *)arg, econtext, isnull, NULL);
+        result = ExecEvalExpr((ExprState *)arg, econtext, isnull);
         *isdone = ExprSingleResult;
     }    
     return result;

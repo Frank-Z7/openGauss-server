@@ -62,7 +62,7 @@ VectorBatch* ExecVecResult(VecResultState* node)
         }
     }
 
-    Assert(node->ps.ps_TupFromTlist == false);
+    Assert(node->ps.ps_vec_TupFromTlist == false);
 
     /*
      * Reset per-tuple memory context to free any expression evaluation
@@ -164,7 +164,7 @@ VecResultState* ExecInitVecResult(VecResult* node, EState* estate, int eflags)
      */
     ExecAssignExprContext(estate, &res_state->ps);
 
-    res_state->ps.ps_TupFromTlist = false;
+    res_state->ps.ps_vec_TupFromTlist = false;
 
     /*
      * tuple table initialization
@@ -226,7 +226,7 @@ void ExecEndVecResult(VecResultState* node)
 void ExecReScanVecResult(VecResultState* node)
 {
     node->rs_done = false;
-    node->ps.ps_TupFromTlist = false;
+    node->ps.ps_vec_TupFromTlist = false;
     node->rs_checkqual = (node->resconstantqual == NULL) ? false : true;
 
     /*

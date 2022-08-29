@@ -113,8 +113,6 @@ ExtensiblePlanState* ExecInitExtensiblePlan(ExtensiblePlan* eplan, EState* estat
     /* create expression context for node */
     ExecAssignExprContext(estate, &extensionPlanState->ss.ps);
 
-    extensionPlanState->ss.ps.ps_TupFromTlist = false;
-
     /* initialize child expressions */
     extensionPlanState->ss.ps.qual = (List*)ExecInitQual(eplan->scan.plan.qual, (PlanState*)extensionPlanState);
 

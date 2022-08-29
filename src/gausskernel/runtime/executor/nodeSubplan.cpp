@@ -30,7 +30,7 @@
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 
-Datum ExecAlternativeSubPlan(AlternativeSubPlanState* node, ExprContext* econtext, bool* isNull, ExprDoneCond* isDone);
+Datum ExecAlternativeSubPlan(AlternativeSubPlanState* node, ExprContext* econtext, bool* isNull);
 static Datum ExecHashSubPlan(SubPlanState* node, ExprContext* econtext, bool* isNull);
 static Datum ExecScanSubPlan(SubPlanState* node, ExprContext* econtext, bool* isNull);
 
@@ -38,18 +38,15 @@ static Datum ExecScanSubPlan(SubPlanState* node, ExprContext* econtext, bool* is
  *		ExecSubPlan
  * ----------------------------------------------------------------
  */
-Datum ExecSubPlan(SubPlanState* node, ExprContext* econtext, bool* isNull, ExprDoneCond* isDone)
+Datum ExecSubPlan(SubPlanState* node, ExprContext* econtext, bool* isNull)
 {
     SubPlan* sub_plan = node->subplan;
     EState* estate = node->planstate->state;
     ScanDirection direction;
     Datum       retval;
 
-    /* Set default values for result flags: non-null, not a set result */
+    /* Set non-null as default */
     *isNull = false;
-    if (isDone != NULL) {
-        *isDone = ExprSingleResult;
-    }
 
     /* Sanity checks */
     if (sub_plan->subLinkType == CTE_SUBLINK) {
@@ -123,7 +120,7 @@ static Datum ExecHashSubPlan(SubPlanState* node, ExprContext* econtext, bool* is
      * have to set the econtext to use (hack alert!).
      */
     node->projLeft->pi_exprContext = econtext;
-    slot = ExecProject(node->projLeft, NULL);
+    slot = ExecProject(node->projLeft);
     /*
      * Note: because we are typically called in a per-tuple context, we have
      * to explicitly clear the projected tuple before returning. Otherwise,
@@ -228,7 +225,7 @@ static Datum ExecScanSubPlan(SubPlanState* node, ExprContext* econtext, bool* is
         int paramid = lfirst_int(l);
         ParamExecData* prm = &(econtext->ecxt_param_exec_vals[paramid]);
 
-        prm->value = ExecEvalExprSwitchContext((ExprState*)lfirst(pvar), econtext, &(prm->isnull), NULL);
+        prm->value = ExecEvalExprSwitchContext((ExprState*)lfirst(pvar), econtext, &(prm->isnull));
 
         //
         // When the correlated subplan is running under vector engine, and upper plan pass the parameters to the
@@ -357,7 +354,7 @@ static Datum ExecScanSubPlan(SubPlanState* node, ExprContext* econtext, bool* is
             col++;
         }
 
-        rowresult = ExecEvalExprSwitchContext(node->testexpr, econtext, &rownull, NULL);
+        rowresult = ExecEvalExprSwitchContext(node->testexpr, econtext, &rownull);
 
         if (sub_link_type == ANY_SUBLINK) {
             /* combine across rows per OR semantics */
@@ -517,7 +514,7 @@ void buildSubPlanHash(SubPlanState* node, ExprContext* econtext)
             prmdata->value = tableam_tslot_getattr(slot, col, &(prmdata->isnull));
             col++;
         }
-        slot = ExecProject(node->projRight, NULL);
+        slot = ExecProject(node->projRight);
         /*
          * If result contains any nulls, store separately or not at all.
          */
@@ -1102,12 +1099,12 @@ AlternativeSubPlanState* ExecInitAlternativeSubPlan(AlternativeSubPlan* asplan, 
  * fly, in case the original rowcount estimate turns out to be way off.
  */
 Datum ExecAlternativeSubPlan(
-    AlternativeSubPlanState* node, ExprContext* econtext, bool* isNull, ExprDoneCond* isDone)
+    AlternativeSubPlanState* node, ExprContext* econtext, bool* isNull)
 {
     /* Just pass control to the active subplan */
     SubPlanState* activesp = (SubPlanState*)list_nth(node->subplans, node->active);
 
     Assert(IsA(activesp, SubPlanState));
 
-    return ExecSubPlan(activesp, econtext, isNull, isDone);
+    return ExecSubPlan(activesp, econtext, isNull);
 }

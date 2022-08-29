@@ -6381,7 +6381,7 @@ bool NextCopyFrom(CopyState cstate, ExprContext* econtext, Datum* values, bool* 
         Assert(econtext != NULL);
         Assert(CurrentMemoryContext == econtext->ecxt_per_tuple_memory);
 
-        values[defmap[i]] = ExecEvalExpr(defexprs[i], econtext, &nulls[defmap[i]], NULL);
+        values[defmap[i]] = ExecEvalExpr(defexprs[i], econtext, &nulls[defmap[i]]);
     }
 
     if (cstate->transexprs != NULL)
@@ -6421,8 +6421,7 @@ static void ExecTransColExpr(CopyState cstate, ExprContext* econtext, int numPhy
             if (!cstate->transexprs[i])
                 continue;
             
-            values[i] = ExecEvalExpr(cstate->transexprs[i], econtext,
-                                    &nulls[i], NULL);
+            values[i] = ExecEvalExpr(cstate->transexprs[i], econtext, &nulls[i]);
         }
         
         ExecDropSingleTupleTableSlot(slot);

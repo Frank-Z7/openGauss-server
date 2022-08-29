@@ -291,7 +291,7 @@ void ExecIndexEvalRuntimeKeys(ExprContext* econtext, IndexRuntimeKeyInfo* run_ti
          * avoid repeat detoastings each time the value is examined by an
          * index support function.
          */
-        scan_value = ExecEvalExpr(key_expr, econtext, &is_null, NULL);
+        scan_value = ExecEvalExpr(key_expr, econtext, &is_null);
         if (is_null) {
             scan_key->sk_argument = scan_value;
             scan_key->sk_flags |= SK_ISNULL;
@@ -340,7 +340,7 @@ bool ExecIndexEvalArrayKeys(ExprContext* econtext, IndexArrayKeyInfo* array_keys
          * Compute and deconstruct the array expression. (Notes in
          * ExecIndexEvalRuntimeKeys() apply here too.)
          */
-        array_datum = ExecEvalExpr(array_expr, econtext, &is_null, NULL);
+        array_datum = ExecEvalExpr(array_expr, econtext, &is_null);
         if (is_null) {
             result = false;
             break; /* no point in evaluating more */
@@ -654,8 +654,6 @@ IndexScanState* ExecInitIndexScan(IndexScan* node, EState* estate, int eflags)
      * create expression context for node
      */
     ExecAssignExprContext(estate, &index_state->ss.ps);
-
-    index_state->ss.ps.ps_TupFromTlist = false;
 
     /*
      * initialize child expressions

@@ -124,7 +124,7 @@ static TupleTableSlot* ValuesNext(ValuesScanState* node)
         foreach (lc, expr_state_list) {
             ExprState* exprState = (ExprState*)lfirst(lc);
 
-            values[resind] = ExecEvalExpr(exprState, econtext, &is_null[resind], NULL);
+            values[resind] = ExecEvalExpr(exprState, econtext, &is_null[resind]);
             resind++;
         }
 
@@ -233,8 +233,6 @@ ValuesScanState* ExecInitValuesScan(ValuesScan* node, EState* estate, int eflags
     foreach (vtl, node->values_lists) {
         scan_state->exprlists[i++] = (List*)lfirst(vtl);
     }
-
-    scan_state->ss.ps.ps_TupFromTlist = false;
 
     /*
      * Initialize result tuple type and projection info.
