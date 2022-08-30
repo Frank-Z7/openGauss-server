@@ -6487,7 +6487,7 @@ is_unreserved_keyword_func(const char *name)
 static bool
 is_unreservedkeywordfunction(int kwnum, bool no_parenthesis, const char *name)
 {
-    if (kwnum >= 0 && no_parenthesis && ScanKeywordCategories[kwnum] != UNRESERVED_KEYWORD && !is_unreserved_keyword_func(name))
+    if (kwnum >= 0 && no_parenthesis && ScanKeywordCategories[kwnum] == UNRESERVED_KEYWORD && !is_unreserved_keyword_func(name))
         return false;
     else
         return true;
@@ -6541,7 +6541,7 @@ is_function(const char *name, bool is_assign, bool no_parenthesis, List* funcNam
 
         int kwnum = ScanKeywordLookup(cp[0], &ScanKeywords);
         /* function name can not be reserved keyword */
-        if (kwnum >= 0 && ScanKeywordCategories[kwnum] != UNRESERVED_KEYWORD)
+        if (kwnum >= 0 && ScanKeywordCategories[kwnum] == RESERVED_KEYWORD)
             return false;
         /* function name can not be unreserved keyword when no-parenthesis function is called. except log function*/
         if (!is_unreservedkeywordfunction(kwnum, no_parenthesis, cp[0]))

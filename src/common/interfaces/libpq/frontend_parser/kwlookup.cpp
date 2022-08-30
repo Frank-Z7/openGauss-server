@@ -30,7 +30,7 @@
 #include "access/tupdesc.h"
 #include "nodes/parsenodes_common.h"
 #include "gram.hpp"
-#include "parser/keywords.h"
+#include "parser/kwlookup.h"
 
 /*
  * ScanKeywordLookup - see if a given word is a keyword
