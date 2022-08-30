@@ -673,6 +673,9 @@
 /* Define to build with Kerberos 5 support. (--with-krb5) */
 #undef KRB5
 
+/* Define to 1 if your compiler understands __builtin_clz. */
+#undef HAVE__BUILTIN_CLZ
+
 /* Define to 1 if you have __cpuid. */
 #undef HAVE__CPUID
 

@@ -2874,47 +2874,7 @@ _ACEOF
 
 fi
 
-# Check whether --enable-mot was given.
-if test "${enable_mot+set}" = set; then
-  enableval=$enable_mot;
-  case $enableval in
-    yes)
-      if test "$enable_multiple_nodes" = yes; then
-
-        { { $as_echo "$as_me:$LINENO: error: --enable-mot option is not supported with --enable-multiple-nodes option" >&5
-            $as_echo "$as_me: error: --enable-mot option is not supported with --enable-multiple-nodes option" >&2;}
-          { (exit 1); exit 1; }; }
-
-      fi
-      ;;
-    no)
-      :
-      ;;
-    *)
-      { { $as_echo "$as_me:$LINENO: error: no argument expected for --enable-mot option" >&5
-$as_echo "$as_me: error: no argument expected for --enable-mot option" >&2;}
-   { (exit 1); exit 1; }; }
-      ;;
-  esac
-
-else
   enable_mot=no
-
-fi
-
-if test "$enable_multiple_nodes" = yes; then
-
-  enable_mot=no
-fi
-
-if test "$enable_mot" = yes; then
-
-cat >>confdefs.h <<\_ACEOF
-#define ENABLE_MOT 1
-_ACEOF
-
-fi
-
 #
 # '-memory-check'-like feature can be enabled
 #
@@ -18295,6 +18255,46 @@ _ACEOF
     fi
   ;;
 esac
+
+# We assume that we needn't test all widths of these explicitly:
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for __builtin_clz" >&5
+$as_echo_n "checking for __builtin_clz... " >&6; }
+if ${pgac_cv__builtin_clz+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+call__builtin_clz(unsigned int x)
+{
+    return __builtin_clz(x);
+}
+int
+main ()
+{
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  pgac_cv__builtin_clz=yes
+else
+  pgac_cv__builtin_clz=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $pgac_cv__builtin_clz" >&5
+$as_echo "$pgac_cv__builtin_clz" >&6; }
+if test x"${pgac_cv__builtin_clz}" = xyes ; then
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE__BUILTIN_CLZ 1
+_ACEOF
+
+fi
 
 # Check largefile support.  You might think this is a system service not a
 # compiler characteristic, but you'd be wrong.  We must check this before
