@@ -38,6 +38,11 @@ OBJS=	preproc.o type.o ecpg.o output.o parser.o \
 	keywords.o c_keywords.o ecpg_keywords.o kwlookup.o ../ecpglib/typename.o descriptor.o variable.o \
 	$(WIN32RES)
 
+# where to find gen_keywordlist.pl and subsidiary files
+TOOLSDIR = $(top_srcdir)/src/tools
+GEN_KEYWORDLIST = $(PERL) -I $(TOOLSDIR) $(TOOLSDIR)/gen_keywordlist.pl
+GEN_KEYWORDLIST_DEPS = $(TOOLSDIR)/gen_keywordlist.pl $(TOOLSDIR)/PerfectHash.pm
+
 all: ecpg
 
 ecpg: $(OBJS) | submake-libpgport
@@ -69,7 +74,18 @@ preproc.y: ../../../../common/backend/parser/gram.y parse.pl ecpg.addons ecpg.he
 	$(PERL) $(srcdir)/parse.pl $(srcdir) < $< > $@
 	$(PERL) $(srcdir)/check_rules.pl $(srcdir) $<
 
+# generate keyword headers
+c_kwlist_d.h: c_kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(GEN_KEYWORDLIST) --varname ScanCKeywords $<
+
+ecpg_kwlist_d.h: ecpg_kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(GEN_KEYWORDLIST) --varname ScanECPGKeywords $<
+
+# Force these dependencies to be known even without dependency info built:
 ecpg_keywords.o c_keywords.o keywords.o preproc.o parser.o: preproc.hpp
+ecpg_keywords.o: ecpg_kwlist_d.h
+c_keywords.o: c_kwlist_d.h
+keywords.o: $(top_srcdir)/src/include/parser/kwlist.h
 
 kwlookup.cpp: % : $(top_srcdir)/src/common/backend/parser/%
 	rm -f $@ && $(LN_S) $< .
@@ -85,6 +101,8 @@ installdirs:
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/ecpg$(X)'
 
+# preproc.y, preproc.c, preproc.h, pgc.c, c_kwlist_d.h, and ecpg_kwlist_d.h
+# are in the distribution tarball, so they are not cleaned here.
 clean distclean:
 	rm -f kwlookup.cpp *.o ecpg$(X)
 # garbage from development
@@ -94,4 +112,4 @@ clean distclean:
 # since we want to ship those files in the distribution for people with
 # inadequate tools.  Instead, `make maintainer-clean' will remove them.
 maintainer-clean: distclean
-	rm -f preproc.y preproc.cpp preproc.hpp pgc.cpp
+	rm -f preproc.y preproc.cpp preproc.hpp pgc.cpp c_kwlist_d.h ecpg_kwlist_d.h

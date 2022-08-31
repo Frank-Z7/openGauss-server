@@ -31,7 +31,7 @@ include $(top_builddir)/src/Makefile.global
 include $(top_builddir)/src/Makefile.shlib
 parser.o gram.o: scan.cpp
 gram.hpp: gram.cpp
-gram.o  kwlookup.o parser.o: gram.hpp
+gram.o  kwlookup.o parser.o: gram.hpp kwlist_d.h
 scan.o: gram.hpp scan.cpp
 #gram.cpp: build-parser
 
