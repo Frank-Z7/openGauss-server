@@ -90,6 +90,16 @@ ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
         off++;
     }
 
+    /*
+     * Create a memory context that ExecMakeFunctionResult can use to evaluate
+     * function arguments in.  We can't use the per-tuple context for this
+     * because it gets reset too often; but we don't want to leak evaluation
+     * results into the query-lifespan context either.  We use one context for
+     * the arguments of all tSRFs, as they have roughly equivalent lifetimes.
+     */
+    state->argcontext = AllocSetContextCreate(CurrentMemoryContext, 
+                                        "tSRF function arguments", ALLOCSET_DEFAULT_SIZES);
+
     return state;
 }
 
@@ -101,6 +111,13 @@ TupleTableSlot *ExecProjectSet(ProjectSetState *node)
     ExprContext *econtext;
 
     econtext = node->ps.ps_ExprContext;
+
+    /*
+     * Reset per-tuple context to free expression-evaluation storage allocated
+     * for a potentially previously returned tuple. Note that the SRF argument
+     * context has a different lifetime and is reset below.
+     */
+    ResetExprContext(econtext);
 
     /*
      * Check to see if we're still projecting out tuples from a previous scan
@@ -115,11 +132,13 @@ TupleTableSlot *ExecProjectSet(ProjectSetState *node)
     }
 
     /*
-     * Reset per-tuple memory context to free any expression evaluation
-     * storage allocated in the previous tuple cycle.  Note this can't happen
-     * until we're done projecting out tuples from a scan tuple.
+     * Reset argument context to free any expression evaluation storage
+     * allocated in the previous tuple cycle.  Note this can't happen until
+     * we're done projecting out tuples from a scan tuple, as ValuePerCall
+     * functions are allowed to reference the arguments for each returned
+     * tuple.
      */
-    ResetExprContext(econtext);
+    MemoryContextReset(node->argcontext);
 
     /*
      * Get another input tuple and project SRFs from it.
@@ -156,15 +175,15 @@ TupleTableSlot *ExecProjectSet(ProjectSetState *node)
 }
 
 static inline Datum 
-execMakeExprResult(Node *arg, ExprContext *econtext, bool *isnull, 
-                    ExprDoneCond *isdone, bool *hassrf)
+execMakeExprResult(Node *arg, ExprContext *econtext, MemoryContext argContext,
+                    bool *isnull, ExprDoneCond *isdone, bool *hassrf)
 {
     Datum result;
     if (IsA(arg, SetExprState)) {
         /*
          * Evaluate SRF - possibly continuing previously started output.
          */
-        result = ExecMakeFunctionResultSet((SetExprState*)arg, econtext, isnull, isdone);
+        result = ExecMakeFunctionResultSet((SetExprState*)arg, econtext, argContext, isnull, isdone);
 		*hassrf = true;
     } else {
         /* Non-SRF tlist expression, just evaluate normally. */
@@ -223,7 +242,8 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
 
         ELOG_FIELD_NAME_START(resname);
 
-        *result = execMakeExprResult(elem, econtext, isnull, itemIsDone, &hassrf);
+        *result = execMakeExprResult(elem, econtext, node->argcontext,
+                                    isnull, itemIsDone, &hassrf);
 
         ELOG_FIELD_NAME_END;
 
@@ -289,7 +309,7 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
             ELOG_FIELD_NAME_START(resname);
 
             /*restart the done ones*/
-            *result = ExecMakeFunctionResultSet((SetExprState*)elem, econtext, isnull, itemIsDone);
+            *result = ExecMakeFunctionResultSet((SetExprState*)elem, econtext, node->argcontext, isnull, itemIsDone);
 
             ELOG_FIELD_NAME_END;
         
@@ -344,7 +364,7 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
                 ELOG_FIELD_NAME_START(resname);
 
                 while (*itemIsDone == ExprMultipleResult) {
-                    *result = ExecMakeFunctionResultSet((SetExprState*)elem, econtext, isnull, itemIsDone);
+                    *result = ExecMakeFunctionResultSet((SetExprState*)elem, econtext, node->argcontext, isnull, itemIsDone);
                     /* no need for MakeExpandedObjectReadOnly */
                 }
                 

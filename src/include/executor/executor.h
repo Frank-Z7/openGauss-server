@@ -264,6 +264,7 @@ extern ProjectionInfo* ExecBuildProjectionInfo(List *targetList,
 extern ExprState* ExecPrepareExpr(Expr* node, EState* estate);
 extern Datum ExecMakeFunctionResultSet(SetExprState *fcache,
                             ExprContext *econtext,
+                            MemoryContext argContext,
                             bool *isNull,
                             ExprDoneCond *isDone);
 extern ExprState *ExecPrepareQual(List *qual, EState *estate);

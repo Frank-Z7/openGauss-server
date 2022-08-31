@@ -936,7 +936,7 @@ typedef struct SetExprState
 	 * argument values between calls, when setArgsValid is true.
 	 */
 	FunctionCallInfoData fcinfo_data;
-
+    
     bool has_refcursor;
 } SetExprState;
 
@@ -1510,6 +1510,7 @@ typedef struct ProjectSetState {
     ExprDoneCond *elemdone;  /* array of per-SRF is-done states */
     int nelems;              /* length of elemdone[] array */
     bool pending_srf_tuples; /* still evaluating srfs in tlist? */
+    MemoryContext argcontext; /* context for SRF arguments */
 } ProjectSetState;
 
 /* ----------------
