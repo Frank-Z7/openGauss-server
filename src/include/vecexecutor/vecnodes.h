@@ -93,8 +93,141 @@ typedef struct VecAggInfo {
     PGFunction* vec_agg_final;
 } VecAggInfo;
 
+/*
+ * VecAggStatePerAggData - per-aggregate working state for the Agg scan
+ */
+typedef struct VecAggStatePerAggData {
+    /*
+     * These values are set up during ExecInitAgg() and do not change
+     * thereafter:
+     */
+
+    /* Links to Aggref expr and state nodes this working state is for */
+    AggrefExprState* aggrefstate;
+    Aggref* aggref;
+
+    /* number of input arguments for aggregate function proper */
+    int numArguments;
+
+    /* number of inputs including ORDER BY expressions */
+    int numInputs;
+
+    bool        is_avg;
+
+    /*
+     * Number of aggregated input columns to pass to the transfn.  This
+     * includes the ORDER BY columns for ordered-set aggs, but not for plain
+     * aggs.  (This doesn't count the transition state value!)
+     */
+    int numTransInputs;
+
+    /* Oids of transfer functions */
+    Oid transfn_oid;
+    Oid finalfn_oid; /* may be InvalidOid */
+#ifdef PGXC
+    Oid collectfn_oid; /* may be InvalidOid */
+#endif                 /* PGXC */
+
+    /*
+     * fmgr lookup data for transfer functions --- only valid when
+     * corresponding oid is not InvalidOid.  Note in particular that fn_strict
+     * flags are kept here.
+     */
+    FmgrInfo transfn;
+    FmgrInfo finalfn;
+#ifdef PGXC
+    FmgrInfo collectfn;
+#endif /* PGXC */
+
+    /* Input collation derived for aggregate */
+    Oid aggCollation;
+
+    /* number of sorting columns */
+    int numSortCols;
+
+    /* number of sorting columns to consider in DISTINCT comparisons */
+    /* (this is either zero or the same as numSortCols) */
+    int numDistinctCols;
+
+    /* deconstructed sorting information (arrays of length numSortCols) */
+    AttrNumber* sortColIdx;
+    Oid* sortOperators;
+    Oid* sortCollations;
+    bool* sortNullsFirst;
+
+    /*
+     * fmgr lookup data for input columns' equality operators --- only
+     * set/used when aggregate has DISTINCT flag.  Note that these are in
+     * order of sort column index, not parameter index.
+     */
+    FmgrInfo* equalfns; /* array of length numDistinctCols */
+
+    /*
+     * initial value from pg_aggregate entry
+     */
+    Datum initValue;
+    bool initValueIsNull;
+#ifdef PGXC
+    Datum initCollectValue;
+    bool initCollectValueIsNull;
+#endif /* PGXC */
+
+    /*
+     * We need the len and byval info for the agg's input, result, and
+     * transition data types in order to know how to copy/delete values.
+     *
+     * Note that the info for the input type is used only when handling
+     * DISTINCT aggs with just one argument, so there is only one input type.
+     */
+    int16 inputtypeLen, resulttypeLen, transtypeLen;
+    bool inputtypeByVal, resulttypeByVal, transtypeByVal;
+
+    /*
+     * Stuff for evaluation of inputs.	We used to just use ExecEvalExpr, but
+     * with the addition of ORDER BY we now need at least a slot for passing
+     * data to the sort object, which requires a tupledesc, so we might as
+     * well go whole hog and use ExecProject too.
+     */
+    TupleDesc evaldesc;       /* descriptor of input tuples */
+    ProjectionInfo* evalproj; /* projection machinery */
+
+    /*
+     * Slots for holding the evaluated input arguments.  These are set up
+     * during ExecInitAgg() and then used for each input row.
+     */
+    TupleTableSlot* evalslot; /* current input tuple */
+    TupleTableSlot* uniqslot; /* used for multi-column DISTINCT */
+
+    /*
+     * These values are working state that is initialized at the start of an
+     * input tuple group and updated for each input tuple.
+     *
+     * For a simple (non DISTINCT/ORDER BY) aggregate, we just feed the input
+     * values straight to the transition function.	If it's DISTINCT or
+     * requires ORDER BY, we pass the input values into a Tuplesort object;
+     * then at completion of the input tuple group, we scan the sorted values,
+     * eliminate duplicates if needed, and run the transition function on the
+     * rest.
+     */
+
+    Tuplesortstate** sortstates; /* sort object, if DISTINCT or ORDER BY */
+    Tuplesortstate* sortstate;   /* sort object, if DISTINCT or ORDER BY */
+
+    /*
+     * This field is a pre-initialized FunctionCallInfo struct used for
+     * calling this aggregate's transfn.  We save a few cycles per row by not
+     * re-initializing the unchanging fields; which isn't much, but it seems
+     * worth the extra space consumption.
+     */
+    FunctionCallInfoData transfn_fcinfo;
+} VecAggStatePerAggData;
+
+typedef struct VecAggStatePerAggData* VecAggStatePerAgg;
+
 typedef struct VecAggState : public AggState {
     void* aggRun;
+
+    VecAggStatePerAgg pervecagg;
 
     VecAggInfo* aggInfo;
     char* jitted_hashing;         /* LLVM function pointer to point to

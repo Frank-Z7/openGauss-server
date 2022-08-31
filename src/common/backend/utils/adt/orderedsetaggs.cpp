@@ -115,7 +115,7 @@ static OrderedSetAggState* ordered_set_startup(PG_FUNCTION_ARGS)
     /* Need the agg info to perform sort */
     if (IsA(fcinfo->context, AggState)) {
         aggstate = (AggState*)fcinfo->context;
-        AggStatePerAgg curperagg = aggstate->curperagg;
+        AggStatePerTrans curperagg = aggstate->curpertrans;
         if (curperagg != NULL)
             aggref = curperagg->aggref;
     }
