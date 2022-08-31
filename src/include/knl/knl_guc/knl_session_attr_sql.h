@@ -239,6 +239,7 @@ typedef struct knl_session_attr_sql {
     bool enable_custom_parser;
 #endif
     bool dolphin;
+    bool enable_trace_column;
 } knl_session_attr_sql;
 
 #endif /* SRC_INCLUDE_KNL_KNL_SESSION_ATTR_SQL */

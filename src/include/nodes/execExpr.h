@@ -27,10 +27,13 @@ struct ArrayRefState;
 /* jump-threading is in use */
 #define EEO_FLAG_DIRECT_THREADED			(1 << 2)
 
-#define FUNC_EXPR_FLAG_HAS_REFCURSOR		0x01
-#define FUNC_EXPR_FLAG_HAS_CURSOR_RETURN	0x02
-#define FUNC_EXPR_FLAG_STRICT				0x04
-#define FUNC_EXPR_FLAG_FUSAGE				0x08
+#define FUNC_EXPR_FLAG_HAS_REFCURSOR		 uint32(1 << 0)
+#define FUNC_EXPR_FLAG_HAS_CURSOR_RETURN	 uint32(1 << 1)
+#define FUNC_EXPR_FLAG_STRICT				uint32(1 << 2)
+#define FUNC_EXPR_FLAG_FUSAGE				uint32(1 << 3)
+#define FUNC_EXPR_FLAG_STRICT_FUSAGE         (FUNC_EXPR_FLAG_STRICT|FUNC_EXPR_FLAG_FUSAGE)
+#define FUNC_EXPR_FLAG_IS_PLPGSQL            uint32(1 << 4)
+#define FUNC_EXPR_FLAG_ORACLE_COMPATIBILITY  uint32(1 << 5)
 
 /*
  * Discriminator for ExprEvalSteps.
@@ -41,7 +44,7 @@ struct ArrayRefState;
  * The order of entries needs to be kept in sync with the dispatch_table[]
  * array in execExprInterp.c:ExecInterpExpr().
  */
-typedef enum ExprEvalOp
+typedef enum ExprEvalOp 
 {
 	/* entire expression has been evaluated completely, return */
 	EEOP_DONE,
@@ -90,6 +93,10 @@ typedef enum ExprEvalOp
 	 * requires usage stats tracking.
 	 */
 	EEOP_FUNCEXPR,
+    EEOP_FUNCEXPR_STRICT,
+    EEOP_FUNCEXPR_FUSAGE,
+    EEOP_FUNCEXPR_STRICT_FUSAGE,
+    EEOP_FUNCEXPR_MAKE_FUNCTION_RESULT,   /*evaluate results by ExecMakeFunctionResultNoSets()*/
 
 	/*
 	 * Evaluate boolean AND expression, one step per subexpression. FIRST/LAST
@@ -238,6 +245,9 @@ typedef enum ExprEvalOp
    EEOP_AGG_COLLECT_PLAIN_TRANS,
    EEOP_AGG_ORDERED_TRANS_DATUM,
    EEOP_AGG_ORDERED_TRANS_TUPLE,
+    /* whether to trace the column name while executing projections */
+    EEOP_TRACE_COLUMN,
+
 	/* non-existent operation, used e.g. to check array lengths */
 	EEOP_LAST
 } ExprEvalOp;
@@ -319,7 +329,7 @@ typedef struct ExprEvalStep
 		struct
 		{
 			char prokind;
-			int flag;
+			uint32 flag;
 			FmgrInfo   *finfo;	/* function's lookup data */
 			FunctionCallInfo fcinfo_data;	/* arguments etc */
 			/* faster to access without additional indirection: */
@@ -651,6 +661,12 @@ typedef struct ExprEvalStep
 			int			transno;
 			int			setoff;
 		}			agg_trans;
+        /* for EEOP_TRACE_COLUMN* */
+        struct
+        {
+            char* column_name;
+        }  trace_column;
+
 	}			d;
 } ExprEvalStep;
 
@@ -699,11 +715,17 @@ typedef struct ArrayRefState
 extern void ExecReadyInterpretedExpr(ExprState *state);
 extern ExprEvalOp ExecEvalStepOp(ExprState *state, ExprEvalStep *op);
 
+extern Datum ExecInterpExprStillValid(ExprState *state, ExprContext *econtext, bool *isNull);
+extern void CheckExprStillValid(ExprState *state, ExprContext *econtext);
 /*
  * Non fast-path execution functions. These are externs instead of statics in
  * execExprInterp.c, because that allows them to be used by other methods of
  * expression evaluation, reducing code duplication.
  */
+extern void ExecEvalFuncExprFusage(ExprState *state, ExprEvalStep *op,
+                                   ExprContext *econtext);
+extern void ExecEvalFuncExprStrictFusage(ExprState *state, ExprEvalStep *op,
+                                         ExprContext *econtext);
 extern void ExecEvalParamExec(ExprState *state, ExprEvalStep *op,
 				  ExprContext *econtext);
 extern void ExecEvalParamExtern(ExprState *state, ExprEvalStep *op,
@@ -742,6 +764,7 @@ extern void ExecEvalHashFilter(ExprState *state, ExprEvalStep *op,
 						   ExprContext *econtext);
 extern void ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op,
 					ExprContext *econtext);
+extern bool IsTableOfFunc(Oid funcOid);
 extern Datum ExecAggTransReparent(AggState *aggstate, AggStatePerTrans pertrans,
 					 Datum newValue, bool newValueIsNull,
 					 Datum oldValue, bool oldValueIsNull);
@@ -753,4 +776,4 @@ extern void ExecEvalAggOrderedTransDatum(ExprState *state, ExprEvalStep *op,
 							 ExprContext *econtext);
 extern void ExecEvalAggOrderedTransTuple(ExprState *state, ExprEvalStep *op,
 							 ExprContext *econtext);
-#endif							/* EXEC_EXPR_H */
+#endif							/* EXEC_EXPR_H */
