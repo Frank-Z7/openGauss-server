@@ -28,6 +28,7 @@
 #include "executor/node/nodeValuesscan.h"
 #include "parser/parsetree.h"
 
+static TupleTableSlot* ExecValuesScan(PlanState* state);
 static TupleTableSlot* ValuesNext(ValuesScanState* node);
 
 /* ----------------------------------------------------------------
@@ -157,8 +158,9 @@ static bool ValuesRecheck(ValuesScanState* node, TupleTableSlot* slot)
  *		access method functions.
  * ----------------------------------------------------------------
  */
-TupleTableSlot* ExecValuesScan(ValuesScanState* node)
+static TupleTableSlot* ExecValuesScan(PlanState* state)
 {
+    ValuesScanState* node = castNode(ValuesScanState, state);
     return ExecScan(&node->ss, (ExecScanAccessMtd)ValuesNext, (ExecScanRecheckMtd)ValuesRecheck);
 }
 
@@ -186,6 +188,7 @@ ValuesScanState* ExecInitValuesScan(ValuesScan* node, EState* estate, int eflags
 
     scan_state->ss.ps.plan = (Plan*)node;
     scan_state->ss.ps.state = estate;
+    scan_state->ss.ps.ExecProcNode =  ExecValuesScan;
 
     /*
      * Miscellaneous initialization
