@@ -45,6 +45,8 @@ Datum ExecSubPlan(SubPlanState* node, ExprContext* econtext, bool* isNull)
     ScanDirection direction;
     Datum       retval;
 
+    CHECK_FOR_INTERRUPTS();
+
     /* Set non-null as default */
     *isNull = false;
 
@@ -566,6 +568,9 @@ bool findPartialMatch(TupleHashTable hashtable, TupleTableSlot* slot, FmgrInfo* 
 
     InitTupleHashIterator(hashtable, &hashiter);
     while ((entry = ScanTupleHashTable(&hashiter)) != NULL) {
+
+        CHECK_FOR_INTERRUPTS();
+        
         ExecStoreMinimalTuple(entry->firstTuple, hashtable->tableslot, false);
         if (!execTuplesUnequal(slot, hashtable->tableslot, num_cols, key_col_idx, eqfunctions, hashtable->tempcxt)) {
             TermTupleHashIterator(&hashiter);

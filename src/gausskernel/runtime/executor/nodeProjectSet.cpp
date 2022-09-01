@@ -13,6 +13,7 @@
 
 
 static TupleTableSlot *ExecProjectSRF(ProjectSetState *node);
+static TupleTableSlot *ExecProjectSet(PlanState *state);
 
 ProjectSetState *
 ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
@@ -30,8 +31,10 @@ ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
     state = makeNode(ProjectSetState);
     state->ps.plan = (Plan *)node;
     state->ps.state = estate;
+    state->ps.ExecProcNode = ExecProjectSet;
 
     state->pending_srf_tuples = false;
+
 
     /*
      * Miscellaneous initialization
@@ -111,12 +114,15 @@ ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
     return state;
 }
 
-TupleTableSlot *ExecProjectSet(ProjectSetState *node)
+static TupleTableSlot *ExecProjectSet(PlanState *state)
 {
+    ProjectSetState *node = castNode(ProjectSetState, state);
     TupleTableSlot *outerTupleSlot;
     TupleTableSlot *resultSlot;
     PlanState *outerPlan;
     ExprContext *econtext;
+
+    CHECK_FOR_INTERRUPTS();
 
     econtext = node->ps.ps_ExprContext;
 

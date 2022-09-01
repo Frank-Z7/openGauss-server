@@ -49,6 +49,8 @@
 #include "executor/node/nodeResult.h"
 #include "utils/memutils.h"
 
+static TupleTableSlot* ExecResult(PlanState* state);
+
 /* ----------------------------------------------------------------
  *		ExecResult(node)
  *
@@ -62,11 +64,14 @@
  *		'nil' if the constant qualification is not satisfied.
  * ----------------------------------------------------------------
  */
-TupleTableSlot* ExecResult(ResultState* node)
+static TupleTableSlot* ExecResult(PlanState* state)
 {
+    ResultState* node = castNode(ResultState, state);
     TupleTableSlot* outer_tuple_slot = NULL;
     PlanState* outer_plan = NULL;
     ExprContext* econtext = node->ps.ps_ExprContext;
+
+    CHECK_FOR_INTERRUPTS();
 
     /*
      * check constant qualifications like (2 > 1), if not already done
@@ -182,6 +187,7 @@ ResultState* ExecInitResult(BaseResult* node, EState* estate, int eflags)
     ResultState* resstate = makeNode(ResultState);
     resstate->ps.plan = (Plan*)node;
     resstate->ps.state = estate;
+    resstate->ps.ExecProcNode = ExecResult;
 
     resstate->rs_done = false;
     resstate->rs_checkqual = (node->resconstantqual == NULL) ? false : true;

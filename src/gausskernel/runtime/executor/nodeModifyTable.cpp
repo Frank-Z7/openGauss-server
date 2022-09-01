@@ -101,6 +101,7 @@ static void RecoredGeneratedExpr(ResultRelInfo *resultRelInfo, EState *estate, C
 #define DatumGetItemPointer(X) ((ItemPointer)DatumGetPointer(X))
 #endif
 
+static TupleTableSlot* ExecModifyTable(PlanState* state);
 extern CopyFromManager initCopyFromManager(MemoryContext parent, Relation heapRel, bool isInsertSelect);
 extern void deinitCopyFromManager(CopyFromManager mgr);
 extern void FlushInsertSelectBulk(
@@ -2710,8 +2711,9 @@ uint64 GetDeleteLimitCount(ExprContext* econtext, PlanState* scan, Limit *limitP
  *		if needed.
  * ----------------------------------------------------------------
  */
-TupleTableSlot* ExecModifyTable(ModifyTableState* node)
+static TupleTableSlot* ExecModifyTable(PlanState* state)
 {
+    ModifyTableState* node = castNode(ModifyTableState, state);
     EState* estate = node->ps.state;
     CmdType operation = node->operation;
     ResultRelInfo* saved_result_rel_info = NULL;
@@ -2742,6 +2744,8 @@ TupleTableSlot* ExecModifyTable(ModifyTableState* node)
     bool is_first_modified = true;
     int2 bucketid = InvalidBktId;
     List *partition_list = NIL;
+
+    CHECK_FOR_INTERRUPTS();
     
     /*
      * This should NOT get called during EvalPlanQual; we should have passed a
@@ -3167,6 +3171,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
     mt_state->ps.plan = (Plan*)node;
     mt_state->ps.state = estate;
     mt_state->ps.targetlist = NIL; /* not actually used */
+    mt_state->ps.ExecProcNode = ExecModifyTable;
 
     mt_state->operation = operation;
     mt_state->canSetTag = node->canSetTag;

@@ -44,7 +44,7 @@
 #include "nodes/makefuncs.h"
 #include "optimizer/pruning.h"
 
-
+static TupleTableSlot* ExecIndexScan(PlanState* state);
 static TupleTableSlot* IndexNext(IndexScanState* node);
 static void ExecInitNextPartitionForIndexScan(IndexScanState* node);
 
@@ -89,6 +89,9 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
     // we should change abs_idx_getnext to call IdxScanAm(scan)->idx_getnext and channge .idx_getnext in g_HeapIdxAm to
     // IndexGetnextSlot
     while (true) {
+        
+        CHECK_FOR_INTERRUPTS();
+
         IndexScanDesc indexScan = GetIndexScanDesc(scandesc);
         if (isUstore) {
             if (!IndexGetnextSlot(scandesc, direction, slot)) {
@@ -159,8 +162,9 @@ static bool IndexRecheck(IndexScanState* node, TupleTableSlot* slot)
  *		ExecIndexScan(node)
  * ----------------------------------------------------------------
  */
-TupleTableSlot* ExecIndexScan(IndexScanState* node)
+TupleTableSlot* ExecIndexScan(PlanState* state)
 {
+    IndexScanState* node = castNode(IndexScanState, state);
     /*
      * If we have runtime keys and they've not already been set up, do it now.
      */
@@ -647,6 +651,7 @@ IndexScanState* ExecInitIndexScan(IndexScan* node, EState* estate, int eflags)
     index_state->ss.isPartTbl = node->scan.isPartTbl;
     index_state->ss.currentSlot = 0;
     index_state->ss.partScanDirection = node->indexorderdir;
+     index_state->ss.ps.ExecProcNode = ExecIndexScan;
 
     /*
      * Miscellaneous initialization

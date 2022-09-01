@@ -148,6 +148,7 @@
 #include "utils/memprot.h"
 #include "workload/workload.h"
 
+static TupleTableSlot* ExecAgg(PlanState* state);
 static void initialize_aggregates(
     AggState* aggstate, AggStatePerAgg peragg, AggStatePerGroup pergroup, int numReset = 0);
 static void advance_transition_function(
@@ -260,6 +261,8 @@ static TupleTableSlot* fetch_input_tuple(AggState* aggstate)
     TupleTableSlot* slot = NULL;
 
     if (aggstate->sort_in) {
+        /* make sure we check for interrupts in either path through here */
+        CHECK_FOR_INTERRUPTS();
         if (!tuplesort_gettupleslot(aggstate->sort_in, true, aggstate->sort_slot, NULL))
             return NULL;
         slot = aggstate->sort_slot;
@@ -1305,8 +1308,9 @@ static TupleTableSlot* agg_retrieve(AggState* node)
  *	  stored in the expression context to be used when ExecProject evaluates
  *	  the result tuple.
  */
-TupleTableSlot* ExecAgg(AggState* node)
+static TupleTableSlot* ExecAgg(PlanState* state)
 {
+    AggState* node = castNode(AggState, state);
     /*
      * just for cooperation analysis. do nothing if is_dummy is true.
      * is_dummy is true that means Agg node is deparsed to remote sql in ForeignScan node.
@@ -1825,6 +1829,7 @@ AggState* ExecInitAgg(Agg* node, EState* estate, int eflags)
     aggstate->sort_in = NULL;
     aggstate->sort_out = NULL;
     aggstate->is_final = node->is_final;
+    aggstate->ss.ps.ExecProcNode = ExecAgg;
 
     aggstate->num_hashes = (node->aggstrategy == AGG_HASHED) ? 1:0;
 
