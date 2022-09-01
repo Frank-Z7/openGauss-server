@@ -723,12 +723,9 @@ ProjectionInfo* ExecBuildVecProjectionInfo(
         projInfo->pi_exprContext->current_row = 0;
     }
 
-    if (exprlist == NIL) {
-        projInfo->pi_itemIsDone = NULL; /* not needed */
-    } else {
-        projInfo->pi_itemIsDone = (ExprDoneCond*)palloc0(len * sizeof(ExprDoneCond));
-
+    if (exprlist != NIL) {
         if (projInfo->pi_exprContext != NULL && projInfo->pi_exprContext->have_vec_set_fun) {
+            projInfo->pi_vec_itemIsDone = (ExprDoneCond*)palloc0(len * sizeof(ExprDoneCond));
             projInfo->pi_setFuncBatch =
                 New(CurrentMemoryContext) VectorBatch(CurrentMemoryContext, slot->tts_tupleDescriptor);
             projInfo->pi_exprContext->vec_fun_sel = (bool*)palloc0(BatchMaxSize * sizeof(bool));

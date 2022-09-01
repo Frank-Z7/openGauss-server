@@ -286,12 +286,9 @@ extern bool ExecCheck(ExprState *state, ExprContext *context);
  */
 #ifndef FRONTEND
 static inline Datum
-ExecEvalExpr(ExprState *state,
-			 ExprContext *econtext,
-			 bool *isNull,
-			 ExprDoneCond* isDone)
+ExecEvalExpr(ExprState *state, ExprContext *econtext, bool *isNull)
 {
-	return state->evalfunc(state, econtext, isNull, isDone);
+    return state->evalfunc(state, econtext, isNull);
 }
 #endif
 
@@ -302,16 +299,13 @@ ExecEvalExpr(ExprState *state,
  */
 #ifndef FRONTEND
 Datum
-static inline ExecEvalExprSwitchContext(ExprState *state,
-						  ExprContext *econtext,
-						  bool *isNull,
-						  ExprDoneCond *isDone)
+static inline ExecEvalExprSwitchContext(ExprState *state, ExprContext *econtext, bool *isNull)
 {
 	Datum		retDatum;
 	MemoryContext oldContext;
 
 	oldContext = MemoryContextSwitchTo(econtext->ecxt_per_tuple_memory);
-	retDatum = state->evalfunc(state, econtext, isNull, isDone);
+	retDatum = state->evalfunc(state, econtext, isNull);
 	MemoryContextSwitchTo(oldContext);
 	return retDatum;
 }
@@ -331,7 +325,7 @@ static inline ExecEvalExprSwitchContext(ExprState *state,
  */
 #ifndef FRONTEND
 static inline TupleTableSlot *
-ExecProject(ProjectionInfo *projInfo, ExprDoneCond* isDone)
+ExecProject(ProjectionInfo *projInfo)
 {
 	ExprContext *econtext = projInfo->pi_exprContext;
 	ExprState  *state = &projInfo->pi_state;
@@ -339,11 +333,6 @@ ExecProject(ProjectionInfo *projInfo, ExprDoneCond* isDone)
 	bool		isnull;
     ListCell *lc;
     char* resname = NULL;
-    /* Assume single result row until proven otherwise */
-    if (isDone) {
-        *isDone = ExprSingleResult;
-    }
-    
 	/*
 	 * Clear any former contents of the result slot.  This makes it safe for
 	 * us to use the slot's Datum/isnull arrays as workspace.
@@ -360,7 +349,7 @@ ExecProject(ProjectionInfo *projInfo, ExprDoneCond* isDone)
     ELOG_FIELD_NAME_START(resname);
 
     /* Run the expression, discarding scalar result from the last column. */
-	(void) ExecEvalExprSwitchContext(state, econtext, &isnull, isDone);
+	(void) ExecEvalExprSwitchContext(state, econtext, &isnull);
 
     ELOG_FIELD_NAME_END;
 
@@ -387,23 +376,22 @@ ExecProject(ProjectionInfo *projInfo, ExprDoneCond* isDone)
 static inline bool
 ExecQual(ExprState *state, ExprContext *econtext)
 {
-	Datum		ret;
-	bool		isnull;
-	ExprDoneCond isDone = ExprSingleResult;
+    Datum ret;
+    bool isnull;
 
-	/* short-circuit (here and in ExecInitQual) for empty restriction list */
-	if (state == NULL)
-		return true;
+    /* short-circuit (here and in ExecInitQual) for empty restriction list */
+    if (state == NULL)
+        return true;
 
-	/* verify that expression was compiled using ExecInitQual */
-	Assert(state->flags & EEO_FLAG_IS_QUAL);
+    /* verify that expression was compiled using ExecInitQual */
+    Assert(state->flags & EEO_FLAG_IS_QUAL);
 
-	ret = ExecEvalExprSwitchContext(state, econtext, &isnull, &isDone);
+    ret = ExecEvalExprSwitchContext(state, econtext, &isnull);
 
-	/* EEOP_QUAL should never return NULL */
-	Assert(!isnull);
+    /* EEOP_QUAL should never return NULL */
+    Assert(!isnull);
 
-	return DatumGetBool(ret);
+    return DatumGetBool(ret);
 }
 #endif
 

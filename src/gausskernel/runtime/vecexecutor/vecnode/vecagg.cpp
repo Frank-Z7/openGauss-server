@@ -224,7 +224,7 @@ VecAggState* ExecInitVecAggregation(VecAgg* node, EState* estate, int eflags)
         aggstate->ss.ps.ps_ResultTupleSlot,
         NULL);
 
-    aggstate->ss.ps.ps_TupFromTlist = false;
+    aggstate->ss.ps.ps_vec_TupFromTlist = false;
 
     /*
      * get the count of aggregates in targetlist and quals
@@ -753,7 +753,7 @@ VecAggState* ExecInitVecAggregation(VecAgg* node, EState* estate, int eflags)
  */
 VectorBatch* ExecVecAggregation(VecAggState* node)
 {
-    Assert(!node->ss.ps.ps_TupFromTlist);
+    Assert(!node->ss.ps.ps_vec_TupFromTlist);
 
     /*
      * just for cooperation analysis. do nothing if is_dummy is true.

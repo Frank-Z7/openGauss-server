@@ -558,8 +558,6 @@ IndexOnlyScanState* ExecInitIndexOnlyScan(IndexOnlyScan* node, EState* estate, i
      */
     ExecAssignExprContext(estate, &indexstate->ss.ps);
 
-    indexstate->ss.ps.ps_TupFromTlist = false;
-
     /*
      * initialize child expressions
      *

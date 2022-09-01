@@ -320,7 +320,7 @@ TupleTableSlot* ExecMergeProjQual(ModifyTableState* mtstate, List* mergeMatchedA
                  * Project, no need for any other tasks prior to the
                  * ExecUpdate.
                  */
-                result_slot = ExecProject(action->proj, NULL);
+                result_slot = ExecProject(action->proj);
             } else {
                 /* we don't do projection in remote query */
             }
@@ -490,7 +490,7 @@ static void ExecMergeNotMatched(ModifyTableState* mtstate, EState* estate, Tuple
              * ExecInsert.
              */
             if (estate->es_result_insert_remoterel == NULL) {
-                ExecProject(action->proj, NULL);
+                ExecProject(action->proj);
                 /*
                  * ExecPrepareTupleRouting may modify the passed-in slot. Hence
                  * pass a local reference so that action->slot is not modified.

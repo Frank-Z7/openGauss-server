@@ -102,7 +102,6 @@ TupleTableSlot* ExecScan(ScanState* node, ExecScanAccessMtd access_mtd, /* funct
     ExprContext* econtext = NULL;
     List* qual = NIL;
     ProjectionInfo* proj_info = NULL;
-    ExprDoneCond is_done;
     TupleTableSlot* result_slot = NULL;
 
     if (node->isPartTbl && !PointerIsValid(node->partitions))
@@ -125,20 +124,6 @@ TupleTableSlot* ExecScan(ScanState* node, ExecScanAccessMtd access_mtd, /* funct
     }
 
     /*
-     * Check to see if we're still projecting out tuples from a previous scan
-     * tuple (because there is a function-returning-set in the projection
-     * expressions).  If so, try to project another one.
-     */
-    if (node->ps.ps_TupFromTlist) {
-        Assert(proj_info); /* can't get here if not projecting */
-        result_slot = ExecProject(proj_info, &is_done);
-        if (is_done == ExprMultipleResult)
-            return result_slot;
-        /* Done with that source tuple... */
-        node->ps.ps_TupFromTlist = false;
-    }
-
-    /*
      * @hdfs
      * Optimize scan bu using informational constraint.
      * if the is_scan_false is true, the iteration is over.
@@ -149,8 +134,7 @@ TupleTableSlot* ExecScan(ScanState* node, ExecScanAccessMtd access_mtd, /* funct
 
     /*
      * Reset per-tuple memory context to free any expression evaluation
-     * storage allocated in the previous tuple cycle.  Note this can't happen
-     * until we're done projecting out tuples from a scan tuple.
+     * storage allocated in the previous tuple cycle.
      */
     ResetExprContext(econtext);
 
@@ -201,31 +185,29 @@ TupleTableSlot* ExecScan(ScanState* node, ExecScanAccessMtd access_mtd, /* funct
                  * and return it --- unless we find we can project no tuples
                  * from this scan tuple, in which case continue scan.
                  */
-                result_slot = ExecProject(proj_info, &is_done);
+                result_slot = ExecProject(proj_info);
 #ifdef PGXC
                 /* Copy the xcnodeoid if underlying scanned slot has one */
                 result_slot->tts_xcnodeoid = slot->tts_xcnodeoid;
 #endif /* PGXC */
-                if (is_done != ExprEndResult) {
-                    node->ps.ps_TupFromTlist = (is_done == ExprMultipleResult);
-
-                    /*
-                     * @hdfs
-                     * Optimize foreign scan by using informational constraint.
-                     */
-                    if (IsA(node->ps.plan, ForeignScan)) {
-                        ForeignScan* foreign_scan = (ForeignScan*)(node->ps.plan);
-                        if (foreign_scan->scan.scan_qual_optimized) {
-                            /*
-                             * If we find a suitable tuple, set is_scan_end value is true.
-                             * It means that we do not find suitable tuple in the next iteration,
-                             * the iteration is over.
-                             */
-                            node->is_scan_end = true;
-                        }
+ 
+                /*
+                 * @hdfs
+                 * Optimize foreign scan by using informational constraint.
+                 */
+                if (IsA(node->ps.plan, ForeignScan)) {
+                    ForeignScan *foreign_scan = (ForeignScan *)(node->ps.plan);
+                    if (foreign_scan->scan.scan_qual_optimized) {
+                        /*
+                         * If we find a suitable tuple, set is_scan_end value is true.
+                         * It means that we do not find suitable tuple in the next iteration,
+                         * the iteration is over.
+                         */
+                        node->is_scan_end = true;
                     }
-                    return result_slot;
                 }
+                return result_slot;
+
             } else {
                 /*
                  * Optimize foreign scan by using informational constraint.
@@ -366,9 +348,6 @@ bool tlist_matches_tupdesc(PlanState* ps, List* tlist, Index var_no, TupleDesc t
 void ExecScanReScan(ScanState* node)
 {
     EState* estate = node->ps.state;
-
-    /* Stop projecting any tuples from SRFs in the targetlist */
-    node->ps.ps_TupFromTlist = false;
 
     /* Rescan EvalPlanQual tuple if we're inside an EvalPlanQual recheck */
     if (estate->es_epqScanDone != NULL) {

@@ -1665,7 +1665,7 @@ static void create_cursor(ForeignScanState *node)
             bool isNull = false;
 
             /* Evaluate the parameter expression */
-            expr_value = ExecEvalExpr(expr_state, econtext, &isNull, NULL);
+            expr_value = ExecEvalExpr(expr_state, econtext, &isNull);
 
             /*
              * Get string representation of each parameter value by invoking

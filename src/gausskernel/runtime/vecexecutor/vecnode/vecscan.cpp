@@ -106,7 +106,7 @@ VectorBatch* ExecVecScan(ScanState* node, ExecVecScanAccessMtd accessMtd, /* fun
 
     // We don't support function returning set
     //
-    DBG_ASSERT(!node->ps.ps_TupFromTlist);
+    DBG_ASSERT(!node->ps.ps_vec_TupFromTlist);
 
     // Reset per-tuple memory context to free any expression evaluation
     // storage allocated in the previous batch cycle.  Note this can't happen

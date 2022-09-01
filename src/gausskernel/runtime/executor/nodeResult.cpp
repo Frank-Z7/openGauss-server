@@ -65,9 +65,7 @@
 TupleTableSlot* ExecResult(ResultState* node)
 {
     TupleTableSlot* outer_tuple_slot = NULL;
-    TupleTableSlot* result_slot = NULL;
     PlanState* outer_plan = NULL;
-    ExprDoneCond is_done;
     ExprContext* econtext = node->ps.ps_ExprContext;
 
     /*
@@ -94,20 +92,6 @@ TupleTableSlot* ExecResult(ResultState* node)
      * until we're done projecting out tuples from a scan tuple.
      */
     ResetExprContext(econtext);
-
-    /*
-     * Check to see if we're still projecting out tuples from a previous scan
-     * tuple (because there is a function-returning-set in the projection
-     * expressions).  If so, try to project another one.
-     */
-    if (node->ps.ps_TupFromTlist) {
-        result_slot = ExecProject(node->ps.ps_ProjInfo, &is_done);
-        if (is_done == ExprMultipleResult) {
-            return result_slot;
-        }
-        /* Done with that source tuple... */
-        node->ps.ps_TupFromTlist = false;
-    }
 
     /*
      * if rs_done is true then it means that we were asked to return a
@@ -141,17 +125,7 @@ TupleTableSlot* ExecResult(ResultState* node)
             node->rs_done = true;
         }
 
-        /*
-         * form the result tuple using ExecProject(), and return it --- unless
-         * the projection produces an empty set, in which case we must loop
-         * back to see if there are more outer_plan tuples.
-         */
-        result_slot = ExecProject(node->ps.ps_ProjInfo, &is_done);
-
-        if (is_done != ExprEndResult) {
-            node->ps.ps_TupFromTlist = (is_done == ExprMultipleResult);
-            return result_slot;
-        }
+        return ExecProject(node->ps.ps_ProjInfo);
     }
 
     return NULL;
@@ -219,8 +193,6 @@ ResultState* ExecInitResult(BaseResult* node, EState* estate, int eflags)
      */
     ExecAssignExprContext(estate, &resstate->ps);
 
-    resstate->ps.ps_TupFromTlist = false;
-
     /*
      * tuple table initialization
      */
@@ -281,7 +253,6 @@ void ExecEndResult(ResultState* node)
 void ExecReScanResult(ResultState* node)
 {
     node->rs_done = false;
-    node->ps.ps_TupFromTlist = false;
     node->rs_checkqual = (node->resconstantqual == NULL) ? false : true;
 
     /*

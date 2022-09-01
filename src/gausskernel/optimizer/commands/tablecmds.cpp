@@ -6585,7 +6585,7 @@ static AT_INSTANT_DEFAULT_VALUE shouldUpdateAllTuples(
 
     MemoryContext newcxt = GetPerTupleMemoryContext(estate);
     MemoryContext oldcxt = MemoryContextSwitchTo(newcxt);
-    Datum value = ExecEvalExpr(exprstate, econtext, &isNull, NULL);
+    Datum value = ExecEvalExpr(exprstate, econtext, &isNull);
     (void)MemoryContextSwitchTo(oldcxt);
 
     if (!isNull) {
@@ -8464,8 +8464,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
 
                             values[ex->attnum - 1] = ExecEvalExpr(ex->exprstate,
                                                                   econtext,
-                                                                  &isnull[ex->attnum - 1],
-                                                                  NULL);
+                                                                  &isnull[ex->attnum - 1]);
                     }
 
                     /*
@@ -8568,7 +8567,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                     foreach (l, tab->newvals) {
                         NewColumnValue* ex = (NewColumnValue*)lfirst(l);
 
-                        values[ex->attnum - 1] = ExecEvalExpr(ex->exprstate, econtext, &isnull[ex->attnum - 1], NULL);
+                        values[ex->attnum - 1] = ExecEvalExpr(ex->exprstate, econtext, &isnull[ex->attnum - 1]);
                     }
 
                     /*

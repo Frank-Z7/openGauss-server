@@ -4576,7 +4576,7 @@ Expr* evaluate_expr(Expr* expr, Oid result_type, int32 result_typmod, Oid result
      * fortuitous, but it's not so unreasonable --- a constant expression does
      * not depend on context, by definition, n'est ce pas?
      */
-    const_val = ExecEvalExprSwitchContext(exprstate, GetPerTupleExprContext(estate), &const_is_null, NULL);
+    const_val = ExecEvalExprSwitchContext(exprstate, GetPerTupleExprContext(estate), &const_is_null);
 
     /* Get info needed about result datatype */
     get_typlenbyval(result_type, &resultTypLen, &resultTypByVal);

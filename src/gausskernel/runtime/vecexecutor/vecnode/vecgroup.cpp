@@ -222,7 +222,7 @@ void ExecEndVecGroup(VecGroupState* node)
 
 void ExecReScanVecGroup(VecGroupState* node)
 {
-    node->ss.ps.ps_TupFromTlist = false;
+    node->ss.ps.ps_vec_TupFromTlist = false;
     node->grp_done = false;
     ReScanGrpUniq<VecGroupState>(node);
 

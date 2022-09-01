@@ -462,7 +462,7 @@ static ParamListInfo EvaluateParams(CachedPlanSource* psrc, List* params, const 
 
         prm->ptype = param_types[i];
         prm->pflags = PARAM_FLAG_CONST;
-        prm->value = ExecEvalExprSwitchContext(n, GetPerTupleExprContext(estate), &prm->isnull, NULL);
+        prm->value = ExecEvalExprSwitchContext(n, GetPerTupleExprContext(estate), &prm->isnull);
         prm->tabInfo = NULL;
 
         i++;

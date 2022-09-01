@@ -53,7 +53,6 @@ PartIteratorState* ExecInitPartIterator(PartIterator* node, EState* estate, int 
     state->ps.qual = NULL;
     state->ps.righttree = NULL;
     state->ps.subPlan = NULL;
-    state->ps.ps_TupFromTlist = false;
     state->ps.ps_ProjInfo = NULL;
     state->currentItr = -1;
     state->subPartCurrentItr = -1;

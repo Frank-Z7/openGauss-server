@@ -102,8 +102,9 @@ ExecInitExpr(Expr *node, PlanState *parent)
 	state->expr = node;
 	state->parent = parent;
 
-    if (nodeTag(node) != T_TargetEntry)
+    if (nodeTag(node) != T_TargetEntry) {
         state->resultType = exprType((Node*)node);
+	}
 		
 	/* Insert EEOP_*_FETCHSOME steps as needed */
 	ExecInitExprSlots(state, (Node *) node);
@@ -528,23 +529,22 @@ ExecPrepareExprList(List *nodes, EState *estate)
 bool
 ExecCheck(ExprState *state, ExprContext *econtext)
 {
-	Datum		ret;
-	bool		isnull;
-	ExprDoneCond isDone = ExprSingleResult;
+    Datum ret;
+    bool isnull;
 
-	/* short-circuit (here and in ExecInitCheck) for empty restriction list */
-	if (state == NULL)
-		return true;
+    /* short-circuit (here and in ExecInitCheck) for empty restriction list */
+    if (state == NULL)
+        return true;
 
-	/* verify that expression was not compiled using ExecInitQual */
-	Assert(!(state->flags & EEO_FLAG_IS_QUAL));
+    /* verify that expression was not compiled using ExecInitQual */
+    Assert(!(state->flags & EEO_FLAG_IS_QUAL));
 
-	ret = ExecEvalExprSwitchContext(state, econtext, &isnull, &isDone);
+    ret = ExecEvalExprSwitchContext(state, econtext, &isnull);
 
-	if (isnull)
-		return true;
+    if (isnull)
+        return true;
 
-	return DatumGetBool(ret);
+    return DatumGetBool(ret);
 }
 
 /*
@@ -696,9 +696,6 @@ ExecInitExprRec(Expr *node, ExprState *state,
 			{
 				Aggref* aggref = (Aggref*)node;
 				AggrefExprState* astate = makeNode(AggrefExprState);
-				ListCell* l;
-				Expr* arg;
-				TargetEntry* tle;
 				scratch.opcode = EEOP_AGGREF;
 				scratch.d.aggref.astate = astate;
 				astate->aggref = aggref;
@@ -2115,7 +2112,6 @@ ExecInitFunc(ExprEvalStep *scratch, Expr *node, List *args, Oid funcid,
 #else
     supportTranaction = true;
 #endif
-    bool needResetErrMsg = (u_sess->SPI_cxt.forbidden_commit_rollback_err_msg[0] == '\0');
 
     /* Only allow commit at CN, therefore only need to set atomic and
      * relevant check at CN level.

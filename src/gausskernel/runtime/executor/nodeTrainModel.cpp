@@ -108,7 +108,6 @@ TrainModelState* ExecInitTrainModel(TrainModel* pnode, EState* estate, int eflag
     ExecAssignScanTypeFromOuterPlan(&pstate->ss); // input tuples
     ExecAssignResultTypeFromTL(&pstate->ss.ps);  // result tuple
     ExecAssignProjectionInfo(&pstate->ss.ps, NULL);
-    pstate->ss.ps.ps_TupFromTlist = false;
     
     // Input tuple initialization
     TupleDesc tupdesc = ExecGetResultType(outer_plan_state);
@@ -133,7 +132,6 @@ TrainModelState* ExecInitTrainModel(TrainModel* pnode, EState* estate, int eflag
     BlessTupleDesc(tup_desc_out);
     ExecAssignResultType(&pstate->ss.ps, tup_desc_out);
     ExecAssignProjectionInfo(&pstate->ss.ps, nullptr);
-    pstate->ss.ps.ps_TupFromTlist = false;
     pstate->ss.ps.ps_ProjInfo = nullptr;
     
     return pstate;

@@ -170,7 +170,7 @@ static void TidListEval(TidScanState* tidstate, bool isBucket)
         bool is_null = false;
 
         if (tidexpr->exprstate && !tidexpr->isarray) {
-            itemptr = (ItemPointer)DatumGetPointer(ExecEvalExprSwitchContext(tidexpr->exprstate, econtext, &is_null, NULL));
+            itemptr = (ItemPointer)DatumGetPointer(ExecEvalExprSwitchContext(tidexpr->exprstate, econtext, &is_null));
             if (!is_null && ItemPointerIsValid(itemptr) && ItemPointerGetBlockNumber(itemptr) < nblocks) {
                 if (num_tids >= num_alloc_tids) {
                     num_alloc_tids *= 2;
@@ -186,7 +186,7 @@ static void TidListEval(TidScanState* tidstate, bool isBucket)
             int ndatums;
             int i;
 
-            arraydatum = ExecEvalExprSwitchContext(tidexpr->exprstate, econtext, &is_null, NULL);
+            arraydatum = ExecEvalExprSwitchContext(tidexpr->exprstate, econtext, &is_null);
             if (is_null)
                 continue;
             itemarray = DatumGetArrayTypeP(arraydatum);
@@ -643,8 +643,6 @@ TidScanState* ExecInitTidScan(TidScan* node, EState* estate, int eflags)
      * create expression context for node
      */
     ExecAssignExprContext(estate, &tidstate->ss.ps);
-
-    tidstate->ss.ps.ps_TupFromTlist = false;
 
     /*
      * initialize child expressions

@@ -612,7 +612,7 @@ Tuplestorestate* ExecMakeTableFunctionResult(
 
             pgstat_end_function_usage(&fcusage, rsinfo.isDone != ExprMultipleResult);
         } else {
-            result = ExecEvalExpr(setexpr->elidedFuncState, econtext, &fcinfo.isnull, &rsinfo.isDone);
+            result = ExecEvalExpr(setexpr->elidedFuncState, econtext, &fcinfo.isnull);
         }
 
         /* Which protocol does function want to use? */
@@ -881,12 +881,11 @@ static ExprDoneCond ExecEvalFuncArgs(
 
     foreach (arg, argList) {
         ExprState *argstate = (ExprState *)lfirst(arg);
-        ExprDoneCond thisArgIsDone;
 
         if (has_refcursor && argstate->resultType == REFCURSOROID)
             econtext->is_cursor = true;
 
-        fcinfo->arg[i] = ExecEvalExpr(argstate, econtext, &fcinfo->argnull[i], &thisArgIsDone);
+        fcinfo->arg[i] = ExecEvalExpr(argstate, econtext, &fcinfo->argnull[i]);
         ExecTableOfIndexInfo execTableOfIndexInfo;
         initExecTableOfIndexInfo(&execTableOfIndexInfo, econtext);
         ExecEvalParamExternTableOfIndex((Node*)argstate->expr, &execTableOfIndexInfo);
@@ -909,19 +908,6 @@ static ExprDoneCond ExecEvalFuncArgs(
         econtext->is_cursor = false;
         if (is_huge_clob(fcinfo->argTypes[i], fcinfo->argnull[i], fcinfo->arg[i])) {
             is_have_huge_clob = true;
-        }
-
-        if (thisArgIsDone != ExprSingleResult) {
-            /*
-             * We allow only one argument to have a set value; we'd need much
-             * more complexity to keep track of multiple set arguments (cf.
-             * ExecTargetList) and it doesn't seem worth it.
-             */
-            if (argIsDone != ExprSingleResult)
-                ereport(ERROR,
-                    (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("functions and operators can take at most one set argument")));
-            argIsDone = thisArgIsDone;
         }
         i++;
     }

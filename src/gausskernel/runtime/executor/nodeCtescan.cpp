@@ -260,8 +260,6 @@ CteScanState* ExecInitCteScan(CteScan* node, EState* estate, int eflags)
 
     Assert(scanstate->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor->tdTableAmType != TAM_INVALID);
 
-    scanstate->ss.ps.ps_TupFromTlist = false;
-
     return scanstate;
 }
 

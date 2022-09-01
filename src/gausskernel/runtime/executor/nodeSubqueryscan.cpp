@@ -125,8 +125,6 @@ SubqueryScanState* ExecInitSubqueryScan(SubqueryScan* node, EState* estate, int 
      */
     sub_query_state->subplan = ExecInitNode(node->subplan, estate, eflags);
 
-    sub_query_state->ss.ps.ps_TupFromTlist = false;
-
     /*
      * Initialize scan tuple type (needed by ExecAssignScanProjectionInfo)
      */

@@ -194,9 +194,6 @@ FunctionScanState* ExecInitFunctionScan(FunctionScan* node, EState* estate, int 
     scanstate->setexpr = ExecInitTableFunctionResult((Expr *)node->funcexpr,
 										scanstate->ss.ps.ps_ExprContext,
 										&scanstate->ss.ps);
-
-    scanstate->ss.ps.ps_TupFromTlist = false;
-
     /*
      * Initialize result tuple type and projection info.
      */

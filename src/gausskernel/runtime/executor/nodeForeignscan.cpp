@@ -138,8 +138,6 @@ ForeignScanState* ExecInitForeignScan(ForeignScan* node, EState* estate, int efl
     }
 #endif
 
-    scanstate->ss.ps.ps_TupFromTlist = false;
-
     /*
      * This function ExecInitForeignScan will be called by ExecInitVecForeignScan.
      * If the node is VecForeignScan, do not need initialize here.

@@ -332,14 +332,14 @@ VectorBatch* ExecCStoreScan(CStoreScanState* node)
     /*
      * for function-returning-set.
      */
-    if (node->ps.ps_TupFromTlist) {
+    if (node->ps.ps_vec_TupFromTlist) {
         Assert(node->ps.ps_ProjInfo);
         p_out_batch = ExecVecProject(node->ps.ps_ProjInfo, true, &done);
         if (p_out_batch->m_rows > 0) {
             return p_out_batch;
         }
 
-        node->ps.ps_TupFromTlist = false;
+        node->ps.ps_vec_TupFromTlist = false;
     }
 
 restart:
@@ -374,7 +374,7 @@ restart:
     p_out_batch = ApplyProjectionAndFilter(node, p_scan_batch, &done);
 
     if (done != ExprEndResult) {
-        node->ps.ps_TupFromTlist = (done == ExprMultipleResult);
+        node->ps.ps_vec_TupFromTlist = (done == ExprMultipleResult);
     }
 
     /* Response to the stop query flag. */
@@ -679,7 +679,7 @@ CStoreScanState* ExecInitCStoreScan(
      * initialize scan relation
      */
     InitCStoreRelation(scan_stat, estate, idx_flag, parent_heap_rel);
-    scan_stat->ps.ps_TupFromTlist = false;
+    scan_stat->ps.ps_vec_TupFromTlist = false;
 
 #ifdef ENABLE_LLVM_COMPILE
     /*
@@ -1126,7 +1126,7 @@ void ExecCStoreScanEvalRuntimeKeys(ExprContext* expr_ctx, CStoreScanRunTimeKeyIn
          * avoid repeat detoastings each time the value is examined by an
          * index support function.
          */
-        scan_val = ExecEvalExpr(key_expr, expr_ctx, &is_null, NULL);
+        scan_val = ExecEvalExpr(key_expr, expr_ctx, &is_null);
         if (is_null)
             scan_key->cs_flags |= SK_ISNULL;
         else

@@ -258,8 +258,6 @@ WorkTableScanState* ExecInitWorkTableScan(WorkTableScan* node, EState* estate, i
      */
     ExecAssignResultTypeFromTL(&scan_state->ss.ps, TAM_HEAP);
 
-    scan_state->ss.ps.ps_TupFromTlist = false;
-
     return scan_state;
 }
 

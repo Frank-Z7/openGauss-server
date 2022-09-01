@@ -228,7 +228,7 @@ void recompute_limits(LimitState* node)
     bool is_null = false;
 
     if (node->limitOffset) {
-        val = ExecEvalExprSwitchContext(node->limitOffset, econtext, &is_null, NULL);
+        val = ExecEvalExprSwitchContext(node->limitOffset, econtext, &is_null);
         /* Interpret NULL offset as no offset */
         if (is_null) {
             node->offset = 0;
@@ -246,7 +246,7 @@ void recompute_limits(LimitState* node)
     }
 
     if (node->limitCount) {
-        val = ExecEvalExprSwitchContext(node->limitCount, econtext, &is_null, NULL);
+        val = ExecEvalExprSwitchContext(node->limitCount, econtext, &is_null);
         /* Interpret NULL count as no count (LIMIT ALL) */
         if (is_null) {
             node->count = 0;
@@ -315,17 +315,11 @@ static void pass_down_bound(LimitState* node, PlanState* child_node)
             pass_down_bound(node, maState->mergeplans[i]);
     } else if (IsA(child_node, ResultState) || IsA(child_node, VecResultState)) {
         /*
-         * An extra consideration here is that if the Result is projecting a
-         * targetlist that contains any SRFs, we can't assume that every input
-         * tuple generates an output tuple, so a Sort underneath might need to
-         * return more than N tuples to satisfy LIMIT N. So we cannot use
-         * bounded sort.
-         *
          * If Result supported qual checking, we'd have to punt on seeing a
-         * qual, too.  Note that having a resconstantqual is not a
-         * showstopper: if that fails we're not getting any rows at all.
+         * qual.  Note that having a resconstantqual is not a showstopper: if
+         * that fails we're not getting any rows at all.
          */
-        if (outerPlanState(child_node) && !expression_returns_set((Node*)child_node->plan->targetlist))
+        if (outerPlanState(child_node))
             pass_down_bound(node, outerPlanState(child_node));
     }
 }

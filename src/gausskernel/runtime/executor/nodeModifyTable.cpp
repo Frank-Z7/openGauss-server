@@ -270,7 +270,7 @@ static TupleTableSlot* ExecProcessReturning(
     econtext->ecxt_outertuple = planSlot;
 
     /* Compute the RETURNING expressions */
-    return ExecProject(projectReturning, NULL);
+    return ExecProject(projectReturning);
 }
 
 static void ExecCheckTIDVisible(Relation        targetrel, EState* estate, Relation rel, ItemPointer tid)
@@ -387,7 +387,7 @@ void ExecComputeStoredGenerated(ResultRelInfo *resultRelInfo, EState *estate, Tu
             econtext = GetPerTupleExprContext(estate);
             econtext->ecxt_scantuple = slot;
 
-            val = ExecEvalExpr(resultRelInfo->ri_GeneratedExprs[i], econtext, &isnull, NULL);
+            val = ExecEvalExpr(resultRelInfo->ri_GeneratedExprs[i], econtext, &isnull);
 
             /*
              * We must make a copy of val as we have no guarantees about where
@@ -524,7 +524,7 @@ checktest:
     econtext->ecxt_innertuple = excludedSlot;
     econtext->ecxt_outertuple = NULL;
 
-    ExecProject(resultRelInfo->ri_updateProj, NULL);
+    ExecProject(resultRelInfo->ri_updateProj);
     /* Evaluate where qual if exists, add to count if filtered */
     if (ExecQual((ExprState*)upsertState->us_updateWhere, econtext)) {
         *returning = ExecUpdate(conflictTid, oldPartitionOid, bucketid, NULL,
@@ -2686,7 +2686,7 @@ uint64 GetDeleteLimitCount(ExprContext* econtext, PlanState* scan, Limit *limitP
     Datum val;
     bool isNull = false;
     int64 iCount = 0;
-    val = ExecEvalExprSwitchContext(limitExpr, econtext, &isNull, NULL);
+    val = ExecEvalExprSwitchContext(limitExpr, econtext, &isNull);
     if (isNull) {
         ereport(ERROR,
             (errcode(ERRCODE_INVALID_ROW_COUNT_IN_LIMIT_CLAUSE),

@@ -212,7 +212,7 @@ VecHashJoinState* ExecInitVecHashJoin(VecHashJoin* node, EState* estate, int efl
     hash_state->hj_InnerHashKeys = rclauses;
     hash_state->hj_HashOperators = hoperators;
     hash_state->eqfunctions = eqfunctions;
-    hash_state->js.ps.ps_TupFromTlist = false;
+    hash_state->js.ps.ps_vec_TupFromTlist = false;
 
     /* Initialize runtime bloomfilter. */
     hash_state->bf_runtime.bf_var_list = hash_state->js.ps.plan->var_list;

@@ -215,7 +215,8 @@ typedef struct ExprContext {
 } ExprContext;
 
 /*
- * Set-result status returned by ExecEvalExpr()
+ * Set-result status used when evaluating functions potentially returning a
+ * set.
  */
 typedef enum {
     ExprSingleResult,   /* expression does not return a set */
@@ -347,7 +348,7 @@ typedef struct MergeState {
  */
 struct ExprState;
 
-typedef Datum (*ExprStateEvalFunc)(ExprState* expression, ExprContext* econtext, bool* isNull, ExprDoneCond* isDone);
+typedef Datum (*ExprStateEvalFunc)(ExprState* expression, ExprContext* econtext, bool* isNull);
 typedef ScalarVector* (*VectorExprFun)(
     ExprState* expression, ExprContext* econtext, bool* selVector, ScalarVector* inputVector, ExprDoneCond* isDone);
 
@@ -462,11 +463,10 @@ typedef struct ProjectionInfo {
     NodeTag type;
     List* pi_targetlist;
     /* instructions to evaluate projection */
-	ExprState	pi_state;
-	/* expression context in which to evaluate expression */
+    ExprState pi_state;
+    /* expression context in which to evaluate expression */
     ExprContext* pi_exprContext;
     TupleTableSlot* pi_slot;
-    ExprDoneCond* pi_itemIsDone;
     bool pi_directMap;
     bool pi_topPlan;             /* Whether the outermost layer query */
     int pi_numSimpleVars;
@@ -484,6 +484,7 @@ typedef struct ProjectionInfo {
     List* pi_PackLateAccessVarNumbers; /*VarList to record those columns what we need to move in late read cstore
                                           scan.*/
     bool pi_const;
+    ExprDoneCond* pi_vec_itemIsDone;
     VectorBatch* pi_batch;
     vectarget_func jitted_vectarget; /* LLVM function pointer to point to the codegened targetlist expr function */
     VectorBatch* pi_setFuncBatch;
@@ -1011,13 +1012,6 @@ typedef struct FuncExprState {
     bool setArgsValid;
 
     /*
-     * Flag to remember whether we found a set-valued argument to the
-     * function. This causes the function result to be a set as well. Valid
-     * only when setArgsValid is true or funcResultStore isn't NULL.
-     */
-    bool setHasSetArg; /* some argument returns a set */
-
-    /*
      * Flag to remember whether we have registered a shutdown callback for
      * this FuncExprState.	We do so only if funcResultStore or setArgsValid
      * has been set at least once (since all the callback is for is to release
@@ -1033,6 +1027,7 @@ typedef struct FuncExprState {
     FunctionCallInfoData fcinfo_data;
 
     ScalarVector* tmpVec;
+    bool vec_setHasSetArg;	/* some argument returns a set */
 } FuncExprState;
 
 /* ----------------
@@ -1392,7 +1387,6 @@ typedef struct PlanState {
     TupleTableSlot* ps_ResultTupleSlot; /* slot for my result tuples */
     ExprContext* ps_ExprContext;        /* node's expression-evaluation context */
     ProjectionInfo* ps_ProjInfo;        /* info for doing tuple projection */
-    bool ps_TupFromTlist;               /* state flag for processing set-valued functions in targetlist */
 
     bool vectorized;  // is vectorized?
 
@@ -1412,6 +1406,7 @@ typedef struct PlanState {
 
     bool do_not_reset_rownum;
     int64 ps_rownum;    /* store current rownum */
+    bool ps_vec_TupFromTlist; /* state flag for processing set-valued functions in targetlist */
 } PlanState;
 
 static inline bool planstate_need_stub(PlanState* ps)

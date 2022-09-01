@@ -195,7 +195,7 @@ void BaseTableSample::getSeed()
     ExprState* repeatable = sampleScanState->sampleScanInfo.repeatable;
 
     if (NULL != repeatable) {
-        datum = ExecEvalExprSwitchContext(repeatable, econtext, &isnull, NULL);
+        datum = ExecEvalExprSwitchContext(repeatable, econtext, &isnull);
         if (isnull) {
             ereport(ERROR,
                 (errcode(ERRCODE_INVALID_TABLESAMPLE_REPEAT),
@@ -245,7 +245,7 @@ void BaseTableSample::getPercent()
     foreach (arg, args) {
         ExprState* argstate = (ExprState*)lfirst(arg);
 
-        params[i] = ExecEvalExprSwitchContext(argstate, econtext, &isnull, NULL);
+        params[i] = ExecEvalExprSwitchContext(argstate, econtext, &isnull);
         if (isnull) {
             ereport(
                 ERROR, (errcode(ERRCODE_INVALID_TABLESAMPLE_ARGUMENT), errmsg("TABLESAMPLE parameter cannot be null")));

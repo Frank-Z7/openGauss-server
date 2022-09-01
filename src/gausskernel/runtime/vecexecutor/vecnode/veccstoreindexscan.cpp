@@ -182,14 +182,14 @@ VectorBatch* ExecCstoreIndexScan(CStoreIndexScanState* state)
     /*
      * for function-returning-set.
      */
-    if (state->ps.ps_TupFromTlist) {
+    if (state->ps.ps_vec_TupFromTlist) {
         Assert(state->ps.ps_ProjInfo);
         pOutBatch = ExecVecProject(state->ps.ps_ProjInfo, true, &isDone);
         if (pOutBatch->m_rows > 0) {
             return pOutBatch;
         }
 
-        state->ps.ps_TupFromTlist = false;
+        state->ps.ps_vec_TupFromTlist = false;
     }
     state->ps.ps_ProjInfo->pi_exprContext->current_row = 0;
 
@@ -212,7 +212,7 @@ restart:
 
         pOutBatch = ApplyProjectionAndFilter(state, pScanBatch, &isDone);
         if (isDone != ExprEndResult) {
-            state->ps.ps_TupFromTlist = (isDone == ExprMultipleResult);
+            state->ps.ps_vec_TupFromTlist = (isDone == ExprMultipleResult);
         }
 
         if (BatchIsNull(pOutBatch))
@@ -229,7 +229,7 @@ restart:
         pOutBatch = ApplyProjectionAndFilter(state, pScanBatch, &isDone);
 
         if (isDone != ExprEndResult) {
-            state->ps.ps_TupFromTlist = (isDone == ExprMultipleResult);
+            state->ps.ps_vec_TupFromTlist = (isDone == ExprMultipleResult);
         }
 
         if (BatchIsNull(pOutBatch))

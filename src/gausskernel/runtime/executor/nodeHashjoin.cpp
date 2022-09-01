@@ -62,7 +62,6 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
     List* joinqual = NIL;
     List* otherqual = NIL;
     ExprContext* econtext = NULL;
-    ExprDoneCond isDone;
     HashJoinTable hashtable;
     TupleTableSlot* outerTupleSlot = NULL;
     uint32 hashvalue;
@@ -80,21 +79,6 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
     hashtable = node->hj_HashTable;
     econtext = node->js.ps.ps_ExprContext;
     jointype = node->js.jointype;
-
-    /*
-     * Check to see if we're still projecting out tuples from a previous join
-     * tuple (because there is a function-returning-set in the projection
-     * expressions).  If so, try to project another one.
-     */
-    if (node->js.ps.ps_TupFromTlist) {
-        TupleTableSlot* result = NULL;
-
-        result = ExecProject(node->js.ps.ps_ProjInfo, &isDone);
-        if (isDone == ExprMultipleResult)
-            return result;
-        /* Done with that source tuple... */
-        node->js.ps.ps_TupFromTlist = false;
-    }
 
     /*
      * Reset per-tuple memory context to free any expression evaluation
@@ -350,14 +334,9 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
                     }
 
                     if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
-                        TupleTableSlot* result = NULL;
 
-                        result = ExecProject(node->js.ps.ps_ProjInfo, &isDone);
+                        return ExecProject(node->js.ps.ps_ProjInfo);
 
-                        if (isDone != ExprEndResult) {
-                            node->js.ps.ps_TupFromTlist = (isDone == ExprMultipleResult);
-                            return result;
-                        }
                     } else
                         InstrCountFiltered2(node, 1);
                 } else {
@@ -385,14 +364,7 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
                     econtext->ecxt_innertuple = node->hj_NullInnerTupleSlot;
 
                     if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
-                        TupleTableSlot* result = NULL;
-
-                        result = ExecProject(node->js.ps.ps_ProjInfo, &isDone);
-
-                        if (isDone != ExprEndResult) {
-                            node->js.ps.ps_TupFromTlist = (isDone == ExprMultipleResult);
-                            return result;
-                        }
+                        return ExecProject(node->js.ps.ps_ProjInfo);
                     } else
                         InstrCountFiltered2(node, 1);
                 }
@@ -418,14 +390,7 @@ TupleTableSlot* ExecHashJoin(HashJoinState* node)
                 econtext->ecxt_outertuple = node->hj_NullOuterTupleSlot;
 
                 if (otherqual == NIL || ExecQual((ExprState*)otherqual, econtext)) {
-                    TupleTableSlot* result = NULL;
-
-                    result = ExecProject(node->js.ps.ps_ProjInfo, &isDone);
-
-                    if (isDone != ExprEndResult) {
-                        node->js.ps.ps_TupFromTlist = (isDone == ExprMultipleResult);
-                        return result;
-                    }
+                    return ExecProject(node->js.ps.ps_ProjInfo);
                 } else
                     InstrCountFiltered2(node, 1);
                 break;
@@ -657,7 +622,6 @@ HashJoinState* ExecInitHashJoin(HashJoin* node, EState* estate, int eflags)
     /* child Hash node needs to evaluate inner hash keys, too */
     ((HashState*)innerPlanState(hjstate))->hashkeys = rclauses;
 
-    hjstate->js.ps.ps_TupFromTlist = false;
     hjstate->hj_JoinState = HJ_BUILD_HASHTABLE;
     hjstate->hj_MatchedOuter = false;
     hjstate->hj_OuterNotEmpty = false;
@@ -1079,7 +1043,6 @@ void ExecReScanHashJoin(HashJoinState* node)
     node->hj_CurSkewBucketNo = INVALID_SKEW_BUCKET_NO;
     node->hj_CurTuple = NULL;
 
-    node->js.ps.ps_TupFromTlist = false;
     node->hj_MatchedOuter = false;
     node->hj_FirstOuterTupleSlot = NULL;
 
@@ -1163,7 +1126,6 @@ void ExecReSetHashJoin(HashJoinState* node)
     node->hj_CurSkewBucketNo = INVALID_SKEW_BUCKET_NO;
     node->hj_CurTuple = NULL;
 
-    node->js.ps.ps_TupFromTlist = false;
     node->hj_MatchedOuter = false;
     node->hj_FirstOuterTupleSlot = NULL;
     node->js.ps.recursive_reset = true;

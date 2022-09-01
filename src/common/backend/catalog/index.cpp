@@ -2096,7 +2096,7 @@ void FormIndexDatum(IndexInfo* indexInfo, TupleTableSlot* slot, EState* estate, 
                 ereport(ERROR,
                     (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE), errmsg("wrong number of index expressions")));
             iDatum = ExecEvalExprSwitchContext(
-                (ExprState*)lfirst(indexpr_item), GetPerTupleExprContext(estate), &isNull, NULL);
+                (ExprState*)lfirst(indexpr_item), GetPerTupleExprContext(estate), &isNull);
             indexpr_item = lnext(indexpr_item);
         }
         values[i] = iDatum;
