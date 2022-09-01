@@ -909,6 +909,8 @@
  * (--enable-multiple-nodes) */
 #cmakedefine ENABLE_MULTIPLE_NODES
 
+#cmakedefine ENABLE_TRACE_COLUMN_DEFAULT_VALUE
+
 /* Define to 1 if you want to generate gauss product as privategauss nodes.
  *  * (--enable-privategauss) */
 #cmakedefine ENABLE_PRIVATEGAUSS

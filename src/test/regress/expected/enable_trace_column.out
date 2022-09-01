@@ -1,0 +1,49 @@
+show enable_trace_column;
+ enable_trace_column 
+---------------------
+ on
+(1 row)
+
+--ok
+SELECT num::int8 as r, generate_series(1, 3) FROM (VALUES (65538)) AS t (num);
+   r   | generate_series 
+-------+-----------------
+ 65538 |               1
+ 65538 |               2
+ 65538 |               3
+(3 rows)
+
+SELECT num::int8 as r FROM (VALUES (65538)) AS t (num);
+   r   
+-------
+ 65538
+(1 row)
+
+--failed
+SELECT num::int2 as r, generate_series(1, 3) FROM (VALUES (65538)) AS t (num);
+ERROR:  smallint out of range
+CONTEXT:  referenced column: r
+SELECT num::int2 as r FROM (VALUES (65538)) AS t (num);
+ERROR:  smallint out of range
+CONTEXT:  referenced column: r
+set enable_trace_column=off;
+--ok
+SELECT num::int8 as r, generate_series(1, 3) FROM (VALUES (65538)) AS t (num);
+   r   | generate_series 
+-------+-----------------
+ 65538 |               1
+ 65538 |               2
+ 65538 |               3
+(3 rows)
+
+SELECT num::int8 as r FROM (VALUES (65538)) AS t (num);
+   r   
+-------
+ 65538
+(1 row)
+
+--failed
+SELECT num::int2 as r, generate_series(1, 3) FROM (VALUES (65538)) AS t (num);
+ERROR:  smallint out of range
+SELECT num::int2 as r FROM (VALUES (65538)) AS t (num);
+ERROR:  smallint out of range

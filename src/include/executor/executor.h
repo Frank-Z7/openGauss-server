@@ -331,27 +331,21 @@ ExecProject(ProjectionInfo *projInfo)
 	ExprState  *state = &projInfo->pi_state;
 	TupleTableSlot *slot = state->resultslot;
 	bool		isnull;
-    ListCell *lc;
-    char* resname = NULL;
 	/*
 	 * Clear any former contents of the result slot.  This makes it safe for
 	 * us to use the slot's Datum/isnull arrays as workspace.
 	 */
 	ExecClearTuple(slot);
 
-    if (state->expr) {
-        lc = list_head((List*)(state->expr));
-        TargetEntry *te = (TargetEntry*)lfirst(lc);
-        state->current_targetentry = lc;
-        resname = te->resname;
-    }
-
-    ELOG_FIELD_NAME_START(resname);
-
     /* Run the expression, discarding scalar result from the last column. */
-	(void) ExecEvalExprSwitchContext(state, econtext, &isnull);
 
-    ELOG_FIELD_NAME_END;
+    if (unlikely(projInfo->pi_trace_column_name)) {
+        ELOG_FIELD_NAME_START(NULL);
+        ExecEvalExprSwitchContext(state, econtext, &isnull);
+        ELOG_FIELD_NAME_END;
+    } else  {
+        (void) ExecEvalExprSwitchContext(state, econtext, &isnull);
+    }
 
 	/*
 	 * Successfully formed a result row.  Mark the result slot as containing a

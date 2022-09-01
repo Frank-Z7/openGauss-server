@@ -40,8 +40,8 @@ static void init_sexpr(Oid foid, Oid input_collation, SetExprState *sexpr, Memor
                        bool needDescForSRF);
 static void ShutdownSetExpr(Datum arg);
 template <bool has_refcursor>
-static ExprDoneCond ExecEvalFuncArgs(
-    FunctionCallInfo fcinfo, List* argList, ExprContext* econtext, int* plpgsql_var_dno = NULL);
+static ExprDoneCond ExecEvalFuncArgs_forPlpgSQL(FunctionCallInfo fcinfo, List* argList, ExprContext* econtext, int* plpgsql_var_dno);
+static void ExecEvalFuncArgs(FunctionCallInfo fcinfo,List *argList, ExprContext *econtext);
 static void tupledesc_match(TupleDesc dst_tupdesc, TupleDesc src_tupdesc);
 
 extern bool func_has_refcursor_args(Oid Funcid, FunctionCallInfoData* fcinfo);
@@ -517,10 +517,15 @@ Tuplestorestate* ExecMakeTableFunctionResult(
          * inner loop.	So do it in caller context.  Perhaps we should make a
          * separate context just to hold the evaluated arguments?
          */
-        if (has_refcursor)
-            argDone = ExecEvalFuncArgs<true>(&fcinfo, setexpr->args, econtext, var_dno);
-        else
-            argDone = ExecEvalFuncArgs<false>(&fcinfo, setexpr->args, econtext);
+        if (!has_refcursor 
+            && !setexpr->has_plpgsql_param) {
+            ExecEvalFuncArgs(&fcinfo, setexpr->args, econtext);
+            argDone = ExprSingleResult;
+        } else if (has_refcursor) {
+            argDone = ExecEvalFuncArgs_forPlpgSQL<true>(&fcinfo, setexpr->args, econtext, var_dno);
+        } else {
+            argDone = ExecEvalFuncArgs_forPlpgSQL<false>(&fcinfo, setexpr->args, econtext, NULL);
+        }
         /* We don't allow sets in the arguments of the table function */
         if (argDone != ExprSingleResult)
             ereport(ERROR,
@@ -864,8 +869,28 @@ void initExecTableOfIndexInfo(ExecTableOfIndexInfo* execTableOfIndexInfo, ExprCo
 /*
  * Evaluate arguments for a function.
  */
+static void ExecEvalFuncArgs(FunctionCallInfo fcinfo, List *argList, ExprContext *econtext)
+{
+    int i;
+    ListCell *arg;
+
+    i = 0;
+    foreach (arg, argList) {
+        ExprState *argstate = (ExprState *)lfirst(arg);
+
+        fcinfo->arg[i] = ExecEvalExpr(argstate, econtext, &fcinfo->argnull[i]);
+        fcinfo->argTypes[i] = argstate->resultType;
+        i++;
+    }
+
+    Assert(i == fcinfo->nargs);
+}
+
+/*
+ * Evaluate arguments for a function(use for plpgsql)
+ */
 template <bool has_refcursor>
-static ExprDoneCond ExecEvalFuncArgs(
+static ExprDoneCond ExecEvalFuncArgs_forPlpgSQL(
     FunctionCallInfo fcinfo, List* argList, ExprContext* econtext, int* plpgsql_var_dno)
 {
     ExprDoneCond argIsDone;
@@ -925,6 +950,7 @@ static void init_sexpr(Oid foid, Oid input_collation, SetExprState *sexpr, Memor
                        bool needDescForSRF)
 {
     AclResult aclresult;
+    ListCell *arg;
 
     /* Check permission to call function */
     aclresult = pg_proc_aclcheck(foid, GetUserId(), ACL_EXECUTE);
@@ -995,11 +1021,29 @@ static void init_sexpr(Oid foid, Oid input_collation, SetExprState *sexpr, Memor
         MemoryContextSwitchTo(oldcontext);
     } else
         sexpr->funcResultDesc = NULL;
+ 
+    foreach(arg, sexpr->args) {
+        ExprState* argstate = (ExprState*)lfirst(arg);
+        Node* node = (Node*) argstate->expr;
+        if (!IsA(node, Param)) {
+            continue;
+        }
+        if (IsA(node, Param)) {
+            Param* param = (Param*) node;
+            if (param->paramkind == PARAM_EXTERN
+                && (OidIsValid(param->tableOfIndexType) || OidIsValid(param->recordVarTypOid))) {
+                sexpr->has_plpgsql_param = true;
+                break;
+            }
+        }
+    }
 
     /* Initialize additional state */
     sexpr->funcResultStore = NULL;
     sexpr->funcResultSlot = NULL;
     sexpr->shutdown_reg = false;
+    sexpr->has_refcursor = func_has_refcursor_args(sexpr->func.fn_oid, &sexpr->fcinfo_data);
+    sexpr->is_function_with_plpgsql_language_and_outparam = is_function_with_plpgsql_language_and_outparam(sexpr->func.fn_oid);
 }
 
 /*
@@ -1114,7 +1158,7 @@ Datum ExecMakeFunctionResultSet(SetExprState *fcache, ExprContext *econtext, Mem
 	int			i;
     int* var_dno = NULL;
     bool has_refcursor = fcache->has_refcursor;
-    int has_cursor_return = !!fcache->fcinfo_data.refcursor_data.return_number;
+    int cursor_return_number = fcache->fcinfo_data.refcursor_data.return_number;
 
 restart:
 
@@ -1176,15 +1220,15 @@ restart:
      */
     fcinfo = &fcache->fcinfo_data;
 
-    if (has_cursor_return) {
+    if (unlikely(cursor_return_number)) {
         /* init returnCursor to store out-args cursor info on ExprContext*/
         fcinfo->refcursor_data.returnCursor =
-            (Cursor_Data*)palloc0(sizeof(Cursor_Data) * fcinfo->refcursor_data.return_number);
+            (Cursor_Data*)palloc0(sizeof(Cursor_Data) * cursor_return_number);
     } else {
         fcinfo->refcursor_data.returnCursor = NULL;
     }
 
-    if (has_refcursor) {
+    if (unlikely(has_refcursor)) {
         /* init argCursor to store in-args cursor info on ExprContext*/
         fcinfo->refcursor_data.argCursor = (Cursor_Data*)palloc0(sizeof(Cursor_Data) * fcinfo->nargs);
         var_dno = (int*)palloc0(sizeof(int) * fcinfo->nargs);
@@ -1201,10 +1245,15 @@ restart:
      */
     if (!fcache->setArgsValid) { 
         MemoryContext oldContext = MemoryContextSwitchTo(argContext);
-        if (has_refcursor)
-            ExecEvalFuncArgs<true>(fcinfo, arguments, econtext, var_dno);
-        else
-            ExecEvalFuncArgs<false>(fcinfo, arguments, econtext);
+        if (!has_refcursor 
+            && !fcache->has_plpgsql_param) {
+            ExecEvalFuncArgs(fcinfo, arguments, econtext);
+        } else if (has_refcursor) {
+            ExecEvalFuncArgs_forPlpgSQL<true>(fcinfo, arguments, econtext, var_dno);
+        }
+        else {
+            ExecEvalFuncArgs_forPlpgSQL<false>(fcinfo, arguments, econtext, NULL);
+        }
         MemoryContextSwitchTo(oldContext);
     }
 	else
@@ -1263,7 +1312,7 @@ restart:
 		*isDone = ExprEndResult;
 	}
 
-    if (has_refcursor && econtext->plpgsql_estate != NULL) {
+    if (unlikely(has_refcursor && econtext->plpgsql_estate != NULL)) {
         PLpgSQL_execstate* estate = econtext->plpgsql_estate;
         /* copy in-args cursor option info */
         for (i = 0; i < fcinfo->nargs; i++) {
@@ -1280,7 +1329,7 @@ restart:
             }
         }
 
-        if (fcinfo->refcursor_data.return_number > 0) {
+        if (cursor_return_number > 0) {
             /* copy function returns cursor option info.
              * for simple expr in exec_eval_expr, we can not get the result type,
              * so cursor_return_data mallocs here.
@@ -1288,13 +1337,13 @@ restart:
             if (estate->cursor_return_data == NULL && estate->tuple_store_cxt != NULL) {
                 MemoryContext oldcontext = MemoryContextSwitchTo(estate->tuple_store_cxt);
                 estate->cursor_return_data =
-                    (Cursor_Data*)palloc0(sizeof(Cursor_Data) * fcinfo->refcursor_data.return_number);
-                estate->cursor_return_numbers = fcinfo->refcursor_data.return_number;
+                    (Cursor_Data*)palloc0(sizeof(Cursor_Data) * cursor_return_number);
+                estate->cursor_return_numbers = cursor_return_number;
                 (void)MemoryContextSwitchTo(oldcontext);
             }
 
             if (estate->cursor_return_data != NULL) {
-                for (i = 0; i < fcinfo->refcursor_data.return_number; i++) {
+                for (i = 0; i < cursor_return_number; i++) {
                     int rc = memcpy_s(&estate->cursor_return_data[i], sizeof(Cursor_Data),
                         &fcinfo->refcursor_data.returnCursor[i], sizeof(Cursor_Data));
                     securec_check(rc, "\0", "\0");
@@ -1352,12 +1401,14 @@ restart:
 				 errmsg("unrecognized table-function returnMode: %d",
 						(int) rsinfo.returnMode)));
 
-    if (has_refcursor) {
+    if (unlikely(has_refcursor)) {
         pfree_ext(fcinfo->refcursor_data.argCursor);
         pfree_ext(var_dno);
     }
 
-    set_result_for_plpgsql_language_function_with_outparam(fcinfo->flinfo->fn_oid, &result, isNull);
+    if (unlikely(fcache->is_function_with_plpgsql_language_and_outparam)) {
+        set_result_for_plpgsql_language_function_with_outparam(fcinfo->flinfo->fn_oid, &result, isNull);
+    }
 
 	return result;
 }
@@ -1394,7 +1445,5 @@ SetExprState *ExecInitFunctionResultSet(Expr *expr, ExprContext *econtext, PlanS
 
     /* shouldn't get here unless the selected function returns set */
     Assert(state->func.fn_retset);
-
-    state->has_refcursor = func_has_refcursor_args(state->func.fn_oid, &state->fcinfo_data);
     return state;
 }

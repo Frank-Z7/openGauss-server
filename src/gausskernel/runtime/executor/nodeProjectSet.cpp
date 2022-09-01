@@ -68,6 +68,9 @@ ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
     state->elems = (Node **)palloc(sizeof(Node *) * state->nelems);
     state->elemdone = (ExprDoneCond *)palloc(sizeof(ExprDoneCond) * state->nelems);
 
+    if (unlikely(u_sess->attr.attr_sql.enable_trace_column))
+        state->tlist_colnames = (char**) palloc0(sizeof(char*) * state->nelems);
+
     /*
      * Build expressions to evaluate targetlist.  We can't use
      * ExecBuildProjectionInfo here, since that doesn't deal with SRFs.
@@ -78,6 +81,11 @@ ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
     foreach (lc, node->plan.targetlist) {
         TargetEntry *te = (TargetEntry *)lfirst(lc);
         Expr *expr = te->expr;
+
+        if (unlikely(state->tlist_colnames)) {
+            Assert(0 < te->resno && te->resno <= list_length(node->plan.targetlist));       
+            state->tlist_colnames[te->resno-1] = te->resname;
+        }
 
         if ((IsA(expr, FuncExpr) && ((FuncExpr *)expr)->funcretset) ||
             (IsA(expr, OpExpr) && ((OpExpr *)expr)->opretset)) {
@@ -212,8 +220,6 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
     bool haveDoneSets = false; /* any exhausted set exprs in tlist? */
     ExprDoneCond isDone = ExprSingleResult;
     int argno;
-    ListCell *lc = NULL;
-    char* resname = NULL;
 
     ExecClearTuple(resultSlot);
 
@@ -226,26 +232,19 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
      */
     node->pending_srf_tuples = false;
     
-    if (node->ps.plan->targetlist)
-        lc = list_head(node->ps.plan->targetlist);
-
     for (argno = 0; argno < node->nelems; argno++) {
         Node *elem = node->elems[argno];
         ExprDoneCond *itemIsDone = &node->elemdone[argno];
         Datum *result = &resultSlot->tts_values[argno];
         bool *isnull = &resultSlot->tts_isnull[argno];
 
-        if (lc) {
-            TargetEntry *te = (TargetEntry *)lfirst(lc);
-            resname = te->resname;
+        if (unlikely(node->tlist_colnames)) {
+            ELOG_FIELD_NAME_START(node->tlist_colnames[argno]);
+            *result = execMakeExprResult(elem, econtext, node->argcontext, isnull, itemIsDone, &hassrf);
+            ELOG_FIELD_NAME_END;
+        } else {
+            *result = execMakeExprResult(elem, econtext, node->argcontext, isnull, itemIsDone, &hassrf);
         }
-
-        ELOG_FIELD_NAME_START(resname);
-
-        *result = execMakeExprResult(elem, econtext, node->argcontext,
-                                    isnull, itemIsDone, &hassrf);
-
-        ELOG_FIELD_NAME_END;
 
         switch (*itemIsDone) {
             case ExprSingleResult:
@@ -265,9 +264,6 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
                 Assert(false);
                 break;
         }
-
-        lc = lnext(lc);
-        resname = NULL;
     }
 
     /* ProjectSet should not be used if there's no SRFs */
@@ -282,9 +278,6 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
             return NULL;
         }
 
-        if (node->ps.plan->targetlist)
-            lc = list_head(node->ps.plan->targetlist);
-
         /*
          * We have some done and some undone sets.	Restart the done ones
          * so that we can deliver a tuple (if possible).
@@ -296,22 +289,19 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
             bool *isnull = &resultSlot->tts_isnull[argno];
 
             if (*itemIsDone != ExprEndResult) {
-                lc = lnext(lc);
-                resname = NULL;
                 continue;
             }
 
-            if (lc) {
-                TargetEntry *te = (TargetEntry *)lfirst(lc);
-                resname = te->resname;
-            }
-
-            ELOG_FIELD_NAME_START(resname);
-
             /*restart the done ones*/
-            *result = ExecMakeFunctionResultSet((SetExprState*)elem, econtext, node->argcontext, isnull, itemIsDone);
-
-            ELOG_FIELD_NAME_END;
+            if (unlikely(node->tlist_colnames)) {
+                ELOG_FIELD_NAME_START(node->tlist_colnames[argno]);
+                *result = ExecMakeFunctionResultSet((SetExprState*)elem, 
+                                econtext, node->argcontext, isnull, itemIsDone);            
+                ELOG_FIELD_NAME_END;
+            } else {
+                *result = ExecMakeFunctionResultSet((SetExprState*)elem, 
+                                econtext, node->argcontext, isnull, itemIsDone);
+            }
         
             Assert(hassrf);
 
@@ -332,9 +322,6 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
                 isDone = ExprEndResult;
                 break;
             }
-
-            lc = lnext(lc);
-            resname = NULL;
         }
 
         /*
@@ -346,9 +333,6 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
          */
         if (isDone == ExprEndResult) {
             hasresult = false;
-            
-            if (node->ps.plan->targetlist)
-                lc = list_head(node->ps.plan->targetlist);
 
             for (argno = 0; argno < node->nelems; argno++) {
                 Node *elem = node->elems[argno];
@@ -356,22 +340,10 @@ static TupleTableSlot *ExecProjectSRF(ProjectSetState *node)
                 Datum *result = &resultSlot->tts_values[argno];
                 bool *isnull = &resultSlot->tts_isnull[argno];
 
-                if (lc) {
-                    TargetEntry *te = (TargetEntry *)lfirst(lc);
-                    resname = te->resname;
-                }
-
-                ELOG_FIELD_NAME_START(resname);
-
                 while (*itemIsDone == ExprMultipleResult) {
                     *result = ExecMakeFunctionResultSet((SetExprState*)elem, econtext, node->argcontext, isnull, itemIsDone);
                     /* no need for MakeExpandedObjectReadOnly */
                 }
-                
-                ELOG_FIELD_NAME_END;
-
-                lc = lnext(lc);
-                resname = NULL;
             }
         }
     }

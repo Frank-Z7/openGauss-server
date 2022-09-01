@@ -388,8 +388,10 @@ struct ExprState {
 
 	/* original expression tree, for debugging only */
 	Expr	   *expr;
-    
-	/*
+
+    /* private state for an evalfunc */
+    void *evalfunc_private;
+    /*
 	 * XXX: following fields only needed during "compilation" (ExecInitExpr);
 	 * could be thrown away afterwards.
 	 */
@@ -404,9 +406,7 @@ struct ExprState {
 
 	Datum	   *innermost_domainval;
 	bool	   *innermost_domainnull;
-
-    ListCell   *current_targetentry;
-
+ 
     // vectorized evaluator
     //
     VectorExprFun vecExprFun;
@@ -461,11 +461,13 @@ struct ExprState {
 typedef bool (*vectarget_func)(ExprContext* econtext, VectorBatch* pBatch);
 typedef struct ProjectionInfo {
     NodeTag type;
-    List* pi_targetlist;
     /* instructions to evaluate projection */
     ExprState pi_state;
     /* expression context in which to evaluate expression */
     ExprContext* pi_exprContext;
+    bool pi_trace_column_name;    /* trace the coluam name ? */
+
+    List* pi_targetlist;
     TupleTableSlot* pi_slot;
     bool pi_directMap;
     bool pi_topPlan;             /* Whether the outermost layer query */
@@ -939,6 +941,8 @@ typedef struct SetExprState
 	FunctionCallInfoData fcinfo_data;
     
     bool has_refcursor;
+    bool has_plpgsql_param;
+    bool is_function_with_plpgsql_language_and_outparam;
 } SetExprState;
 
 /* ----------------
@@ -1506,6 +1510,7 @@ typedef struct ProjectSetState {
     int nelems;              /* length of elemdone[] array */
     bool pending_srf_tuples; /* still evaluating srfs in tlist? */
     MemoryContext argcontext; /* context for SRF arguments */
+    char** tlist_colnames;    /* column name of targetlist, only if enable_trace_column is set */
 } ProjectSetState;
 
 /* ----------------

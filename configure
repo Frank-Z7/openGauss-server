@@ -2915,6 +2915,20 @@ _ACEOF
 
 fi
 
+if test "$enable_debug" = yes; then
+
+cat >>confdefs.h <<\_ACEOF
+#define ENABLE_TRACE_COLUMN_DEFAULT_VALUE true
+_ACEOF
+
+else
+
+cat >>confdefs.h <<\_ACEOF
+#define ENABLE_TRACE_COLUMN_DEFAULT_VALUE false
+_ACEOF
+
+fi
+
 #
 # '-memory-check'-like feature can be enabled
 #

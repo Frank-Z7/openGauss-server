@@ -1803,6 +1803,19 @@ static void InitConfigureNamesBool()
             NULL,
             NULL
         },
+        {{"enable_trace_column",
+            PGC_USERSET,
+            NODE_ALL,
+            ERROR_HANDLING_OPTIONS,
+            gettext_noop("enable trace column name while executing projections"),
+            NULL},
+            &u_sess->attr.attr_sql.enable_trace_column, 
+            ENABLE_TRACE_COLUMN_DEFAULT_VALUE,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+        },
         /* End-of-list marker */
         {{NULL,
             (GucContext)0,

@@ -162,6 +162,7 @@ static Datum ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull
 static Datum ExecJustAssignInnerVar(ExprState *state, ExprContext *econtext, bool *isnull);
 static Datum ExecJustAssignOuterVar(ExprState *state, ExprContext *econtext, bool *isnull);
 static Datum ExecJustAssignScanVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustApplyFuncToCase(ExprState *state, ExprContext *econtext, bool *isnull);
 
 extern bool func_has_refcursor_args(Oid Funcid, FunctionCallInfoData* fcinfo);
 extern void check_huge_clob_paramter(FunctionCallInfoData* fcinfo, bool is_have_huge_clob);
@@ -199,6 +200,14 @@ ExecReadyInterpretedExpr(ExprState *state)
 	 */
 	state->flags |= EEO_FLAG_INTERPRETER_INITIALIZED;
 
+    /*
+     * First time through, check whether attribute matches Var.  Might not be
+     * ok anymore, due to schema changes. We do that by setting up a callback
+     * that does checking on the first call, which then sets the evalfunc
+     * callback to the actual method of execution.
+     */
+    state->evalfunc = ExecInterpExprStillValid;
+
 	/*
 	 * Select fast-path evalfuncs for very simple expressions.  "Starting up"
 	 * the full interpreter is a measurable overhead for these, and these
@@ -212,44 +221,51 @@ ExecReadyInterpretedExpr(ExprState *state)
 		if (step0 == EEOP_INNER_FETCHSOME &&
 			step1 == EEOP_INNER_VAR_FIRST)
 		{
-			state->evalfunc = ExecJustInnerVarFirst;
+			state->evalfunc_private = (void*)ExecJustInnerVarFirst;
 			return;
 		}
 		else if (step0 == EEOP_OUTER_FETCHSOME &&
 				 step1 == EEOP_OUTER_VAR_FIRST)
 		{
-			state->evalfunc = ExecJustOuterVarFirst;
+			state->evalfunc_private = (void*)ExecJustOuterVarFirst;
 			return;
 		}
 		else if (step0 == EEOP_SCAN_FETCHSOME &&
 				 step1 == EEOP_SCAN_VAR_FIRST)
 		{
-			state->evalfunc = ExecJustScanVarFirst;
+			state->evalfunc_private = (void*)ExecJustScanVarFirst;
 			return;
 		}
 		else if (step0 == EEOP_INNER_FETCHSOME &&
 				 step1 == EEOP_ASSIGN_INNER_VAR)
 		{
-			state->evalfunc = ExecJustAssignInnerVar;
+			state->evalfunc_private = (void*)ExecJustAssignInnerVar;
 			return;
 		}
 		else if (step0 == EEOP_OUTER_FETCHSOME &&
 				 step1 == EEOP_ASSIGN_OUTER_VAR)
 		{
-			state->evalfunc = ExecJustAssignOuterVar;
+			state->evalfunc_private = (void*)ExecJustAssignOuterVar;
 			return;
 		}
 		else if (step0 == EEOP_SCAN_FETCHSOME &&
 				 step1 == EEOP_ASSIGN_SCAN_VAR)
 		{
-			state->evalfunc = ExecJustAssignScanVar;
+			state->evalfunc_private = (void*)ExecJustAssignScanVar;
+            return;
+        }        
+        else if (step0 == EEOP_CASE_TESTVAL &&
+                 step1 == EEOP_FUNCEXPR_STRICT &&
+                 state->steps[0].d.casetest.value)
+        {
+            state->evalfunc_private = (void *) ExecJustApplyFuncToCase;
 			return;
 		}
 	}
 	else if (state->steps_len == 2 &&
 			 state->steps[0].opcode == EEOP_CONST)
 	{
-		state->evalfunc = ExecJustConst;
+		state->evalfunc_private = (void *) ExecJustConst;
 		return;
 	}
 
@@ -273,24 +289,10 @@ ExecReadyInterpretedExpr(ExprState *state)
 	}
 #endif							/* EEO_USE_COMPUTED_GOTO */
 
-	state->evalfunc = ExecInterpExpr;
+	state->evalfunc_private = (void*)ExecInterpExpr;
 }
 
-static inline void 
-UpdateElogFieldName(ExprState *state)
-{
-	if (state->expr) {
-		ListCell *lc = lnext(state->current_targetentry);
-		if (lc == NULL)
-			return;
-
-		TargetEntry *te = (TargetEntry*)lfirst(lc);
-		state->current_targetentry = lc;
-		ELOG_FIELD_NAME_UPDATE(te->resname);
-	}
-}
-
-static bool IsTableOfFunc(Oid funcOid)
+bool IsTableOfFunc(Oid funcOid)
 {
     const Oid array_function_start_oid = 7881;
     const Oid array_function_end_oid = 7892;
@@ -309,7 +311,6 @@ ExecMakeFunctionResultNoSets(ExprState *state, ExprEvalStep *op,ExprContext *eco
 	
     bool savedIsSTP = u_sess->SPI_cxt.is_stp;
     bool savedProConfigIsSet = u_sess->SPI_cxt.is_proconfig_set;
-    bool supportTranaction = false;
     bool is_have_huge_clob = false;
 	bool needResetErrMsg = (u_sess->SPI_cxt.forbidden_commit_rollback_err_msg[0] == '\0');
 
@@ -522,6 +523,10 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_ASSIGN_TMP_MAKE_RO,
 		&&CASE_EEOP_CONST,
 		&&CASE_EEOP_FUNCEXPR,
+        &&CASE_EEOP_FUNCEXPR_STRICT,
+        &&CASE_EEOP_FUNCEXPR_FUSAGE,
+        &&CASE_EEOP_FUNCEXPR_STRICT_FUSAGE,
+        &&CASE_EEOP_FUNCEXPR_MAKE_FUNCTION_RESULT,
 		&&CASE_EEOP_BOOL_AND_STEP_FIRST,
 		&&CASE_EEOP_BOOL_AND_STEP,
 		&&CASE_EEOP_BOOL_AND_STEP_LAST,
@@ -590,6 +595,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
         &&CASE_EEOP_AGG_COLLECT_PLAIN_TRANS,
         &&CASE_EEOP_AGG_ORDERED_TRANS_DATUM,
         &&CASE_EEOP_AGG_ORDERED_TRANS_TUPLE,
+        &&CASE_EEOP_TRACE_COLUMN,
 		&&CASE_EEOP_LAST
 	};
 
@@ -786,19 +792,17 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			int			resultnum = op->d.assign_var.resultnum;
 			int			attnum = op->d.assign_var.attnum;
 
-			/*
-			 * We do not need CheckVarSlotCompatibility here; that was taken
-			 * care of at compilation time.  But see EEOP_INNER_VAR comments.
-			 */
-			Assert(attnum >= 0 && attnum < innerslot->tts_nvalid);
-			Assert(resultnum >= 0 && resultnum < resultslot->tts_tupleDescriptor->natts);
-			resultslot->tts_values[resultnum] = innerslot->tts_values[attnum];
-			resultslot->tts_isnull[resultnum] = innerslot->tts_isnull[attnum];
-
-			UpdateElogFieldName(state);
-			
-			EEO_NEXT();
-		}
+            /*
+             * We do not need CheckVarSlotCompatibility here; that was taken
+             * care of at compilation time.  But see EEOP_INNER_VAR comments.
+             */
+            Assert(attnum >= 0 && attnum < innerslot->tts_nvalid);
+            Assert(resultnum >= 0 && resultnum < resultslot->tts_tupleDescriptor->natts);
+            resultslot->tts_values[resultnum] = innerslot->tts_values[attnum];
+            resultslot->tts_isnull[resultnum] = innerslot->tts_isnull[attnum];
+            
+            EEO_NEXT();
+        }
 
 		EEO_CASE(EEOP_ASSIGN_OUTER_VAR)
 		{
@@ -814,10 +818,8 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			resultslot->tts_values[resultnum] = outerslot->tts_values[attnum];
 			resultslot->tts_isnull[resultnum] = outerslot->tts_isnull[attnum];
 
-			UpdateElogFieldName(state);
-
-			EEO_NEXT();
-		}
+            EEO_NEXT();
+        }
 
 		EEO_CASE(EEOP_ASSIGN_SCAN_VAR)
 		{
@@ -833,10 +835,8 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			resultslot->tts_values[resultnum] = scanslot->tts_values[attnum];
 			resultslot->tts_isnull[resultnum] = scanslot->tts_isnull[attnum];
 
-			UpdateElogFieldName(state);
-
-			EEO_NEXT();
-		}
+            EEO_NEXT();
+        }
 
 		EEO_CASE(EEOP_ASSIGN_TMP)
 		{
@@ -846,10 +846,8 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			resultslot->tts_values[resultnum] = state->resvalue;
 			resultslot->tts_isnull[resultnum] = state->resnull;
 
-			UpdateElogFieldName(state);
-
-			EEO_NEXT();
-		}
+            EEO_NEXT();
+        }
 
 		EEO_CASE(EEOP_ASSIGN_TMP_MAKE_RO)
 		{
@@ -863,10 +861,8 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			else
 				resultslot->tts_values[resultnum] = state->resvalue;
 
-			UpdateElogFieldName(state);
-
-			EEO_NEXT();
-		}
+            EEO_NEXT();
+        }
 
 		EEO_CASE(EEOP_CONST)
 		{
@@ -900,8 +896,58 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		 */
 		EEO_CASE(EEOP_FUNCEXPR)
 		{
-			ExecMakeFunctionResultNoSets(state, op, econtext);
+            FunctionCallInfo fcinfo = op->d.func.fcinfo_data;
+            Datum d;
 
+            fcinfo->isnull = false;
+            d = op->d.func.fn_addr(fcinfo);
+            *op->resvalue = d;
+            *op->resnull = fcinfo->isnull;
+
+            EEO_NEXT();
+        }
+
+        EEO_CASE(EEOP_FUNCEXPR_STRICT)
+        {
+            FunctionCallInfo fcinfo = op->d.func.fcinfo_data;
+            int nargs = op->d.func.nargs;
+            Datum d;
+
+            /* strict function, so check for NULL args */
+            for (int argno = 0; argno < nargs; argno++) {
+                if (fcinfo->argnull[argno]) {
+                    *op->resnull = true;
+                    goto strictfail;
+                }
+            }
+            fcinfo->isnull = false;
+            d = op->d.func.fn_addr(fcinfo);
+            *op->resvalue = d;
+            *op->resnull = fcinfo->isnull;
+
+        strictfail:
+            EEO_NEXT();
+        }
+
+        EEO_CASE(EEOP_FUNCEXPR_FUSAGE)
+        {
+            /* not common enough to inline */
+            ExecEvalFuncExprFusage(state, op, econtext);
+
+            EEO_NEXT();
+        }
+
+        EEO_CASE(EEOP_FUNCEXPR_STRICT_FUSAGE)
+        {
+            /* not common enough to inline */
+            ExecEvalFuncExprStrictFusage(state, op, econtext);
+
+            EEO_NEXT();
+        }
+
+        EEO_CASE(EEOP_FUNCEXPR_MAKE_FUNCTION_RESULT)
+        {
+			ExecMakeFunctionResultNoSets(state, op, econtext);
 			EEO_NEXT();
 		}
 
@@ -2080,6 +2126,12 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			EEO_NEXT();
 		}
 
+        EEO_CASE(EEOP_TRACE_COLUMN)
+        {
+            ELOG_FIELD_NAME_UPDATE(op->d.trace_column.column_name);
+            EEO_NEXT();
+        }
+
 		EEO_CASE(EEOP_LAST)
 		{
 			/* unreachable */
@@ -2091,6 +2143,70 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 out:
 	*isnull = state->resnull;
 	return state->resvalue;
+}
+
+/*
+ * Expression evaluation callback that performs extra checks before executing
+ * the expression. Declared extern so other methods of execution can use it
+ * too.
+ */
+Datum ExecInterpExprStillValid(ExprState *state, ExprContext *econtext, bool *isNull)
+{
+    /*
+     * First time through, check whether attribute matches Var.  Might not be
+     * ok anymore, due to schema changes.
+     */
+    CheckExprStillValid(state, econtext);
+
+    /* skip the check during further executions */
+    state->evalfunc = (ExprStateEvalFunc)state->evalfunc_private;
+
+    /* and actually execute */
+    return state->evalfunc(state, econtext, isNull);
+}
+
+/*
+ * Check that an expression is still valid in the face of potential schema
+ * changes since the plan has been created.
+ */
+void CheckExprStillValid(ExprState *state, ExprContext *econtext)
+{
+    TupleTableSlot *innerslot;
+    TupleTableSlot *outerslot;
+    TupleTableSlot *scanslot;
+
+    innerslot = econtext->ecxt_innertuple;
+    outerslot = econtext->ecxt_outertuple;
+    scanslot = econtext->ecxt_scantuple;
+
+    for (int i = 0; i < state->steps_len; i++) {
+        ExprEvalStep *op = &state->steps[i];
+
+        switch (ExecEvalStepOp(state, op)) {
+            case EEOP_INNER_VAR: {
+                int attnum = op->d.var.attnum;
+
+                CheckVarSlotCompatibility(innerslot, attnum + 1, op->d.var.vartype);
+                break;
+            }
+
+            case EEOP_OUTER_VAR: {
+                int attnum = op->d.var.attnum;
+
+                CheckVarSlotCompatibility(outerslot, attnum + 1, op->d.var.vartype);
+                break;
+            }
+
+            case EEOP_SCAN_VAR: {
+                int attnum = op->d.var.attnum;
+
+                CheckVarSlotCompatibility(scanslot, attnum + 1, op->d.var.vartype);
+                break;
+            }
+            default:
+                break;
+        }
+    }
 }
 
 /*
@@ -2314,6 +2430,7 @@ ExecJustAssignVarImpl(ExprState *state, TupleTableSlot *inslot, bool *isnull)
 	Assert(resultnum >= 0 && resultnum < outslot->tts_tupleDescriptor->natts);
 	outslot->tts_values[resultnum] =
 		tableam_tslot_getattr(inslot, attnum, &outslot->tts_isnull[resultnum]);
+
 	return 0;
 }
 
@@ -2354,6 +2471,40 @@ static Datum
 ExecJustAssignScanVar(ExprState *state, ExprContext *econtext, bool *isnull)
 {
 	return ExecJustAssignVarImpl(state, econtext->ecxt_scantuple, isnull);
+}
+
+/* Evaluate CASE_TESTVAL and apply a strict function to it */
+static Datum 
+ExecJustApplyFuncToCase(ExprState *state, ExprContext *econtext, bool *isnull)
+{
+    ExprEvalStep *op = &state->steps[0];
+    FunctionCallInfo fcinfo;
+    int nargs;
+    Datum d;
+
+    /*
+     * XXX with some redesign of the CaseTestExpr mechanism, maybe we could
+     * get rid of this data shuffling?
+     */
+    *op->resvalue = *op->d.casetest.value;
+    *op->resnull = *op->d.casetest.isnull;
+
+    op++;
+
+    nargs = op->d.func.nargs;
+    fcinfo = op->d.func.fcinfo_data;
+
+    /* strict function, so check for NULL args */
+    for (int argno = 0; argno < nargs; argno++) {
+        if (fcinfo->argnull[argno]) {
+            *isnull = true;
+            return (Datum)0;
+        }
+    }
+    fcinfo->isnull = false;
+    d = op->d.func.fn_addr(fcinfo);
+    *isnull = fcinfo->isnull;
+    return d;
 }
 
 #if defined(EEO_USE_COMPUTED_GOTO)
@@ -2434,6 +2585,57 @@ ExecEvalStepOp(ExprState *state, ExprEvalStep *op)
 	return (ExprEvalOp) op->opcode;
 }
 
+/*
+ * Out-of-line helper functions for complex instructions.
+ */
+
+/*
+ * Evaluate EEOP_FUNCEXPR_FUSAGE
+ */
+void ExecEvalFuncExprFusage(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
+{
+    FunctionCallInfo fcinfo = op->d.func.fcinfo_data;
+    PgStat_FunctionCallUsage fcusage;
+    Datum d;
+
+    pgstat_init_function_usage(fcinfo, &fcusage);
+
+    fcinfo->isnull = false;
+    d = op->d.func.fn_addr(fcinfo);
+    *op->resvalue = d;
+    *op->resnull = fcinfo->isnull;
+
+    pgstat_end_function_usage(&fcusage, true);
+}
+
+/*
+ * Evaluate EEOP_FUNCEXPR_STRICT_FUSAGE
+ */
+void ExecEvalFuncExprStrictFusage(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
+{
+
+    FunctionCallInfo fcinfo = op->d.func.fcinfo_data;
+    PgStat_FunctionCallUsage fcusage;
+    int nargs = op->d.func.nargs;
+    Datum d;
+
+    /* strict function, so check for NULL args */
+    for (int argno = 0; argno < nargs; argno++) {
+        if (fcinfo->argnull[argno]) {
+            *op->resnull = true;
+            return;
+        }
+    }
+
+    pgstat_init_function_usage(fcinfo, &fcusage);
+
+    fcinfo->isnull = false;
+    d = op->d.func.fn_addr(fcinfo);
+    *op->resvalue = d;
+    *op->resnull = fcinfo->isnull;
+
+    pgstat_end_function_usage(&fcusage, true);
+}
 
 /*
  * Out-of-line helper functions for complex instructions.
@@ -2598,14 +2800,13 @@ static void
 ExecEvalRowNullInt(ExprState *state, ExprEvalStep *op,
 				   ExprContext *econtext, bool checkisnull)
 {
-	Datum		value = *op->resvalue;
-	bool		isnull = *op->resnull;
-	HeapTupleHeader tuple;
-	Oid			tupType;
-	int32		tupTypmod;
-	TupleDesc	tupDesc;
-	HeapTupleData tmptup;
-	int			att;
+    Datum        value = *op->resvalue;
+    bool        isnull = *op->resnull;
+    HeapTupleHeader tuple;
+    Oid            tupType;
+    int32        tupTypmod;
+    TupleDesc    tupDesc;
+    HeapTupleData tmptup;
 
 	*op->resnull = false;
 
@@ -3159,9 +3360,8 @@ ExecEvalFieldStoreForm(ExprState *state, ExprEvalStep *op, ExprContext *econtext
 bool
 ExecEvalArrayRefSubscript(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 {
-	ArrayRefState *arefstate = op->d.arrayref_subscript.state;
-	int		   *indexes;
-	int			off = op->d.arrayref_subscript.off;
+    ArrayRefState *arefstate = op->d.arrayref_subscript.state;
+    int            off = op->d.arrayref_subscript.off;
 
 	ExecTableOfIndexInfo execTableOfIndexInfo;
     initExecTableOfIndexInfo(&execTableOfIndexInfo, econtext);
@@ -4164,38 +4364,8 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 			MemoryContextSwitchTo(oldcontext);
 		}
 
-		/*
-		 * Construct a tuple descriptor for the composite values we'll
-		 * produce, and make sure its record type is "blessed".  The main
-		 * reason to do this is to be sure that operations such as
-		 * row_to_json() will see the desired column names when they look up
-		 * the descriptor from the type information embedded in the composite
-		 * values.
-		 *
-		 * We already got the correct physical datatype info above, but now we
-		 * should try to find the source RTE and adopt its column aliases, in
-		 * case they are different from the original rowtype's names.  For
-		 * example, in "SELECT foo(t) FROM tab t(x,y)", the first two columns
-		 * in the composite output should be named "x" and "y" regardless of
-		 * tab's column names.
-		 *
-		 * If we can't locate the RTE, assume the column names we've got are
-		 * OK.  (As of this writing, the only cases where we can't locate the
-		 * RTE are in execution of trigger WHEN clauses, and then the Var will
-		 * have the trigger's relation's rowtype, so its names are fine.)
-		 * Also, if the creator of the RTE didn't bother to fill in an eref
-		 * field, assume our column names are OK.  (This happens in COPY, and
-		 * perhaps other places.)
-		 */
-		if (econtext->ecxt_estate &&
-			variable->varno <= list_length(econtext->ecxt_estate->es_range_table))
-		{
-			RangeTblEntry *rte = rt_fetch(variable->varno,
-									  econtext->ecxt_estate->es_range_table);
-		}
-
-		/* Bless the tupdesc if needed, and save it in the execution state */
-		op->d.wholerow.tupdesc = BlessTupleDesc(output_tupdesc);
+        /* Bless the tupdesc if needed, and save it in the execution state */
+        op->d.wholerow.tupdesc = BlessTupleDesc(output_tupdesc);
 
 		op->d.wholerow.first = false;
 	}
