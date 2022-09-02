@@ -138,7 +138,6 @@ void knl_u_executor_init(knl_u_executor_context* exec_cxt)
     exec_cxt->global_bucket_cnt = 0;
     exec_cxt->vec_func_hash = NULL;
     exec_cxt->route = (PartitionIdentifier*)palloc0(sizeof(PartitionIdentifier));
-    exec_cxt->cur_tuple_hash_table = NULL;
     exec_cxt->cur_light_proxy_obj = NULL;
 
     exec_cxt->ActivePortal = NULL;

@@ -175,7 +175,7 @@ extern bool execTuplesUnequal(TupleTableSlot* slot1, TupleTableSlot* slot2, int 
 extern FmgrInfo* execTuplesMatchPrepare(int numCols, Oid* eqOperators);
 extern void execTuplesHashPrepare(int numCols, Oid* eqOperators, FmgrInfo** eqFunctions, FmgrInfo** hashFunctions);
 extern TupleHashTable BuildTupleHashTable(int numCols, AttrNumber* keyColIdx, FmgrInfo* eqfunctions,
-    FmgrInfo* hashfunctions, long nbuckets, Size entrysize, MemoryContext tablecxt, MemoryContext tempcxt, int workMem);
+    FmgrInfo* hashfunctions, long nbuckets, Size additionalsize, MemoryContext tablecxt, MemoryContext tempcxt, int workMem);
 extern TupleHashEntry LookupTupleHashEntry(
     TupleHashTable hashtable, TupleTableSlot* slot, bool* isnew, bool isinserthashtbl = true);
 extern TupleHashEntry FindTupleHashEntry(

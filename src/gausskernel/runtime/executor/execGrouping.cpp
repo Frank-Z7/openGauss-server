@@ -27,8 +27,26 @@
 #include "utils/memutils.h"
 #include "access/hash.h"
 
-static uint32 TupleHashTableHash(const void* key, Size keysize);
-static int TupleHashTableMatch(const void* key1, const void* key2, Size keysize);
+static uint32 TupleHashTableHash(struct tuplehash_hash *tb, const MinimalTuple tuple);
+static int	TupleHashTableMatch(struct tuplehash_hash *tb, const MinimalTuple tuple1, const MinimalTuple tuple2);
+
+/*
+* Define parameters for tuple hash table code generation. The interface is
+* *also* declared in execnodes.h (to generate the types, which are externally
+* visible).
+*/
+#define SH_PREFIX tuplehash
+#define SH_ELEMENT_TYPE TupleHashEntryData
+#define SH_KEY_TYPE MinimalTuple
+#define SH_KEY firstTuple
+#define SH_HASH_KEY(tb, key) TupleHashTableHash(tb, key)
+#define SH_EQUAL(tb, a, b) TupleHashTableMatch(tb, a, b) == 0
+#define SH_SCOPE extern
+#define SH_STORE_HASH
+#define SH_GET_HASH(tb, a) a->hash
+#define SH_DEFINE
+#include "lib/simplehash.h"
+
 
 /*****************************************************************************
  *		Utility routines for grouping tuples together
@@ -237,7 +255,7 @@ void execTuplesHashPrepare(int numCols, Oid* eqOperators, FmgrInfo** eqFunctions
  *	eqfunctions: equality comparison functions to use
  *	hashfunctions: datatype-specific hashing functions to use
  *	nbuckets: initial estimate of hashtable size
- *	entrysize: size of each entry (at least sizeof(TupleHashEntryData))
+ *	additionalsize: size of data stored in ->additional
  *	tablecxt: memory context in which to store table and table entries
  *	tempcxt: short-lived context for evaluation hash and comparison functions
  *
@@ -249,13 +267,12 @@ void execTuplesHashPrepare(int numCols, Oid* eqOperators, FmgrInfo** eqFunctions
  * storage that will live as long as the hashtable does.
  */
 TupleHashTable BuildTupleHashTable(int numCols, AttrNumber* keyColIdx, FmgrInfo* eqfunctions, FmgrInfo* hashfunctions,
-    long nbuckets, Size entrysize, MemoryContext tablecxt, MemoryContext tempcxt, int workMem)
+    long nbuckets, Size additionalsize, MemoryContext tablecxt, MemoryContext tempcxt, int workMem)
 {
     TupleHashTable hashtable;
-    HASHCTL hash_ctl;
+    Size entrysize = sizeof(TupleHashEntryData) + additionalsize;
 
     Assert(nbuckets > 0);
-    Assert(entrysize >= sizeof(TupleHashEntryData));
 
     /* Limit initial table size request to not more than work_mem */
     nbuckets = Min(nbuckets, (long)((workMem * 1024L) / entrysize));
@@ -279,15 +296,8 @@ TupleHashTable BuildTupleHashTable(int numCols, AttrNumber* keyColIdx, FmgrInfo*
     hashtable->add_width = true;
     hashtable->causedBySysRes = false;
 
-    errno_t rc = memset_s(&hash_ctl, sizeof(hash_ctl), 0, sizeof(hash_ctl));
-    securec_check(rc, "\0", "\0");
-    hash_ctl.keysize = sizeof(TupleHashEntryData);
-    hash_ctl.entrysize = entrysize;
-    hash_ctl.hash = TupleHashTableHash;
-    hash_ctl.match = TupleHashTableMatch;
-    hash_ctl.hcxt = tablecxt;
-    hashtable->hashtab =
-        hash_create("TupleHashTable", nbuckets, &hash_ctl, HASH_ELEM | HASH_FUNCTION | HASH_COMPARE | HASH_CONTEXT);
+    hashtable->hashtab = tuplehash_create(tablecxt, nbuckets);
+    hashtable->hashtab->private_data = hashtable;
 
     return hashtable;
 }
@@ -301,8 +311,8 @@ TupleHashTable BuildTupleHashTable(int numCols, AttrNumber* keyColIdx, FmgrInfo*
  *
  * If isnew isn't NULL, then a new entry is created if no existing entry
  * matches.  On return, *isnew is true if the entry is newly created,
- * false if it existed already.  Any extra space in a new entry has been
- * zeroed.
+ * false if it existed already.  ->additional_data in the new entry has
+ * been zeroed.
  *
  * If isinserthashtbl is false, the para of hash search is HASH_FIND
  * instead of HASH_ENTER. This slot will be insert into temp file instead of
@@ -313,9 +323,8 @@ TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot* sl
 {
     TupleHashEntry entry;
     MemoryContext oldContext;
-    TupleHashTable saveCurHT;
-    TupleHashEntryData dummy;
     bool found = false;
+    MinimalTuple key;
 
     /* If first time through, clone the input slot to make table slot */
     if (hashtable->tableslot == NULL) {
@@ -335,29 +344,20 @@ TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot* sl
     /* Need to run the hash functions in short-lived context */
     oldContext = MemoryContextSwitchTo(hashtable->tempcxt);
 
-    /*
-     * Set up data needed by hash and match functions
-     *
-     * We save and restore u_sess->exec_cxt.cur_tuple_hash_table just in case someone manages to
-     * invoke this code re-entrantly.
-     */
+    /* set up data needed by hash and match functions */
     hashtable->inputslot = slot;
     hashtable->in_hash_funcs = hashtable->tab_hash_funcs;
     hashtable->cur_eq_funcs = hashtable->tab_eq_funcs;
 
-    saveCurHT = u_sess->exec_cxt.cur_tuple_hash_table;
-    u_sess->exec_cxt.cur_tuple_hash_table = hashtable;
+    key = NULL;
 
-    /* Search the hash table */
-    dummy.firstTuple = NULL; /* flag to reference inputslot */
-
-    if (isinserthashtbl) {
-        entry = (TupleHashEntry)hash_search(hashtable->hashtab, &dummy, isnew ? HASH_ENTER : HASH_FIND, &found);
+    if (isinserthashtbl && isnew) {
+        /*isinserthashtbl&&isnew insert to the hash table*/
+        entry = tuplehash_insert(hashtable->hashtab, key, &found);
     } else {
-        /* this slot will be insert into temp file instead of hash table if it is not found in hash table */
-        entry = (TupleHashEntry)hash_search(hashtable->hashtab, &dummy, HASH_FIND, &found);
+        entry = tuplehash_lookup(hashtable->hashtab, key);
+        if (entry) found = true;
     }
-
     if (isnew != NULL) {
         if (found) {
             /* found pre-existing entry */
@@ -367,14 +367,8 @@ TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot* sl
                 Assert(isinserthashtbl);
                 /*
                  * created new entry
-                 *
-                 * Zero any caller-requested space in the entry.  (This zaps the
-                 * "key data" dynahash.c copied into the new entry, but we don't
-                 * care since we're about to overwrite it anyway.)
                  */
-                errno_t errorno = memset_s(entry, hashtable->entrysize, 0, hashtable->entrysize);
-                securec_check(errorno, "\0", "\0");
-
+                entry->additional = NULL;
                 /* Copy the first tuple into the table context */
                 MemoryContextSwitchTo(hashtable->tablecxt);
                 entry->firstTuple = ExecCopySlotMinimalTuple(slot);
@@ -385,8 +379,6 @@ TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot* sl
             *isnew = true;
         }
     }
-
-    u_sess->exec_cxt.cur_tuple_hash_table = saveCurHT;
 
     MemoryContextSwitchTo(oldContext);
 
@@ -407,30 +399,21 @@ TupleHashEntry FindTupleHashEntry(
 {
     TupleHashEntry entry;
     MemoryContext oldContext;
-    TupleHashTable saveCurHT;
-    TupleHashEntryData dummy;
+    MinimalTuple key;
 
     /* Need to run the hash functions in short-lived context */
     oldContext = MemoryContextSwitchTo(hashtable->tempcxt);
 
     /*
      * Set up data needed by hash and match functions
-     *
-     * We save and restore u_sess->exec_cxt.cur_tuple_hash_table just in case someone manages to
-     * invoke this code re-entrantly.
      */
     hashtable->inputslot = slot;
     hashtable->in_hash_funcs = hashfunctions;
     hashtable->cur_eq_funcs = eqfunctions;
 
-    saveCurHT = u_sess->exec_cxt.cur_tuple_hash_table;
-    u_sess->exec_cxt.cur_tuple_hash_table = hashtable;
-
     /* Search the hash table */
-    dummy.firstTuple = NULL; /* flag to reference inputslot */
-    entry = (TupleHashEntry)hash_search(hashtable->hashtab, &dummy, HASH_FIND, NULL);
-
-    u_sess->exec_cxt.cur_tuple_hash_table = saveCurHT;
+    key = NULL;         /* flag to reference inputslot */
+    entry = tuplehash_lookup(hashtable->hashtab, key);
 
     MemoryContextSwitchTo(oldContext);
 
@@ -447,21 +430,19 @@ TupleHashEntry FindTupleHashEntry(
  * This convention avoids the need to materialize virtual input tuples unless
  * they actually need to get copied into the table.
  *
- * u_sess->exec_cxt.cur_tuple_hash_table must be set before calling this, since dynahash.c
- * doesn't provide any API that would let us get at the hashtable otherwise.
- *
  * Also, the caller must select an appropriate memory context for running
  * the hash functions. (dynahash.c doesn't change CurrentMemoryContext.)
  */
-static uint32 TupleHashTableHash(const void* key, Size keysize)
+static uint32
+TupleHashTableHash(struct tuplehash_hash *tb, const MinimalTuple tuple)
+
 {
-    MinimalTuple tuple = ((const TupleHashEntryData*)key)->firstTuple;
-    TupleTableSlot* slot = NULL;
-    TupleHashTable hashtable = u_sess->exec_cxt.cur_tuple_hash_table;
-    int numCols = hashtable->numCols;
-    AttrNumber* keyColIdx = hashtable->keyColIdx;
-    FmgrInfo* hashfunctions = NULL;
-    uint32 hashkey = 0;
+    TupleHashTable hashtable = (TupleHashTable) tb->private_data;
+    int         numCols = hashtable->numCols;
+    AttrNumber *keyColIdx = hashtable->keyColIdx;
+    uint32      hashkey = 0;
+    TupleTableSlot *slot;
+    FmgrInfo   *hashfunctions;
     int i;
 
     if (tuple == NULL) {
@@ -469,8 +450,12 @@ static uint32 TupleHashTableHash(const void* key, Size keysize)
         slot = hashtable->inputslot;
         hashfunctions = hashtable->in_hash_funcs;
     } else {
-        /* Process a tuple already stored in the table */
-        /* (this case never actually occurs in current dynahash.c code) */
+        /*
+         * Process a tuple already stored in the table.
+         *
+         * (this case never actually occurs due to the way simplehash.h is
+         * used, as the hash-value is stored in the entries)
+         */
         slot = hashtable->tableslot;
         ExecStoreMinimalTuple(tuple, slot, false);
         hashfunctions = hashtable->tab_hash_funcs;
@@ -504,28 +489,22 @@ static uint32 TupleHashTableHash(const void* key, Size keysize)
  *
  * As above, the passed pointers are pointers to TupleHashEntryData.
  *
- * u_sess->exec_cxt.cur_tuple_hash_table must be set before calling this, since dynahash.c
- * doesn't provide any API that would let us get at the hashtable otherwise.
- *
  * Also, the caller must select an appropriate memory context for running
  * the compare functions.  (dynahash.c doesn't change CurrentMemoryContext.)
  */
-static int TupleHashTableMatch(const void* key1, const void* key2, Size keysize)
+static int
+TupleHashTableMatch(struct tuplehash_hash *tb, const MinimalTuple tuple1, const MinimalTuple tuple2)
 {
-    MinimalTuple tuple1 = ((const TupleHashEntryData*)key1)->firstTuple;
 
-#ifdef USE_ASSERT_CHECKING
-    MinimalTuple tuple2 = ((const TupleHashEntryData*)key2)->firstTuple;
-#endif
     TupleTableSlot* slot1 = NULL;
     TupleTableSlot* slot2 = NULL;
-    TupleHashTable hashtable = u_sess->exec_cxt.cur_tuple_hash_table;
+    TupleHashTable hashtable = (TupleHashTable) tb->private_data;
 
     /*
-     * We assume that dynahash.c will only ever call us with the first
+     * We assume that simplehash.h will only ever call us with the first
      * argument being an actual table entry, and the second argument being
      * LookupTupleHashEntry's dummy TupleHashEntryData.  The other direction
-     * could be supported too, but is not currently used by dynahash.c.
+     * could be supported too, but is not currently required.
      */
     Assert(tuple1 != NULL);
     slot1 = hashtable->tableslot;
