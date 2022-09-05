@@ -235,14 +235,18 @@ typedef enum ExprEvalOp
    EEOP_AGG_STRICT_DESERIALIZE,
    EEOP_AGG_DESERIALIZE,
    EEOP_AGG_STRICT_INPUT_CHECK,
-   EEOP_AGG_INIT_TRANS,
-   EEOP_AGG_COLLECT_INIT_TRANS,
-   EEOP_AGG_STRICT_TRANS_CHECK,
-   EEOP_AGG_COLLECT_STRICT_TRANS_CHECK,
+   EEOP_AGG_PLAIN_TRANS_INIT_STRICT_BYVAL,
+   EEOP_AGG_COLLECT_PLAIN_TRANS_INIT_STRICT_BYVAL,
+   EEOP_AGG_PLAIN_TRANS_STRICT_BYVAL,
+   EEOP_AGG_COLLECT_PLAIN_TRANS_STRICT_BYVAL,
    EEOP_AGG_PLAIN_TRANS_BYVAL,
    EEOP_AGG_COLLECT_PLAIN_TRANS_BYVAL,
-   EEOP_AGG_PLAIN_TRANS,
-   EEOP_AGG_COLLECT_PLAIN_TRANS,
+   EEOP_AGG_PLAIN_TRANS_INIT_STRICT_BYREF,
+   EEOP_AGG_COLLECT_PLAIN_TRANS_INIT_STRICT_BYREF,
+   EEOP_AGG_PLAIN_TRANS_STRICT_BYREF,
+   EEOP_AGG_COLLECT_PLAIN_TRANS_STRICT_BYREF,
+   EEOP_AGG_PLAIN_TRANS_BYREF,
+   EEOP_AGG_COLLECT_PLAIN_TRANS_BYREF,
    EEOP_AGG_ORDERED_TRANS_DATUM,
    EEOP_AGG_ORDERED_TRANS_TUPLE,
     /* whether to trace the column name while executing projections */
@@ -629,37 +633,15 @@ typedef struct ExprEvalStep
 			int			jumpnull;
 		}			agg_strict_input_check;
 
-		/* for EEOP_AGG_INIT_TRANS */
+		/* for EEOP_AGG_PLAIN_TRANS_[INIT_][STRICT_]{BYVAL,BYREF} */
+		/* for EEOP_AGG_ORDERED_TRANS_{DATUM,TUPLE} */
 		struct
 		{
-			AggState   *aggstate;
-			AggStatePerTrans pertrans;
-			MemoryContext aggcontext;
-			int			setno;
-			int			transno;
-			int			setoff;
-			int			jumpnull;
-		}			agg_init_trans;
-
-		/* for EEOP_AGG_STRICT_TRANS_CHECK */
-		struct
-		{
-			AggState   *aggstate;
-			int			setno;
-			int			transno;
-			int			setoff;
-			int			jumpnull;
-		}			agg_strict_trans_check;
-
-		/* for EEOP_AGG_{PLAIN,ORDERED}_TRANS* */
-		struct
-		{
-			AggState   *aggstate;
-			AggStatePerTrans pertrans;
-			MemoryContext aggcontext;
-			int			setno;
-			int			transno;
-			int			setoff;
+				AggStatePerTrans pertrans;
+				MemoryContext aggcontext;
+				int 		setno;
+				int 		transno;
+				int 		setoff;
 		}			agg_trans;
         /* for EEOP_TRACE_COLUMN* */
         struct
