@@ -120,7 +120,10 @@ TupleTableSlot* HeapSeqSampleNext(SeqScanState* node)
     TupleTableSlot* slot = node->ss_ScanTupleSlot;
     node->ss_ScanTupleSlot->tts_tupleDescriptor->tdTableAmType = node->ss_currentRelation->rd_tam_type;
     HeapTuple tuple = SampleFetchNextTuple(node);
-    return ExecMakeTupleSlot(tuple, GetTableScanDesc(node->ss_currentScanDesc, node->ss_currentRelation), slot, node->ss_currentRelation->rd_tam_type);
+    return ExecMakeTupleSlot(tuple, 
+                            GetTableScanDesc(node->ss_currentScanDesc, node->ss_currentRelation), 
+                            slot, 
+                            GetTableAmRoutine(node->ss_currentRelation->rd_tam_type));
 }
 
 TupleTableSlot* UHeapSeqSampleNext(SeqScanState* node)
@@ -177,7 +180,7 @@ TupleTableSlot* HbktSeqSampleNext(SeqScanState* node)
     return ExecMakeTupleSlot(
             (Tuple) tuple, GetTableScanDesc(node->ss_currentScanDesc, node->ss_currentRelation),
             slot,
-            node->ss_currentRelation->rd_tam_type);
+            GetTableAmRoutine(node->ss_currentRelation->rd_tam_type));
 }
 
 /*

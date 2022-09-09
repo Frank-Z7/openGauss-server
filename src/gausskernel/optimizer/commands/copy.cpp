@@ -4031,7 +4031,7 @@ static uint64 CopyFrom(CopyState cstate)
     estate->es_range_table = cstate->range_table;
 
     /* Set up a tuple slot too */
-    myslot = ExecInitExtraTupleSlot(estate, cstate->rel->rd_tam_type);
+    myslot = ExecInitExtraTupleSlot(estate, GetTableAmRoutine(cstate->rel->rd_tam_type));
     ExecSetSlotDescriptor(myslot, tupDesc);
     /* Triggers might need a slot as well */
     estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate);
@@ -4745,7 +4745,7 @@ static uint64 CopyFrom(CopyState cstate)
                      * Global Partition Index stores the partition's tableOid with the index
                      * tuple which is extracted from the tuple of the slot. Make sure it is set.
                      */
-                    if (slot->tts_tupslotTableAm != TAM_USTORE) {
+                    if (!TTS_TABLEAM_IS_USTORE(slot)) {
                         ((HeapTuple)slot->tts_tuple)->t_tableOid = RelationGetRelid(targetRel);
                     } else {
                         ((UHeapTuple)slot->tts_tuple)->table_oid = RelationGetRelid(targetRel);
@@ -5281,7 +5281,7 @@ void UHeapCopyFromInsertBatch(Relation rel, EState* estate, CommandId mycid, int
              * Global Partition Index stores the partition's tableOid with the index
              * tuple which is extracted from the tuple of the slot. Make sure it is set.
              */
-            if (myslot->tts_tupslotTableAm != TAM_USTORE) {
+            if (!TTS_TABLEAM_IS_USTORE(myslot)) {
                 ((HeapTuple)myslot->tts_tuple)->t_tableOid = RelationGetRelid(rel);
             } else {
                 ((UHeapTuple)myslot->tts_tuple)->table_oid = RelationGetRelid(rel);

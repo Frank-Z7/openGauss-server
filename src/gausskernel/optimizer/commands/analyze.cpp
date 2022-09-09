@@ -2653,7 +2653,7 @@ retry:
             }
 
             /* TO DO: Need to switch this to inplaceheapam_scan_analyze_next_block after we have tableam. */
-            TupleTableSlot *slot = MakeSingleTupleTableSlot(RelationGetDescr(onerel), false, onerel->rd_tam_type);
+            TupleTableSlot *slot = MakeSingleTupleTableSlot(RelationGetDescr(onerel), false, GetTableAmRoutine(onerel->rd_tam_type));
             maxoffset = UHeapPageGetMaxOffsetNumber(targpage);
 
             /* Inner loop over all tuples on the selected page */
@@ -3920,7 +3920,7 @@ static int64 AcquireSampleDfsStoreRows(Relation onerel, int elevel, HeapTuple* r
     totalblocks = list_length(fileList);
 
     /* create tuple slot for scanning */
-    scanTupleSlot = MakeTupleTableSlot(true, tupdesc->tdTableAmType);
+    scanTupleSlot = MakeTupleTableSlot(true, GetTableAmRoutine(tupdesc->tdTableAmType));
     scanTupleSlot->tts_tupleDescriptor = tupdesc;
     scanTupleSlot->tts_values = columnValues;
     scanTupleSlot->tts_isnull = columnNulls;
@@ -3987,12 +3987,12 @@ static int64 AcquireSampleDfsStoreRows(Relation onerel, int elevel, HeapTuple* r
             randomskip = (int)(skip_factor * anl_random_fract());
             do {
                 dfs::reader::DFSGetNextTuple(scanState, scanTupleSlot);
-            } while (randomskip-- > 0 && !scanTupleSlot->tts_isempty);
+            } while (randomskip-- > 0 && !TTS_EMPTY(scanTupleSlot));
 
             /*
              * if there are no more records to read, break.
              */
-            if (scanTupleSlot->tts_isempty) {
+            if (TTS_EMPTY(scanTupleSlot)) {
                 (void)ExecClearTuple(scanTupleSlot);
                 break;
             }

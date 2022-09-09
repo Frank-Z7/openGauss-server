@@ -528,7 +528,7 @@ ForeignScanState *buildRelatedStateInfo(Relation relation, DistFdwFileSegment *s
     ;
 
     /* setup tuple slot */
-    scanTupleSlot = MakeTupleTableSlot(true, tupleDescriptor->tdTableAmType);
+    scanTupleSlot = MakeTupleTableSlot(true, GetTableAmRoutine(tupleDescriptor->tdTableAmType));
     scanTupleSlot->tts_tupleDescriptor = tupleDescriptor;
     scanTupleSlot->tts_values = columnValues;
     scanTupleSlot->tts_isnull = columnNulls;
@@ -643,7 +643,7 @@ static int distAcquireSampleRows(Relation relation, int logLevel, HeapTuple *sam
             (void)MemoryContextSwitchTo(oldContext);
 
             /* if there are no more records to read, break */
-            if (scanTupleSlot->tts_isempty) {
+            if (TTS_EMPTY(scanTupleSlot)) {
                 break;
             }
 

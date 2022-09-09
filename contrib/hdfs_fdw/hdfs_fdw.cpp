@@ -1327,7 +1327,7 @@ static TupleTableSlot* HdfsIterateForeignScan(ForeignScanState* scanState)
      * @hdfs
      * Optimize foreign scan by using informational constraint.
      */
-    if (((ForeignScan*)scanState->ss.ps.plan)->scan.predicate_pushdown_optimized && false == tupleSlot->tts_isempty) {
+    if (((ForeignScan*)scanState->ss.ps.plan)->scan.predicate_pushdown_optimized && !TTS_EMPTY(tupleSlot)) {
         /*
          * If we find a suitable tuple, set is_scan_end value is true.
          * It means that we do not find suitable tuple in the next iteration,
@@ -1767,7 +1767,7 @@ int HdfsAcquireSampleRows(Relation relation, int logLevel, HeapTuple* sampleRows
             (void)MemoryContextSwitchTo(oldContext);
 
             /* if there are no more records to read, break */
-            if (scanTupleSlot->tts_isempty) {
+            if (TTS_EMPTY(scanTupleSlot)) {
                 break;
             }
 
