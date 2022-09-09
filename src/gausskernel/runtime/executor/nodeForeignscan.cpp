@@ -184,9 +184,9 @@ ForeignScanState* ExecInitForeignScan(ForeignScan* node, EState* estate, int efl
      */
     ExecAssignResultTypeFromTL(
             &scanstate->ss.ps,
-            scanstate->ss.ss_ScanTupleSlot->tts_tupleDescriptor->tdTableAmType);
+            scanstate->ss.ss_ScanTupleSlot->tts_tupleDescriptor->td_tam_ops);
     ExecAssignScanProjectionInfo(&scanstate->ss);
-    Assert(scanstate->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor->tdTableAmType != TAM_INVALID);
+    Assert(scanstate->ss.ps.ps_ResultTupleSlot->tts_tupleDescriptor->td_tam_ops);
 
     /*
      * Acquire function pointers from the FDW's handler, and init fdw_state.

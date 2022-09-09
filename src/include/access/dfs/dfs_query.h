@@ -532,7 +532,7 @@ char *datumGetStringByVar(Datum datumValue, Var *colVar);
  * input param @columnCount: the count of column.
  * input param @colIdx: The column idx array.
  */
-List *CreateColList(Form_pg_attribute *attributes, const int columnCount, const int16 *colIdx = NULL);
+List *CreateColList(FormData_pg_attribute *attributes, const int columnCount, const int16 *colIdx = NULL);
 
 /*
  * @Description: remove the elements of the 'del' list in the 'src' list

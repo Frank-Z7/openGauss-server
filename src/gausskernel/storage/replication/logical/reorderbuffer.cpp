@@ -2621,7 +2621,7 @@ static void ReorderBufferToastReplace(ReorderBuffer *rb, ReorderBufferTXN *txn, 
     heap_deform_tuple(&newtup->tuple, desc, attrs, isnull);
 
     for (natt = 0; natt < desc->natts; natt++) {
-        Form_pg_attribute attr = desc->attrs[natt];
+        Form_pg_attribute attr = &desc->attrs[natt];
         ReorderBufferToastEnt *ent = NULL;
         struct varlena *varlena = NULL;
 

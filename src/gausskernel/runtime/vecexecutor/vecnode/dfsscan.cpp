@@ -23,6 +23,7 @@
  */
 #include "access/dfs/dfs_query.h"
 #include "access/dfs/dfs_query_reader.h"
+#include "access/tableam.h"
 #include "postgres.h"
 #include "knl/knl_variable.h"
 #include "access/relscan.h"
@@ -208,7 +209,7 @@ DfsScanState* ExecInitDfsScan(DfsScan* node, Relation parentHeapRel, EState* est
     /*
      * Initialize result tuple type and projection info.
      */
-    ExecAssignResultTypeFromTL(&scanState->ps, currentRelation->rd_tam_type);
+    ExecAssignResultTypeFromTL(&scanState->ps, GetTableAmRoutine(currentRelation->rd_tam_type));
 
     scanState->ps.vectorized = true;
     scanState->isPartTbl = node->isPartTbl;

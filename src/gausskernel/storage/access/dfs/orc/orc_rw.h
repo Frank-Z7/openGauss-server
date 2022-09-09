@@ -921,7 +921,7 @@ private:
     {
         Assert(m_desc->natts > attNo);
 
-        if (m_desc->attrs[attNo]->attisdropped) {
+        if (m_desc->attrs[attNo].attisdropped) {
             return true;
         } else {
             return false;

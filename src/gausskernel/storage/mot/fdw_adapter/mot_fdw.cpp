@@ -456,8 +456,8 @@ static void MOTGetForeignRelSize(PlannerInfo* root, RelOptInfo* baserel, Oid for
 
     if (needWholeRow) {
         for (int i = 0; i < desc->natts; i++) {
-            if (!desc->attrs[i]->attisdropped) {
-                BITMAP_SET(planstate->m_attrsUsed, (desc->attrs[i]->attnum - 1));
+            if (!desc->attrs[i].attisdropped) {
+                BITMAP_SET(planstate->m_attrsUsed, (desc->attrs[i].attnum - 1));
             }
         }
     } else {
@@ -466,8 +466,8 @@ static void MOTGetForeignRelSize(PlannerInfo* root, RelOptInfo* baserel, Oid for
         if (attrs != NULL) {
             bool all = bms_is_member(-FirstLowInvalidHeapAttributeNumber, attrs);
             for (int i = 0; i < planstate->m_numAttrs; i++) {
-                if (all || bms_is_member(desc->attrs[i]->attnum - FirstLowInvalidHeapAttributeNumber, attrs)) {
-                    BITMAP_SET(planstate->m_attrsUsed, (desc->attrs[i]->attnum - 1));
+                if (all || bms_is_member(desc->attrs[i].attnum - FirstLowInvalidHeapAttributeNumber, attrs)) {
+                    BITMAP_SET(planstate->m_attrsUsed, (desc->attrs[i].attnum - 1));
                 }
             }
         }
@@ -1172,8 +1172,8 @@ static int MOTAcquireSampleRowsFunc(Relation relation, int elevel, HeapTuple* ro
     MOT::Row* row = nullptr;
 
     for (int i = 0; i < desc->natts; i++) {
-        if (!desc->attrs[i]->attisdropped) {
-            BITMAP_SET(attrsUsed, (desc->attrs[i]->attnum - 1));
+        if (!desc->attrs[i].attisdropped) {
+            BITMAP_SET(attrsUsed, (desc->attrs[i].attnum - 1));
         }
     }
 
@@ -1317,8 +1317,8 @@ List* MOTPlanForeignModify(PlannerInfo* root, ModifyTable* plan, ::Index resultR
     switch (plan->operation) {
         case CMD_INSERT: {
             for (int i = 0; i < desc->natts; i++) {
-                if (!desc->attrs[i]->attisdropped) {
-                    BITMAP_SET(fdwState->m_attrsUsed, (desc->attrs[i]->attnum - 1));
+                if (!desc->attrs[i].attisdropped) {
+                    BITMAP_SET(fdwState->m_attrsUsed, (desc->attrs[i].attnum - 1));
                 }
             }
             break;
@@ -1327,8 +1327,8 @@ List* MOTPlanForeignModify(PlannerInfo* root, ModifyTable* plan, ::Index resultR
             errno_t erc = memset_s(attrsModify, BITMAP_GETLEN(desc->natts), 0, BITMAP_GETLEN(desc->natts));
             securec_check(erc, "\0", "\0");
             for (int i = 0; i < desc->natts; i++) {
-                if (bms_is_member(desc->attrs[i]->attnum - FirstLowInvalidHeapAttributeNumber, rte->updatedCols)) {
-                    BITMAP_SET(ptrAttrsModify, (desc->attrs[i]->attnum - 1));
+                if (bms_is_member(desc->attrs[i].attnum - FirstLowInvalidHeapAttributeNumber, rte->updatedCols)) {
+                    BITMAP_SET(ptrAttrsModify, (desc->attrs[i].attnum - 1));
                 }
             }
             break;
@@ -1338,8 +1338,8 @@ List* MOTPlanForeignModify(PlannerInfo* root, ModifyTable* plan, ::Index resultR
                 errno_t erc = memset_s(attrsModify, BITMAP_GETLEN(desc->natts), 0, BITMAP_GETLEN(desc->natts));
                 securec_check(erc, "\0", "\0");
                 for (int i = 0; i < desc->natts; i++) {
-                    if (!desc->attrs[i]->attisdropped) {
-                        BITMAP_SET(ptrAttrsModify, (desc->attrs[i]->attnum - 1));
+                    if (!desc->attrs[i].attisdropped) {
+                        BITMAP_SET(ptrAttrsModify, (desc->attrs[i].attnum - 1));
                     }
                 }
             }

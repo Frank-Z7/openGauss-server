@@ -58,7 +58,7 @@ extern List* untransformPartitionBoundary(Datum options);
  * return value	: None-
  * Note			:
  */
-extern void CheckValuePartitionKeyType(Form_pg_attribute* attrs, List* pos);
+extern void CheckValuePartitionKeyType(FormData_pg_attribute* attrs, List* pos);
 
 extern Oid getPartitionOidForRTE(RangeTblEntry *rte, RangeVar *relation, ParseState *pstate, Relation rel);
 extern Oid GetSubPartitionOidForRTE(RangeTblEntry *rte, RangeVar *relation, ParseState *pstate, Relation rel,

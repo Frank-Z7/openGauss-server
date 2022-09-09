@@ -58,7 +58,7 @@
 #define MAX_SAMPLE_ROWS 10000    /* sampling range for executing a query */
 #define CARDINALITY_THRESHOLD 30 /* the threshold of index selection */
 
-#define RelAttrName(__tupdesc, __attridx) (NameStr((__tupdesc)->attrs[(__attridx)]->attname))
+#define RelAttrName(__tupdesc, __attridx) (NameStr((__tupdesc)->attrs[(__attridx)].attname))
 #define IsSameRel(_schema1, _table1, _schema2, _table2) \
     ((!_schema1 || !_schema2 || strcasecmp(_schema1, _schema2) == 0) && strcasecmp(_table1, _table2) == 0)
 
@@ -699,7 +699,7 @@ void receive(TupleTableSlot *slot, DestReceiver *self)
         if (isnull) {
             continue;
         }
-        getTypeOutputInfo(typeinfo->attrs[i]->atttypid, &typoutput, &typisvarlena);
+        getTypeOutputInfo(typeinfo->attrs[i].atttypid, &typoutput, &typisvarlena);
 
         if (typisvarlena) {
             attr = PointerGetDatum(PG_DETOAST_DATUM(origattr));
