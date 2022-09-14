@@ -219,21 +219,21 @@ ExecReadyInterpretedExpr(ExprState *state)
 		ExprEvalOp	step1 = (ExprEvalOp) state->steps[1].opcode;
 
 		if (step0 == EEOP_INNER_FETCHSOME &&
-			step1 == EEOP_INNER_VAR_FIRST)
+			step1 == EEOP_INNER_VAR)
 		{
-			state->evalfunc_private = (void*)ExecJustInnerVarFirst;
+			state->evalfunc_private = (void*)ExecJustInnerVar;
 			return;
 		}
 		else if (step0 == EEOP_OUTER_FETCHSOME &&
-				 step1 == EEOP_OUTER_VAR_FIRST)
+				 step1 == EEOP_OUTER_VAR)
 		{
-			state->evalfunc_private = (void*)ExecJustOuterVarFirst;
+			state->evalfunc_private = (void*)ExecJustOuterVar;
 			return;
 		}
 		else if (step0 == EEOP_SCAN_FETCHSOME &&
-				 step1 == EEOP_SCAN_VAR_FIRST)
+				 step1 == EEOP_SCAN_VAR)
 		{
-			state->evalfunc_private = (void*)ExecJustScanVarFirst;
+			state->evalfunc_private = (void*)ExecJustScanVar;
 			return;
 		}
 		else if (step0 == EEOP_INNER_FETCHSOME &&
@@ -506,11 +506,8 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_INNER_FETCHSOME,
 		&&CASE_EEOP_OUTER_FETCHSOME,
 		&&CASE_EEOP_SCAN_FETCHSOME,
-		&&CASE_EEOP_INNER_VAR_FIRST,
 		&&CASE_EEOP_INNER_VAR,
-		&&CASE_EEOP_OUTER_VAR_FIRST,
 		&&CASE_EEOP_OUTER_VAR,
-		&&CASE_EEOP_SCAN_VAR_FIRST,
 		&&CASE_EEOP_SCAN_VAR,
 		&&CASE_EEOP_INNER_SYSVAR,
 		&&CASE_EEOP_OUTER_SYSVAR,
@@ -647,22 +644,6 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			EEO_NEXT();
 		}
 
-		EEO_CASE(EEOP_INNER_VAR_FIRST)
-		{
-			int			attnum = op->d.var.attnum;
-
-			/*
-			 * First time through, check whether attribute matches Var.  Might
-			 * not be ok anymore, due to schema changes.
-			 */
-			CheckVarSlotCompatibility(innerslot, attnum + 1, op->d.var.vartype);
-
-			/* Skip that check on subsequent evaluations */
-			op->opcode = EEO_OPCODE(EEOP_INNER_VAR);
-
-			/* FALL THROUGH to EEOP_INNER_VAR */
-		}
-
 		EEO_CASE(EEOP_INNER_VAR)
 		{
 			int			attnum = op->d.var.attnum;
@@ -680,18 +661,6 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			EEO_NEXT();
 		}
 
-		EEO_CASE(EEOP_OUTER_VAR_FIRST)
-		{
-			int			attnum = op->d.var.attnum;
-
-			/* See EEOP_INNER_VAR_FIRST comments */
-
-			CheckVarSlotCompatibility(outerslot, attnum + 1, op->d.var.vartype);
-			op->opcode = EEO_OPCODE(EEOP_OUTER_VAR);
-
-			/* FALL THROUGH to EEOP_OUTER_VAR */
-		}
-
 		EEO_CASE(EEOP_OUTER_VAR)
 		{
 			int			attnum = op->d.var.attnum;
@@ -703,18 +672,6 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			*op->resnull = outerslot->tts_isnull[attnum];
 
 			EEO_NEXT();
-		}
-
-		EEO_CASE(EEOP_SCAN_VAR_FIRST)
-		{
-			int			attnum = op->d.var.attnum;
-
-			/* See EEOP_INNER_VAR_FIRST comments */
-
-			CheckVarSlotCompatibility(scanslot, attnum + 1, op->d.var.vartype);
-			op->opcode = EEO_OPCODE(EEOP_SCAN_VAR);
-
-			/* FALL THROUGH to EEOP_SCAN_VAR */
 		}
 		
 		EEO_CASE(EEOP_SCAN_VAR)
@@ -2321,26 +2278,6 @@ ShutdownTupleDescRef(Datum arg)
  * Fast-path functions, for very simple expressions
  */
 
-/* Simple reference to inner Var, first time through */
-static Datum
-ExecJustInnerVarFirst(ExprState *state, ExprContext *econtext, bool *isnull)
-{
-	ExprEvalStep *op = &state->steps[1];
-	int			attnum = op->d.var.attnum + 1;
-	TupleTableSlot *slot = econtext->ecxt_innertuple;
-
-	CheckVarSlotCompatibility(slot, attnum, op->d.var.vartype);
-	op->opcode = EEOP_INNER_VAR;	/* just for cleanliness */
-	state->evalfunc = ExecJustInnerVar;
-
-	/*
-	 * Since we use tableam_tslot_getattr(), we don't need to implement the FETCHSOME
-	 * step explicitly, and we also needn't Assert that the attnum is in range
-	 * --- tableam_tslot_getattr() will take care of any problems.
-	 */
-	return tableam_tslot_getattr(slot, attnum, isnull);
-}
-
 /* Simple reference to inner Var */
 static Datum
 ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull)
@@ -2349,23 +2286,7 @@ ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull)
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_innertuple;
 
-	/* See comments in ExecJustInnerVarFirst */
-	return tableam_tslot_getattr(slot, attnum, isnull);
-}
-
-/* Simple reference to outer Var, first time through */
-static Datum
-ExecJustOuterVarFirst(ExprState *state, ExprContext *econtext, bool *isnull)
-{
-	ExprEvalStep *op = &state->steps[1];
-	int			attnum = op->d.var.attnum + 1;
-	TupleTableSlot *slot = econtext->ecxt_outertuple;
-
-	CheckVarSlotCompatibility(slot, attnum, op->d.var.vartype);
-	op->opcode = EEOP_OUTER_VAR;	/* just for cleanliness */
-	state->evalfunc = ExecJustOuterVar;
-
-	/* See comments in ExecJustInnerVarFirst */
+	/* See comments in ExecJustInnerVar */
 	return tableam_tslot_getattr(slot, attnum, isnull);
 }
 
@@ -2377,23 +2298,7 @@ ExecJustOuterVar(ExprState *state, ExprContext *econtext, bool *isnull)
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_outertuple;
 
-	/* See comments in ExecJustInnerVarFirst */
-	return tableam_tslot_getattr(slot, attnum, isnull);
-}
-
-/* Simple reference to scan Var, first time through */
-static Datum
-ExecJustScanVarFirst(ExprState *state, ExprContext *econtext, bool *isnull)
-{
-	ExprEvalStep *op = &state->steps[1];
-	int			attnum = op->d.var.attnum + 1;
-	TupleTableSlot *slot = econtext->ecxt_scantuple;
-
-	CheckVarSlotCompatibility(slot, attnum, op->d.var.vartype);
-	op->opcode = EEOP_SCAN_VAR; /* just for cleanliness */
-	state->evalfunc = ExecJustScanVar;
-
-	/* See comments in ExecJustInnerVarFirst */
+	/* See comments in ExecJustOuterVar */
 	return tableam_tslot_getattr(slot, attnum, isnull);
 }
 
@@ -2405,7 +2310,7 @@ ExecJustScanVar(ExprState *state, ExprContext *econtext, bool *isnull)
 	int			attnum = op->d.var.attnum + 1;
 	TupleTableSlot *slot = econtext->ecxt_scantuple;
 
-	/* See comments in ExecJustInnerVarFirst */
+	/* See comments in ExecJustScanVar */
 	return tableam_tslot_getattr(slot, attnum, isnull);
 }
 

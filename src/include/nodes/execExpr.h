@@ -55,11 +55,8 @@ typedef enum ExprEvalOp
 	EEOP_SCAN_FETCHSOME,
 
 	/* compute non-system Var value */
-	EEOP_INNER_VAR_FIRST,
 	EEOP_INNER_VAR,
-	EEOP_OUTER_VAR_FIRST,
 	EEOP_OUTER_VAR,
-	EEOP_SCAN_VAR_FIRST,
 	EEOP_SCAN_VAR,
 
 	/* compute system Var value */
