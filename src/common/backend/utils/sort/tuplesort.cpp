@@ -1893,10 +1893,10 @@ void tuplesort_performsort(Tuplesortstate* state)
 /*
  * Internal routine to fetch the next tuple in either forward or back
  * direction into *stup.  Returns FALSE if no more tuples.
- * If *should_free is set, the caller must pfree stup.tuple when done with it.
- * Otherwise, caller should not use tuple following next call here.
+ * Returned tuple belongs to tuplesort memory context, and must not be freed
+ * by caller.  Caller should not use tuple following next call here.
  */
-static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortTuple* stup, bool* should_free)
+static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortTuple* stup)
 {
     unsigned int tuplen;
 
@@ -1906,7 +1906,6 @@ static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortT
         case TSS_SORTEDINMEM:
             Assert(forward || state->randomAccess);
             Assert(!state->slabAllocatorUsed);
-            *should_free = false;
             if (forward) {
                 if (state->current < state->memtupcount) {
                     *stup = state->memtuples[state->current++];
@@ -1971,7 +1970,6 @@ static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortT
                 if ((tuplen = getlen(state, state->result_tape, true)) != 0) {
                     READTUP(state, stup, state->result_tape, tuplen);
                     state->lastReturnedTuple = stup->tuple;
-                    *should_free = false;
                     return true;
                 } else {
                     state->eof_reached = true;
@@ -2033,13 +2031,11 @@ static bool tuplesort_gettuple_common(Tuplesortstate* state, bool forward, SortT
                         (errcode(ERRCODE_FILE_READ_FAILED), errmsg("bogus tuple length in backward scan"))));
             READTUP(state, stup, state->result_tape, tuplen);
             state->lastReturnedTuple = stup->tuple;
-            *should_free = false;
             return true;
 
         case TSS_FINALMERGE:
             Assert(forward);
             Assert(state->slabAllocatorUsed);
-            *should_free = false;
 
             if (state->lastReturnedTuple)
 			{
@@ -2110,9 +2106,8 @@ bool tuplesort_gettupleslot(Tuplesortstate* state, bool forward, TupleTableSlot*
 {
     MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
     SortTuple stup;
-    bool should_free = false;
 
-    if (!tuplesort_gettuple_common(state, forward, &stup, &should_free))
+    if (!tuplesort_gettuple_common(state, forward, &stup))
         stup.tuple = NULL;
 
     (void)MemoryContextSwitchTo(oldcontext);
@@ -2122,7 +2117,7 @@ bool tuplesort_gettupleslot(Tuplesortstate* state, bool forward, TupleTableSlot*
         if (state->sortKeys->abbrev_converter && abbrev)
             *abbrev = stup.datum1;
 
-        ExecStoreMinimalTuple((MinimalTuple)stup.tuple, slot, should_free);
+        ExecStoreMinimalTuple((MinimalTuple)stup.tuple, slot, false);
         return true;
     } else {
         (void)ExecClearTuple(slot);
@@ -2145,11 +2140,10 @@ bool tuplesort_gettupleslot_into_tuplestore(
 {
     MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
     SortTuple stup;
-    bool should_free = false;
 
     Assert(tstate != NULL);
 
-    if (!tuplesort_gettuple_common(state, forward, &stup, &should_free))
+    if (!tuplesort_gettuple_common(state, forward, &stup))
         stup.tuple = NULL;
 
     (void)MemoryContextSwitchTo(oldcontext);
@@ -2159,7 +2153,7 @@ bool tuplesort_gettupleslot_into_tuplestore(
         if (state->sortKeys->abbrev_converter && abbrev)
             *abbrev = stup.datum1;
 
-        ExecStoreMinimalTuple((MinimalTuple)stup.tuple, slot, should_free);
+        ExecStoreMinimalTuple((MinimalTuple)stup.tuple, slot, false);
 
         /* tuple in tuplesort will be cleared immediately, so we put it into tuplestore too, to let it be saved */
         tuplestore_puttupleslot(tstate, slot);
@@ -2176,12 +2170,12 @@ bool tuplesort_gettupleslot_into_tuplestore(
  * Returns NULL if no more tuples.	If *should_free is set, the
  * caller must pfree the returned tuple when done with it.
  */
-void* tuplesort_getheaptuple(Tuplesortstate* state, bool forward, bool* should_free)
+void* tuplesort_getheaptuple(Tuplesortstate* state, bool forward)
 {
     MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
     SortTuple stup;
 
-    if (!tuplesort_gettuple_common(state, forward, &stup, should_free))
+    if (!tuplesort_gettuple_common(state, forward, &stup))
         stup.tuple = NULL;
 
     (void)MemoryContextSwitchTo(oldcontext);
@@ -2194,12 +2188,12 @@ void* tuplesort_getheaptuple(Tuplesortstate* state, bool forward, bool* should_f
  * Returns NULL if no more tuples.	If *should_free is set, the
  * caller must pfree the returned tuple when done with it.
  */
-IndexTuple tuplesort_getindextuple(Tuplesortstate* state, bool forward, bool* should_free)
+IndexTuple tuplesort_getindextuple(Tuplesortstate* state, bool forward)
 {
     MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
     SortTuple stup;
 
-    if (!tuplesort_gettuple_common(state, forward, &stup, should_free))
+    if (!tuplesort_gettuple_common(state, forward, &stup))
         stup.tuple = NULL;
 
     (void)MemoryContextSwitchTo(oldcontext);
@@ -2218,9 +2212,8 @@ bool tuplesort_getdatum(Tuplesortstate* state, bool forward, Datum* val, bool* i
 {
     MemoryContext oldcontext = MemoryContextSwitchTo(state->sortcontext);
     SortTuple stup;
-    bool should_free = false;
 
-    if (!tuplesort_gettuple_common(state, forward, &stup, &should_free)) {
+    if (!tuplesort_gettuple_common(state, forward, &stup)) {
         (void)MemoryContextSwitchTo(oldcontext);
         return false;
     }
@@ -2229,10 +2222,7 @@ bool tuplesort_getdatum(Tuplesortstate* state, bool forward, Datum* val, bool* i
         *val = stup.datum1;
         *isNull = stup.isnull1;
     } else {
-        if (should_free)
-            *val = stup.datum1;
-        else
-            *val = datumCopy(stup.datum1, false, state->datumTypeLen);
+        *val = datumCopy(stup.datum1, false, state->datumTypeLen);
         *isNull = false;
     }
 
@@ -2264,16 +2254,12 @@ bool tuplesort_skiptuples(Tuplesortstate* state, int64 ntuples, bool forward)
             oldcontext = MemoryContextSwitchTo(state->sortcontext);
             for (int i = 0; i < ntuples; i++) {
                 SortTuple stup;
-                bool should_free = false;
 
                 stup.tuple = NULL;
-                if (!tuplesort_gettuple_common(state, forward, &stup, &should_free)) {
+                if (!tuplesort_gettuple_common(state, forward, &stup)) {
                     (void)MemoryContextSwitchTo(oldcontext);
                     return false;
                 }
-                /* stup.tuple may be null there */
-                if (should_free && stup.tuple)
-                    pfree(stup.tuple);
                 /* allowed to be canceld */
                 CHECK_FOR_INTERRUPTS();
             }
@@ -2803,8 +2789,11 @@ static void mergeonerun(Tuplesortstate* state)
         /* write the tuple to destTape */
         srcTape = state->memtuples[0].tupindex;
         WRITETUP(state, destTape, &state->memtuples[0]);
+
         /* recycle the slot of the tuple we just wrote out, for the next read */
-		RELEASE_SLAB_SLOT(state, state->memtuples[0].tuple);
+        if (state->memtuples[0].tuple) {
+            RELEASE_SLAB_SLOT(state, state->memtuples[0].tuple);
+        }
 
 		/*
 		 * pull next tuple from the tape, and replace the written-out tuple in
