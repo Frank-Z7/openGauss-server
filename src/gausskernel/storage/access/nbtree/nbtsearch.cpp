@@ -34,7 +34,7 @@ static void _bt_saveitem(BTScanOpaque so, int itemIndex, OffsetNumber offnum, In
     int2 bucketid);
 static bool _bt_steppage(IndexScanDesc scan, ScanDirection dir);
 static bool _bt_endpoint(IndexScanDesc scan, ScanDirection dir);
-static void _bt_check_natts_correct(const Relation index, Page page, OffsetNumber offnum);
+void _bt_check_natts_correct(const Relation index, Page page, OffsetNumber offnum);
 
 /*
  *	_bt_search() -- Search the tree for a particular scankey,
@@ -392,7 +392,7 @@ int32 _bt_compare(Relation rel, int keysz, ScanKey scankey, Page page, OffsetNum
     /*
      * Check tuple has correct number of attributes.
      */
-    _bt_check_natts_correct(rel, page, offnum);
+    Assert(_bt_check_natts_correct(rel, page, offnum));
 
     /*
      * Force result ">" if target item is first data item on an internal page
@@ -1642,7 +1642,7 @@ bool _bt_gettuple_internal(IndexScanDesc scan, ScanDirection dir)
 }
 
 /* Check tuple has correct number of attributes */
-static void _bt_check_natts_correct(const Relation index, Page page, OffsetNumber offnum)
+void _bt_check_natts_correct(const Relation index, Page page, OffsetNumber offnum)
 {
     if (unlikely(!_bt_check_natts(index, page, offnum))) {
         ereport(ERROR,
