@@ -2414,7 +2414,7 @@ void standard_ProcessUtility(Node* parse_tree, const char* query_string, bool re
     check_stack_depth();
 
     if (readOnlyTree)
-        parse_tree = copyObject(parse_tree);
+        parse_tree = (Node*)copyObject(parse_tree);
 
 #ifdef ENABLE_MULTIPLE_NODES
     /*
