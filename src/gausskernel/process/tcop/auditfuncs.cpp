@@ -49,7 +49,7 @@ static char* pgaudit_get_function_name(List* funcnamelist);
 static void pgaudit_ExecutorEnd(QueryDesc* queryDesc);
 static void pgaudit_store_auditstat(
     AuditType audittype, AuditResult auditresult, const char* objectname, const char* detailsinfo);
-static void pgaudit_ProcessUtility(Node* parsetree, const char* queryString, ParamListInfo params, bool isTopLevel,
+static void pgaudit_ProcessUtility(Node* parsetree, const char* queryString, bool readOnlyTree, ParamListInfo params, bool isTopLevel,
     DestReceiver* dest,
 #ifdef PGXC
     bool sentToRemote,
@@ -1328,7 +1328,7 @@ static char* pgaudit_get_function_name(List* funcnamelist)
                                    bool isTopLevel,DestReceiver *dest, char *completionTag)
 * Description	: ProcessUtility hook
 */
-static void pgaudit_ProcessUtility(Node* parsetree, const char* queryString, ParamListInfo params, bool isTopLevel,
+static void pgaudit_ProcessUtility(Node* parsetree, const char* queryString, bool readOnlyTree, ParamListInfo params, bool isTopLevel,
     DestReceiver* dest,
 #ifdef PGXC
     bool sentToRemote,
@@ -1341,6 +1341,7 @@ static void pgaudit_ProcessUtility(Node* parsetree, const char* queryString, Par
     if (prev_ProcessUtility)
         prev_ProcessUtility(parsetree,
             queryString,
+            readOnlyTree,
             params,
             isTopLevel,
             dest,
@@ -1352,6 +1353,7 @@ static void pgaudit_ProcessUtility(Node* parsetree, const char* queryString, Par
     else
         standard_ProcessUtility(parsetree,
             queryString,
+            readOnlyTree,
             params,
             isTopLevel,
             dest,

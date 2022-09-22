@@ -741,7 +741,7 @@ static void InitTempToastNamespace(void)
         toastNamespaceName,
         bootstrap_username);
     securec_check_ss(ret, "\0", "\0");
-    ProcessUtility((Node*)create_stmt, str, NULL, false, None_Receiver, false, NULL);
+    ProcessUtility((Node*)create_stmt, str, false, NULL, false, None_Receiver, false, NULL);
 
     /* Advance command counter to make namespace visible */
     CommandCounterIncrement();

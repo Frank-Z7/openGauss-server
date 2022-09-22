@@ -1753,6 +1753,7 @@ static void PortalRunUtility(Portal portal, Node* utilityStmt, bool isTopLevel, 
 
     ProcessUtility(utilityStmt,
         portal->sourceText,
+        (portal->cplan != NULL), /* protect tree if in plancache */
         portal->portalParams,
         isTopLevel,
         dest,

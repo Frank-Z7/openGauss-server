@@ -2746,7 +2746,11 @@ static int _SPI_execute_plan0(SPIPlanPtr plan, ParamListInfo paramLI, Snapshot s
                     stmt = (Node *)copyObject(stmt);
                 }
 
-                ProcessUtility(stmt, plansource->query_string, paramLI, false, /* not top level */
+                ProcessUtility(stmt,
+                    plansource->query_string,
+                    true,  /* protect plancache's node tree */
+                    paramLI,
+                    false, /* not top level */
                     dest,
 #ifdef PGXC
                     false,

@@ -1020,6 +1020,7 @@ static void ConvertTriggerToFK(CreateTrigStmt* stmt, Oid funcoid)
         /* ... and execute it */
         ProcessUtility((Node*)atstmt,
             "(generated ALTER TABLE ADD FOREIGN KEY command)",
+            false,
             NULL,
             false,
             None_Receiver,
