@@ -679,7 +679,7 @@ static SeqScanState *ExecInitSeqScanBatchMode(SeqScan *node, SeqScanState* scans
          * 4. the relaseion is not a hash bucket relation.
          */
         if (node->tablesample ||
-            !CheckColumnsSuportedByBatchMode(scanstate->ps.targetlist, node->plan.qual) ||
+            !CheckColumnsSuportedByBatchMode(scanstate->ps.plan->targetlist, node->plan.qual) ||
             currentRelation->rd_id < FirstNormalObjectId ||
             RELATION_OWN_BUCKET(currentRelation)) {
             node->scanBatchMode = false;
