@@ -673,7 +673,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			 * directly out of the slot's decomposed-data arrays.  But let's
 			 * have an Assert to check that that did happen.
 			 */
-			Assert(attnum >= 0 && attnum < innerslot->tts_nvalid);
+			Assert((innerslot->tts_tupslotTableAm == TAM_HEAP) ? (attnum >= 0 && attnum < innerslot->tts_nvalid) : (attnum >= 0));
 			*op->resvalue = innerslot->tts_values[attnum];
 			*op->resnull = innerslot->tts_isnull[attnum];
 
@@ -698,7 +698,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 
 			/* See EEOP_INNER_VAR comments */
 
-			Assert(attnum >= 0 && attnum < outerslot->tts_nvalid);
+			Assert((outerslot->tts_tupslotTableAm == TAM_HEAP) ? (attnum >= 0 && attnum < outerslot->tts_nvalid) : (attnum >= 0));
 			*op->resvalue = outerslot->tts_values[attnum];
 			*op->resnull = outerslot->tts_isnull[attnum];
 
@@ -723,7 +723,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 
 			/* See EEOP_INNER_VAR comments */
 			
-			Assert(attnum >= 0 && attnum < scanslot->tts_nvalid);
+			Assert((scanslot->tts_tupslotTableAm == TAM_HEAP) ? (attnum >= 0 && attnum < scanslot->tts_nvalid) : (attnum >= 0));
 			*op->resvalue = scanslot->tts_values[attnum];
 			*op->resnull = scanslot->tts_isnull[attnum];
 
@@ -796,7 +796,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
              * We do not need CheckVarSlotCompatibility here; that was taken
              * care of at compilation time.  But see EEOP_INNER_VAR comments.
              */
-            Assert(attnum >= 0 && attnum < innerslot->tts_nvalid);
+			Assert((innerslot->tts_tupslotTableAm == TAM_HEAP) ? (attnum >= 0 && attnum < innerslot->tts_nvalid) : (attnum >= 0));
             Assert(resultnum >= 0 && resultnum < resultslot->tts_tupleDescriptor->natts);
             resultslot->tts_values[resultnum] = innerslot->tts_values[attnum];
             resultslot->tts_isnull[resultnum] = innerslot->tts_isnull[attnum];
@@ -813,7 +813,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			 * We do not need CheckVarSlotCompatibility here; that was taken
 			 * care of at compilation time.  But see EEOP_INNER_VAR comments.
 			 */
-			Assert(attnum >= 0 && attnum < outerslot->tts_nvalid);
+			Assert((outerslot->tts_tupslotTableAm == TAM_HEAP) ? (attnum >= 0 && attnum < outerslot->tts_nvalid) : (attnum >= 0));
 			Assert(resultnum >= 0 && resultnum < resultslot->tts_tupleDescriptor->natts);
 			resultslot->tts_values[resultnum] = outerslot->tts_values[attnum];
 			resultslot->tts_isnull[resultnum] = outerslot->tts_isnull[attnum];
@@ -830,7 +830,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			 * We do not need CheckVarSlotCompatibility here; that was taken
 			 * care of at compilation time.  But see EEOP_INNER_VAR comments.
 			 */
-			Assert(attnum >= 0 && attnum < scanslot->tts_nvalid);
+			Assert((scanslot->tts_tupslotTableAm == TAM_HEAP) ? (attnum >= 0 && attnum < scanslot->tts_nvalid) : (attnum >= 0));
 			Assert(resultnum >= 0 && resultnum < resultslot->tts_tupleDescriptor->natts);
 			resultslot->tts_values[resultnum] = scanslot->tts_values[attnum];
 			resultslot->tts_isnull[resultnum] = scanslot->tts_isnull[attnum];
