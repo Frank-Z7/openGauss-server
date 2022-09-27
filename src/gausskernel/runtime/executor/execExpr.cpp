@@ -1485,7 +1485,7 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				RowExpr    *rowexpr = (RowExpr *) node;
 				int			nelems = list_length(rowexpr->args);
 				TupleDesc	tupdesc;
-				Form_pg_attribute *attrs;
+				FormData_pg_attribute *attrs;
 				int			i;
 				ListCell   *l;
 
@@ -1493,7 +1493,7 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				if (rowexpr->row_typeid == RECORDOID)
 				{
 					/* generic record, use types of given expressions */
-					tupdesc = ExecTypeFromExprList(rowexpr->args, rowexpr->colnames, TAM_HEAP);
+					tupdesc = ExecTypeFromExprList(rowexpr->args, rowexpr->colnames);
 					BlessTupleDesc(tupdesc);
 				}
 				else
@@ -1535,7 +1535,7 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				{
 					Expr *e = (Expr *) lfirst(l);
 
-					if (!attrs[i]->attisdropped)
+					if (!attrs[i].attisdropped)
 					{
 						/*
 						 * Guard against ALTER COLUMN TYPE on rowtype since
@@ -1543,12 +1543,12 @@ ExecInitExprRec(Expr *node, ExprState *state,
 						 * typmod too?	Not sure we can be sure it'll be the
 						 * same.
 						 */
-						if (exprType((Node *) e) != attrs[i]->atttypid)
+						if (exprType((Node *) e) != attrs[i].atttypid)
 							ereport(ERROR,
 									(errcode(ERRCODE_DATATYPE_MISMATCH),
 									 errmsg("ROW() column has type %s instead of type %s",
 										format_type_be(exprType((Node *) e)),
-									   format_type_be(attrs[i]->atttypid))));
+									   format_type_be(attrs[i].atttypid))));
 					}
 					else
 					{

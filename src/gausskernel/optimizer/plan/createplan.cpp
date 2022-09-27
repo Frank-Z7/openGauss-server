@@ -2294,7 +2294,7 @@ static List* fix_dfs_index_target_list(
             Assert(IsA(tle->expr, Var));
             int pos = ((Var*)tle->expr)->varattno;
             if (list_member_int(targetColumns, pos)) {
-                Form_pg_attribute att_tup = indexRel->rd_att->attrs[col];
+                Form_pg_attribute att_tup = &indexRel->rd_att->attrs[col];
                 indexvar = (Expr*)makeVar(
                     ((Var*)tle->expr)->varno, col + 1, att_tup->atttypid, att_tup->atttypmod, att_tup->attcollation, 0);
                 tlist = lappend(tlist, makeTargetEntry(indexvar, resno, NULL, false));
@@ -4020,7 +4020,7 @@ static List* build_one_column_tlist(PlannerInfo* root, RelOptInfo* rel)
                   Var* varnode = NULL;
 
                   for (varattno = 0; varattno < maxattrs; varattno++) {
-                      Form_pg_attribute attr = tupdesc->attrs[varattno];
+                      Form_pg_attribute attr = &tupdesc->attrs[varattno];
 
                       if (attr->attisdropped || !IsTypeDistributable(attr->atttypid)) {
                           continue;

@@ -400,7 +400,7 @@ void CommonReader::parserFields(char **raw_fields, int fields)
 {
     bool *global_read_required = m_reader_state->globalReadRequired;
     uint32_t attr_num = m_reader_state->relAttrNum;
-    Form_pg_attribute *attr = m_reader_state->scanstate->ss_currentRelation->rd_att->attrs;
+    FormData_pg_attribute *attr = m_reader_state->scanstate->ss_currentRelation->rd_att->attrs;
     int rc = EOK;
 
     rc = memset_s(m_values, (attr_num * sizeof(Datum)), 0, (attr_num * sizeof(Datum)));
@@ -445,16 +445,16 @@ void CommonReader::parserFields(char **raw_fields, int fields)
         MemoryContext old_context = MemoryContextSwitchTo(m_memory_context_parser);
 
         /* record attribute name and string for error callback */
-        m_cur_attname = NameStr(attr[i]->attname);
+        m_cur_attname = NameStr(attr[i].attname);
         m_cur_attval = field_str;
 
         /* process datetype */
         char *date_time_fmt = m_parser_options->getDataTypeFmt(m_typioparams[i]);
         if (date_time_fmt == NULL) {
-            m_values[i] = InputFunctionCall(&m_in_functions[i], field_str, m_typioparams[i], attr[i]->atttypmod);
+            m_values[i] = InputFunctionCall(&m_in_functions[i], field_str, m_typioparams[i], attr[i].atttypmod);
         } else {
             m_values[i] = InputFunctionCallForDateType(&m_in_functions[i], field_str, m_typioparams[i],
-                                                       attr[i]->atttypmod, date_time_fmt);
+                                                       attr[i].atttypmod, date_time_fmt);
         }
 
         m_cur_attname = NULL;
@@ -520,11 +520,11 @@ void CommonReader::fillVectorBatch(VectorBatch *batch, const Datum *values, cons
  */
 void CommonReader::checkMissingFields(int field_no, int fields, int attr_index)
 {
-    Form_pg_attribute *attr = m_reader_state->scanstate->ss_currentRelation->rd_att->attrs;
+    FormData_pg_attribute *attr = m_reader_state->scanstate->ss_currentRelation->rd_att->attrs;
 
     if (field_no > fields || (!m_parser_options->fill_missing_fields && field_no == fields)) {
         ereport(ERROR, (errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
-                        errmsg("missing data for column \"%s\"", NameStr(attr[attr_index]->attname))));
+                        errmsg("missing data for column \"%s\"", NameStr(attr[attr_index].attname))));
     }
 }
 

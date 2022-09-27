@@ -601,7 +601,7 @@ TupleDesc ExplainResultDesc(ExplainStmt* stmt)
 
     if (!explain_plan) {
         /* Need a tuple descriptor representing a single TEXT or XML column */
-        tupdesc = CreateTemplateTupleDesc(1, false, TAM_HEAP);
+        tupdesc = CreateTemplateTupleDesc(1, false);
 
         /* If current plan is set as random plan, explain desc should show random seed value */
         if (u_sess->attr.attr_sql.plan_mode_seed != OPTIMIZE_PLAN) {
@@ -9928,7 +9928,7 @@ TupleDesc PlanTable::getTupleDesc()
         attnum = attnum - 1;
     }
 
-    tupdesc = CreateTemplateTupleDesc(attnum, false, TAM_HEAP);
+    tupdesc = CreateTemplateTupleDesc(attnum, false);
     for (int i = 0; i < SLOT_NUMBER; i++) {
         bool add_slot = false;
 
@@ -9972,7 +9972,7 @@ TupleDesc PlanTable::getTupleDesc_detail()
     int attnum = EXPLAIN_TOTAL_ATTNUM;
     int i = 1;
 
-    tupdesc = CreateTemplateTupleDesc(attnum, false, TAM_HEAP);
+    tupdesc = CreateTemplateTupleDesc(attnum, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)i++, "query id", INT8OID, -1, 0);
 
     TupleDescInitEntry(tupdesc, (AttrNumber)i++, "plan parent node id", INT4OID, -1, 0);
@@ -10054,7 +10054,7 @@ TupleDesc PlanTable::getTupleDesc(const char* attname)
 {
     TupleDesc tupdesc;
 
-    tupdesc = CreateTemplateTupleDesc(1, false, TAM_HEAP);
+    tupdesc = CreateTemplateTupleDesc(1, false);
 
     TupleDescInitEntry(tupdesc, (AttrNumber)1, attname, TEXTOID, -1, 0);
     return tupdesc;
@@ -10925,7 +10925,7 @@ void PlanTable::flush_data_to_file()
                     else
                         appendBinaryStringInfo(info_str, ",", 1);
                 } else {
-                    typoid = m_desc->attrs[k]->atttypid;
+                    typoid = m_desc->attrs[k].atttypid;
 
                     getTypeOutputInfo(typoid, &foutoid, &typisvarlena);
 

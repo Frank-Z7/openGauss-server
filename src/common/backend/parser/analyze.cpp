@@ -1926,7 +1926,7 @@ List* BuildExcludedTargetlist(Relation targetrel, Index exclRelIndex)
      * underlying relation, hence we need entries for dropped columns too.
      */
     for (attno = 0; attno < RelationGetNumberOfAttributes(targetrel); attno++) {
-        Form_pg_attribute attr = targetrel->rd_att->attrs[attno];
+        Form_pg_attribute attr = &targetrel->rd_att->attrs[attno];
         char* name = NULL;
 
         if (attr->attisdropped) {

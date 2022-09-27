@@ -694,16 +694,16 @@ bool recheckTableofType(TupleDesc tupdesc, TupleDesc retdesc)
     bool has_change = false;
 
     for (int i = 0; i < n; i++) {
-        Form_pg_attribute att = tupdesc->attrs[i];
+        Form_pg_attribute att = &tupdesc->attrs[i];
         if (att->attisdropped)
             continue; 
         Oid baseOid = InvalidOid;
         if (isTableofType(att->atttypid, &baseOid, NULL)) {
             Oid typOid = baseOid;
             char colname[NAMEDATALEN] = {0};
-            errno_t rc = memcpy_s(colname, NAMEDATALEN, tupdesc->attrs[i]->attname.data, NAMEDATALEN);
+            errno_t rc = memcpy_s(colname, NAMEDATALEN, tupdesc->attrs[i].attname.data, NAMEDATALEN);
             securec_check(rc, "\0", "\0");
-            TupleDescInitEntry(tupdesc, i + 1, colname, typOid, retdesc->attrs[i]->atttypmod, 0);
+            TupleDescInitEntry(tupdesc, i + 1, colname, typOid, retdesc->attrs[i].atttypmod, 0);
             has_change = true;
         }
     }
@@ -1429,8 +1429,8 @@ Datum plpgsql_exec_function(PLpgSQL_function* func, FunctionCallInfo fcinfo, boo
                 securec_check(errorno, "\0", "\0");
             }
             if (estate.rettupdesc && i < estate.rettupdesc->natts &&
-                IsClientLogicType(estate.rettupdesc->attrs[i]->atttypid) && newm->datatype) {
-                newm->datatype->atttypmod = estate.rettupdesc->attrs[i]->atttypmod;
+                IsClientLogicType(estate.rettupdesc->attrs[i].atttypid) && newm->datatype) {
+                newm->datatype->atttypmod = estate.rettupdesc->attrs[i].atttypmod;
             }
         }
     }
@@ -3333,19 +3333,19 @@ static void plpgsql_set_outparam_value(PLpgSQL_execstate* estate, PLpgSQL_expr* 
         Datum paramval = values[1];
         bool paramisnull = nulls[1];
         /* If we have a single OUT param, it is not going to be a RECORD */
-        paramtupdesc = CreateTemplateTupleDesc(1, false, TAM_HEAP);
-        TupleDescInitEntry(paramtupdesc, (AttrNumber)1, NameStr(tupdesc->attrs[1]->attname),
-                           tupdesc->attrs[1]->atttypid,
-                           tupdesc->attrs[1]->atttypmod, 0);
+        paramtupdesc = CreateTemplateTupleDesc(1, false);
+        TupleDescInitEntry(paramtupdesc, (AttrNumber)1, NameStr(tupdesc->attrs[1].attname),
+                           tupdesc->attrs[1].atttypid,
+                           tupdesc->attrs[1].atttypmod, 0);
         Datum vals[] = {paramval};
         bool ns[] = {paramisnull};
         tuple = heap_form_tuple(paramtupdesc, vals, ns);
     } else {
         /* Multiple OUT params */
-        paramtupdesc = CreateTemplateTupleDesc(attrsnum - 1, false, TAM_HEAP);
+        paramtupdesc = CreateTemplateTupleDesc(attrsnum - 1, false);
         for (int i = 1; i < attrsnum; i++) {
-            TupleDescInitEntry(paramtupdesc, (AttrNumber)i, NameStr(tupdesc->attrs[i]->attname),
-                               tupdesc->attrs[i]->atttypid, tupdesc->attrs[i]->atttypmod, 0);
+            TupleDescInitEntry(paramtupdesc, (AttrNumber)i, NameStr(tupdesc->attrs[i].attname),
+                               tupdesc->attrs[i].atttypid, tupdesc->attrs[i].atttypmod, 0);
         }
         tuple = heap_form_tuple(paramtupdesc, (values + 1), (nulls + 1));
     }
@@ -4720,7 +4720,7 @@ static int exec_stmt_return(PLpgSQL_execstate* estate, PLpgSQL_stmt_return* stmt
 
                 if (estate->cursor_return_data != NULL) {
                     for (int i = 0,j = 0; i < row->rowtupdesc->natts; i++) {
-                        if (row->rowtupdesc->attrs[i]->atttypid == REFCURSOROID) {
+                        if (row->rowtupdesc->attrs[i].atttypid == REFCURSOROID) {
                             int dno = row->varnos[i];
                             ExecCopyDataFromDatum(estate->datums, dno, &estate->cursor_return_data[j]);
                             j = j + 1;
@@ -4804,8 +4804,8 @@ static int exec_stmt_return_next(PLpgSQL_execstate* estate, PLpgSQL_stmt_return_
                 retval = exec_simple_cast_value(estate,
                     retval,
                     var->datatype->typoid,
-                    tupdesc->attrs[0]->atttypid,
-                    tupdesc->attrs[0]->atttypmod,
+                    tupdesc->attrs[0].atttypid,
+                    tupdesc->attrs[0].atttypmod,
                     isNull);
 
                 tuplestore_putvalues(estate->tuple_store, tupdesc, &retval, &isNull);
@@ -4872,7 +4872,7 @@ static int exec_stmt_return_next(PLpgSQL_execstate* estate, PLpgSQL_stmt_return_
 
         /* coerce type if needed */
         retval = exec_simple_cast_value(
-            estate, retval, rettype, tupdesc->attrs[0]->atttypid, tupdesc->attrs[0]->atttypmod, isNull);
+            estate, retval, rettype, tupdesc->attrs[0].atttypid, tupdesc->attrs[0].atttypmod, isNull);
 
         tuplestore_putvalues(estate->tuple_store, tupdesc, &retval, &isNull);
     } else {
@@ -7379,7 +7379,7 @@ void exec_assign_value(PLpgSQL_execstate* estate, PLpgSQL_datum* target, Datum v
              * right type.
              */
             atttype = SPI_gettypeid(rec->tupdesc, fno + 1);
-            atttypmod = rec->tupdesc->attrs[fno]->atttypmod;
+            atttypmod = rec->tupdesc->attrs[fno].atttypmod;
             attisnull = *isNull;
             values[fno] = exec_simple_cast_value(estate, value, valtype, atttype, atttypmod, attisnull);
             nulls[fno] = attisnull;
@@ -7545,7 +7545,7 @@ void exec_assign_value(PLpgSQL_execstate* estate, PLpgSQL_datum* target, Datum v
                 /* Coerce source value to match array element attribute type. */
                 if (elemtupledesc != NULL) {
                     coerced_attr_value = exec_simple_cast_value(estate, value, valtype,
-                        elemtupledesc->attrs[attrno]->atttypid, elemtupledesc->attrs[attrno]->atttypmod, *isNull);
+                        elemtupledesc->attrs[attrno].atttypid, elemtupledesc->attrs[attrno].atttypmod, *isNull);
                 } else {
                     ereport(ERROR,
                         (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
@@ -7831,7 +7831,7 @@ void exec_assign_value(PLpgSQL_execstate* estate, PLpgSQL_datum* target, Datum v
                 /* Coerce source value to match array element attribute type. */
                 if (elemtupledesc != NULL) {
                 coerced_attr_value = exec_simple_cast_value(estate, value, valtype,
-                    elemtupledesc->attrs[attrno]->atttypid, elemtupledesc->attrs[attrno]->atttypmod, *isNull);
+                    elemtupledesc->attrs[attrno].atttypid, elemtupledesc->attrs[attrno].atttypmod, *isNull);
                 } else {
                     ereport(ERROR,
                         (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
@@ -8121,8 +8121,8 @@ static Datum formDatumFromAttrTarget(PLpgSQL_execstate* estate, const PLpgSQL_te
                 errcause("incorrectly referencing variables"),
                 erraction("modify assign variable")));
     }
-    Oid targettypoid = tupDesc->attrs[attnum]->atttypid;
-    int32 targettypmod = tupDesc->attrs[attnum]->atttypmod;
+    Oid targettypoid = tupDesc->attrs[attnum].atttypid;
+    int32 targettypmod = tupDesc->attrs[attnum].atttypmod;
     bool attrisnull[tupDesc->natts];
     Datum attrvalues[tupDesc->natts];
     Datum coerced_value = exec_simple_cast_value(estate, value, *valtype, targettypoid, targettypmod, *isNull);
@@ -8235,8 +8235,8 @@ static PLpgSQL_temp_assignvar* extractAttrValue(PLpgSQL_execstate* estate,
     }
     AttrNumber attrno = InvalidAttrNumber;
     for (i = 0; i < tupDesc->natts; i++) {
-        if (namestrcmp(&(tupDesc->attrs[i]->attname), attrname) == 0) {
-            attrno = tupDesc->attrs[i]->attnum;
+        if (namestrcmp(&(tupDesc->attrs[i].attname), attrname) == 0) {
+            attrno = tupDesc->attrs[i].attnum;
             break;
         }
     }
@@ -8254,8 +8254,8 @@ static PLpgSQL_temp_assignvar* extractAttrValue(PLpgSQL_execstate* estate,
     result = (PLpgSQL_temp_assignvar*)palloc0(sizeof(PLpgSQL_temp_assignvar));
     result->isarrayelem = false;
     result->isnull = target->isnull || isNull;
-    result->typoid = tupDesc->attrs[i]->atttypid;
-    result->typmod = tupDesc->attrs[i]->atttypmod;
+    result->typoid = tupDesc->attrs[i].atttypid;
+    result->typmod = tupDesc->attrs[i].atttypmod;
     result->attnum = i;
     result->value = resultvalue;
     result->attrname = pstrdup(attrname);
@@ -9024,7 +9024,7 @@ static void exec_eval_datum(PLpgSQL_execstate* estate, PLpgSQL_datum* datum, Oid
             *typeId = SPI_gettypeid(rec->tupdesc, fno);
             /* XXX there's no SPI_gettypmod, for some reason */
             if (fno > 0) {
-                *typetypmod = rec->tupdesc->attrs[fno - 1]->atttypmod;
+                *typetypmod = rec->tupdesc->attrs[fno - 1].atttypmod;
             } else {
                 *typetypmod = -1;
             }
@@ -9231,13 +9231,13 @@ void exec_get_datum_type_info(PLpgSQL_execstate* estate, PLpgSQL_datum* datum, O
             *typeId = SPI_gettypeid(rec->tupdesc, fno);
             /* XXX there's no SPI_gettypmod, for some reason */
             if (fno > 0) {
-                *typmod = rec->tupdesc->attrs[fno - 1]->atttypmod;
+                *typmod = rec->tupdesc->attrs[fno - 1].atttypmod;
             } else {
                 *typmod = -1;
             }
             /* XXX there's no SPI_getcollation either */
             if (fno > 0) {
-                *collation = rec->tupdesc->attrs[fno - 1]->attcollation;
+                *collation = rec->tupdesc->attrs[fno - 1].attcollation;
             } else {/* no system column types have collation */
                 *collation = InvalidOid;
             }
@@ -10118,7 +10118,7 @@ static bool CheckTypeIsCursor(PLpgSQL_row *row, Oid valtype, int fnum)
             ereport(ERROR, (errcode(ERRCODE_UNEXPECTED_NULL_VALUE),
                             errmsg("Accessing unexpected null value when checking row type.")));
         }
-        if (row->rowtupdesc->attrs[fnum]->atttypid == REFCURSOROID) {
+        if (row->rowtupdesc->attrs[fnum].atttypid == REFCURSOROID) {
             return true;
         }
     }
@@ -10142,7 +10142,7 @@ static Datum exec_tuple_get_composite(PLpgSQL_execstate* estate, TupleDesc tupde
     int last_anum = 0;
     bool first = true;
     for (int anum = 0; anum < td_natts; anum++) {
-        if (tupdesc->attrs[anum]->attisdropped) {
+        if (tupdesc->attrs[anum].attisdropped) {
             continue;
         }
 
@@ -10252,7 +10252,7 @@ static int bulk_collect_precheck(PLpgSQL_execstate* estate, PLpgSQL_row* row, Tu
          * If td_natts is a positive number, tupdesc cannot be empty,
          * so there is no need to double check here
          */
-        if (!tupdesc->attrs[i]->attisdropped) {
+        if (!tupdesc->attrs[i].attisdropped) {
             anum++;
         }
     }
@@ -10423,7 +10423,7 @@ static void exec_read_bulk_collect(PLpgSQL_execstate* estate, PLpgSQL_row* row, 
                 } else {
                     /* skip dropped column in tuple */
                     t_natts = (HeapTupleIsValid(tup)) ? HeapTupleHeaderGetNatts(tup->t_data, context.tupdesc) : 0;
-                    while (anum < td_natts && context.tupdesc->attrs[anum]->attisdropped) {
+                    while (anum < td_natts && context.tupdesc->attrs[anum].attisdropped) {
                         anum++;
                     }
 
@@ -10571,7 +10571,7 @@ static void exec_move_row(PLpgSQL_execstate* estate,
             int m_natts = 0;
 
             for (int i = 0; i < td_natts; i++) {
-                if (!tupdesc->attrs[i]->attisdropped) {
+                if (!tupdesc->attrs[i].attisdropped) {
                     m_natts++; /* skip dropped column in tuple */
                 }
             }
@@ -10588,7 +10588,7 @@ static void exec_move_row(PLpgSQL_execstate* estate,
 
         /* for one dynamic statement only */
         if (row->nfields > 0) {
-            Oid tupTypeOid = (tupdesc != NULL && tupdesc->attrs != NULL) ? tupdesc->attrs[0]->atttypid : InvalidOid;
+            Oid tupTypeOid = (tupdesc != NULL && tupdesc->attrs != NULL) ? tupdesc->attrs[0].atttypid : InvalidOid;
             Oid rowTypeOid = (row->rowtupdesc != NULL) ? row->rowtupdesc->tdtypeid : InvalidOid;
 
             bool needSplitByNattrs = (td_natts == 1 && row->nfields > 1) || (td_natts == 1 && row->nfields == 1);
@@ -10631,7 +10631,7 @@ static void exec_move_row(PLpgSQL_execstate* estate,
 #else
                     var = (PLpgSQL_var*)(estate->datums[row->varnos[fnum]]);
 #endif
-                    while (anum < td_natts && tupdesc->attrs[anum]->attisdropped) {
+                    while (anum < td_natts && tupdesc->attrs[anum].attisdropped) {
                         anum++; /* skip dropped column in tuple */
                     }
 
@@ -10688,7 +10688,7 @@ static void exec_move_row(PLpgSQL_execstate* estate,
 
                 var = (PLpgSQL_var*)(row->intodatums[fnum]);
 
-                while (anum < td_natts && tupdesc->attrs[anum]->attisdropped) {
+                while (anum < td_natts && tupdesc->attrs[anum].attisdropped) {
                     anum++; /* skip dropped column in tuple */
                 }
 
@@ -10750,7 +10750,7 @@ HeapTuple make_tuple_from_row(PLpgSQL_execstate* estate, PLpgSQL_row* row, Tuple
         Oid fieldtypeid;
         int32 fieldtypmod;
 
-        if (tupdesc->attrs[i]->attisdropped) {
+        if (tupdesc->attrs[i].attisdropped) {
             nulls[i] = true; /* leave the column as null */
             continue;
         }
@@ -10800,9 +10800,9 @@ HeapTuple make_tuple_from_row(PLpgSQL_execstate* estate, PLpgSQL_row* row, Tuple
                 nulls[i] = true;
             }
         }
-        if (fieldtypeid != tupdesc->attrs[i]->atttypid) {
+        if (fieldtypeid != tupdesc->attrs[i].atttypid) {
             /* if table of type should check its array type */
-            HeapTuple type_tup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(tupdesc->attrs[i]->atttypid));
+            HeapTuple type_tup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(tupdesc->attrs[i].atttypid));
             if (HeapTupleIsValid(type_tup)) {
                 Oid refTypOid = ((Form_pg_type)GETSTRUCT(type_tup))->typelem;
                 char refTypType = ((Form_pg_type)GETSTRUCT(type_tup))->typtype;

@@ -210,7 +210,7 @@ void ExecCheckPlanOutput(Relation resultRel, List* targetList)
                     errmodule(MOD_EXECUTOR),
                     errmsg("table row type and query-specified row type do not match"),
                     errdetail("Query has too many columns.")));
-        attr = result_desc->attrs[attno++];
+        attr = &result_desc->attrs[attno++];
 
         if (!attr->attisdropped) {
             /* Normal case: demand type match */
@@ -1023,7 +1023,7 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
                 tuple = tableam_tops_form_tuple(slot->tts_tupleDescriptor,
                                                 slot->tts_values, 
                                                 slot->tts_isnull, 
-                                                RelationGetTupleType(result_relation_desc));
+                                                GetTableAmRoutine(result_relation_desc->rd_tam_type));
                 if (rel_isblockchain) {
                     MemoryContext old_context = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
                     tuple = set_user_tuple_hash((HeapTuple)tuple, result_relation_desc);
@@ -2919,7 +2919,7 @@ static TupleTableSlot* ExecModifyTable(PlanState* state)
 
         EvalPlanQualSetSlot(&node->mt_epqstate, plan_slot);
         slot = plan_slot;
-        slot->tts_tupleDescriptor->tdTableAmType = result_rel_info->ri_RelationDesc->rd_tam_type;
+        slot->tts_tupleDescriptor->td_tam_ops = GetTableAmRoutine(result_rel_info->ri_RelationDesc->rd_tam_type);
 
         if (operation == CMD_MERGE) {
             if (junk_filter == NULL) {
@@ -3351,7 +3351,8 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
          * Initialize result tuple slot and assign its rowtype using the first
          * RETURNING list.	We assume the rest will look the same.
          */
-        tup_desc = ExecTypeFromTL((List*)linitial(node->returningLists), false, false, mt_state->resultRelInfo->ri_RelationDesc->rd_tam_type);
+        tup_desc = ExecTypeFromTL((List*)linitial(node->returningLists), false, false, 
+                    GetTableAmRoutine(mt_state->resultRelInfo->ri_RelationDesc->rd_tam_type));
 
         /* Set up a slot for the output of the RETURNING projection(s) */
         ExecInitResultTupleSlot(estate, &mt_state->ps);

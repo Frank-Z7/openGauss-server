@@ -790,7 +790,7 @@ static void deparseTargetList(StringInfo buf, RangeTblEntry *rte, Index rtindex,
 
     bool first = true;
     for (i = 1; i <= tupdesc->natts; i++) {
-        Form_pg_attribute attr = tupdesc->attrs[i - 1];
+        Form_pg_attribute attr = &tupdesc->attrs[i - 1];
 
         /* Ignore dropped attributes. */
         if (attr->attisdropped) {
@@ -1065,7 +1065,7 @@ void deparseAnalyzeSql(StringInfo buf, Relation rel, List **retrieved_attrs)
     appendStringInfoString(buf, "SELECT ");
     for (i = 0; i < tupdesc->natts; i++) {
         /* Ignore dropped columns. */
-        if (tupdesc->attrs[i]->attisdropped) {
+        if (tupdesc->attrs[i].attisdropped) {
             continue;
         }
 
@@ -1075,7 +1075,7 @@ void deparseAnalyzeSql(StringInfo buf, Relation rel, List **retrieved_attrs)
         first = false;
 
         /* Use attribute name or column_name option. */
-        char *colname = NameStr(tupdesc->attrs[i]->attname);
+        char *colname = NameStr(tupdesc->attrs[i].attname);
         List *options = GetForeignColumnOptions(relid, i + 1);
 
         foreach (lc, options) {

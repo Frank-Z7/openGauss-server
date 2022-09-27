@@ -729,11 +729,11 @@ void CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind, bool allow_system
      */
     if (relkind != RELKIND_VIEW && relkind != RELKIND_COMPOSITE_TYPE && relkind != RELKIND_CONTQUERY) {
         for (i = 0; i < natts; i++) {
-            if (SystemAttributeByName(NameStr(tupdesc->attrs[i]->attname), tupdesc->tdhasoid) != NULL)
+            if (SystemAttributeByName(NameStr(tupdesc->attrs[i].attname), tupdesc->tdhasoid) != NULL)
                 ereport(ERROR,
                     (errcode(ERRCODE_DUPLICATE_COLUMN),
                         errmsg("column name \"%s\" conflicts with a system column name",
-                            NameStr(tupdesc->attrs[i]->attname))));
+                            NameStr(tupdesc->attrs[i].attname))));
         }
     }
 
@@ -742,10 +742,10 @@ void CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind, bool allow_system
      */
     for (i = 1; i < natts; i++) {
         for (j = 0; j < i; j++) {
-            if (strcmp(NameStr(tupdesc->attrs[j]->attname), NameStr(tupdesc->attrs[i]->attname)) == 0)
+            if (strcmp(NameStr(tupdesc->attrs[j].attname), NameStr(tupdesc->attrs[i].attname)) == 0)
                 ereport(ERROR,
                     (errcode(ERRCODE_DUPLICATE_COLUMN),
-                        errmsg("column name \"%s\" specified more than once", NameStr(tupdesc->attrs[j]->attname))));
+                        errmsg("column name \"%s\" specified more than once", NameStr(tupdesc->attrs[j].attname))));
         }
     }
 
@@ -753,9 +753,9 @@ void CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind, bool allow_system
      * next check the attribute types
      */
     for (i = 0; i < natts; i++) {
-        CheckAttributeType(NameStr(tupdesc->attrs[i]->attname),
-            tupdesc->attrs[i]->atttypid,
-            tupdesc->attrs[i]->attcollation,
+        CheckAttributeType(NameStr(tupdesc->attrs[i].attname),
+            tupdesc->attrs[i].atttypid,
+            tupdesc->attrs[i].attcollation,
             NIL, /* assume we're creating a new rowtype */
             allow_system_table_mods);
     }
@@ -846,7 +846,7 @@ void CheckAttributeType(
         tupdesc = RelationGetDescr(relation);
 
         for (i = 0; i < tupdesc->natts; i++) {
-            Form_pg_attribute attr = tupdesc->attrs[i];
+            Form_pg_attribute attr = &tupdesc->attrs[i];
 
             if (attr->attisdropped)
                 continue;
@@ -1003,7 +1003,7 @@ static void AddNewAttributeTuples(Oid new_rel_oid, TupleDesc tupdesc, char relki
      * add dependencies on their datatypes and collations.
      */
     for (i = 0; i < natts; i++) {
-        attr = tupdesc->attrs[i];
+        attr = &tupdesc->attrs[i];
         /* Fill in the correct relation OID */
         attr->attrelid = new_rel_oid;
         /* Make sure these are OK, too */
@@ -1339,13 +1339,13 @@ static List* GetDistColsPos(DistributeBy* distributeBy, TupleDesc desc)
     List* pos = NULL;
     ListCell* cell = NULL;
     char* colname = NULL;
-    Form_pg_attribute *attrs = desc->attrs;
+    FormData_pg_attribute *attrs = desc->attrs;
 
     foreach (cell, distributeBy->colname) {
         colname = strVal((Value*)lfirst(cell));
 
         for (i = 0; i < desc->natts; i++) {
-            if (strcmp(colname, attrs[i]->attname.data) == 0) {
+            if (strcmp(colname, attrs[i].attname.data) == 0) {
                 break;
             }
         }
@@ -1478,7 +1478,7 @@ static int GetTotalBoundariesNum(List* sliceList)
     return result;
 }
 
-static void CheckDuplicateListSlices(List* pos, Form_pg_attribute* attrs, DistributeBy *distby)
+static void CheckDuplicateListSlices(List* pos, FormData_pg_attribute* attrs, DistributeBy *distby)
 {
     List* boundary = NULL;
     List* sliceList = NULL;
@@ -1546,7 +1546,7 @@ static void CheckOneBoundaryValue(List* boundary, List* posList, TupleDesc desc)
     Const* targetConst = NULL;
     ListCell* boundaryCell = NULL;
     ListCell* posCell = NULL;
-    Form_pg_attribute* attrs = desc->attrs;
+    FormData_pg_attribute* attrs = desc->attrs;
 
     forboth(boundaryCell, boundary, posCell, posList) {
         srcConst = (Const*)lfirst(boundaryCell);
@@ -1555,7 +1555,7 @@ static void CheckOneBoundaryValue(List* boundary, List* posList, TupleDesc desc)
         }
 
         pos = lfirst_int(posCell);
-        targetConst = (Const*)GetTargetValue(attrs[pos], srcConst, false);
+        targetConst = (Const*)GetTargetValue(&attrs[pos], srcConst, false);
         if (!PointerIsValid(targetConst)) {
             ereport(ERROR,
                 (errcode(ERRCODE_INVALID_OPERATION),
@@ -1796,7 +1796,7 @@ static void CheckSliceReferenceValidity(Oid relid, DistributeBy *distributeby, T
 
         baseKeyType = get_atttype(distributeby->referenceoid, baseKeyIdx);
         keyIdx = get_attnum(relid, colname);
-        keyType = descriptor->attrs[keyIdx - 1]->atttypid;
+        keyType = descriptor->attrs[keyIdx - 1].atttypid;
 
         if (baseKeyType != keyType) {
             FreeRelationLocInfo(baseLocInfo);
@@ -2015,14 +2015,14 @@ static void CheckDistributeKeyAndType(Oid relid, DistributeBy *distributeby,
         }
 
         if (distributeby->disttype == DISTTYPE_LIST || distributeby->disttype == DISTTYPE_RANGE) {
-            if (!IsTypeDistributableForSlice(descriptor->attrs[localAttrNum - 1]->atttypid)) {
+            if (!IsTypeDistributableForSlice(descriptor->attrs[localAttrNum - 1].atttypid)) {
                 ereport(ERROR,
                     (errcode(ERRCODE_WRONG_OBJECT_TYPE),
                         errmsg("Column %s is not a %s distributable data type", colname,
                             GetDistributeTypeName(distributeby->disttype))));
             }
         } else {
-            if (!IsTypeDistributable(descriptor->attrs[localAttrNum - 1]->atttypid)) {
+            if (!IsTypeDistributable(descriptor->attrs[localAttrNum - 1].atttypid)) {
                 ereport(ERROR,
                     (errcode(ERRCODE_WRONG_OBJECT_TYPE),
                         errmsg("Column %s is not a %s distributable data type", colname,
@@ -2054,14 +2054,14 @@ void GetRelationDistributionItems(Oid relid, DistributeBy* distributeby, TupleDe
          * one based on primary key or foreign key, use first column with
          * a supported data type.
          */
-        Form_pg_attribute attr;
+        FormData_pg_attribute attr;
         int i;
 
         local_locatortype = LOCATOR_TYPE_HASH;
 
         for (i = 0; i < descriptor->natts; i++) {
             attr = descriptor->attrs[i];
-            if (IsTypeDistributable(attr->atttypid)) {
+            if (IsTypeDistributable(attr.atttypid)) {
                 /* distribute on this column */
                 local_attnum = i + 1;
                 attnum[0] = local_attnum;
@@ -2077,7 +2077,7 @@ void GetRelationDistributionItems(Oid relid, DistributeBy* distributeby, TupleDe
                         (errcode(ERRCODE_SUCCESSFUL_COMPLETION),
                             errmsg("The 'DISTRIBUTE BY' clause is not specified. Using '%s' as the distribution column "
                                    "by default.",
-                                attr->attname.data),
+                                attr.attname.data),
                             errhint(
                                 "Please use 'DISTRIBUTE BY' clause to specify suitable data distribution column.")));
                 break;
@@ -2194,7 +2194,7 @@ HashBucketInfo* GetRelationBucketInfo(DistributeBy* distributeby,
 
         bucketkey = buildint2vector(NULL, 1);
         for (i = 0; i < nattr; i++) {
-            attr = tupledsc->attrs[i];
+            attr = &tupledsc->attrs[i];
             if (IsTypeDistributable(attr->atttypid)) {
                 bucketkey->values[0] = attr->attnum;
                 bucketinfo->bucketcol = bucketkey;
@@ -2231,7 +2231,7 @@ HashBucketInfo* GetRelationBucketInfo(DistributeBy* distributeby,
         foreach (cell, distributeby->colname) {
             colname = strVal(lfirst(cell));
             for (j = 0; j < nattr; j++) {
-                attr = tupledsc->attrs[j];
+                attr = &tupledsc->attrs[j];
                 if (strcmp(colname, attr->attname.data) == 0) {
                     local_attnum = attr->attnum;
                     break;
@@ -3931,7 +3931,7 @@ List* AddRelationNewConstraints(
      */
     foreach (cell, newColDefaults) {
         RawColumnDefault* colDef = (RawColumnDefault*)lfirst(cell);
-        Form_pg_attribute atp = rel->rd_att->attrs[colDef->attnum - 1];
+        Form_pg_attribute atp = &rel->rd_att->attrs[colDef->attnum - 1];
 
         expr = cookDefault(pstate, colDef->raw_default, atp->atttypid, atp->atttypmod, NameStr(atp->attname),
             colDef->generatedCol);
@@ -4979,7 +4979,7 @@ int2vector* buildPartitionKey(List* keys, TupleDesc tupledsc)
     int partkeyNum = keys->length;
     char* columName = NULL;
     bool finded = false;
-    Form_pg_attribute* attrs = tupledsc->attrs;
+    FormData_pg_attribute* attrs = tupledsc->attrs;
     int2vector* partkey = NULL;
 
     partkey = buildint2vector(NULL, partkeyNum);
@@ -4988,8 +4988,8 @@ int2vector* buildPartitionKey(List* keys, TupleDesc tupledsc)
         columName = ((Value*)linitial(col->fields))->val.str;
         finded = false;
         for (j = 0; j < attnum; j++) {
-            if (strcmp(columName, attrs[j]->attname.data) == 0) {
-                partkey->values[i] = attrs[j]->attnum;
+            if (strcmp(columName, attrs[j].attname.data) == 0) {
+                partkey->values[i] = attrs[j].attnum;
                 finded = true;
                 break;
             }
@@ -6828,7 +6828,7 @@ static void IsPartitionKeyContainTimestampwithzoneType(const PartitionState *par
     char *columName = NULL;
     int partKeyIdx = 0;
     int attnum = tupledesc->natts;
-    Form_pg_attribute *attrs = tupledesc->attrs;
+    FormData_pg_attribute *attrs = tupledesc->attrs;
 
     foreach (partKeyCell, partTableState->partitionKey) {
         col = (ColumnRef *)lfirst(partKeyCell);
@@ -6836,7 +6836,7 @@ static void IsPartitionKeyContainTimestampwithzoneType(const PartitionState *par
 
         isTimestamptz[partKeyIdx] = false;
         for (int i = 0; i < attnum; i++) {
-            if (TIMESTAMPTZOID == attrs[i]->atttypid && 0 == strcmp(columName, attrs[i]->attname.data)) {
+            if (TIMESTAMPTZOID == attrs[i].atttypid && 0 == strcmp(columName, attrs[i].attname.data)) {
                 isTimestamptz[partKeyIdx] = true;
                 break;
             }
@@ -7517,15 +7517,15 @@ char* make_column_map(TupleDesc tuple_desc)
 {
 #define COLS_IN_BYTE 8
 
-    Form_pg_attribute* attrs = tuple_desc->attrs;
+    FormData_pg_attribute* attrs = tuple_desc->attrs;
     char* col_map = (char*)palloc0((MaxHeapAttributeNumber + COLS_IN_BYTE) / COLS_IN_BYTE);
     int col_cnt;
 
     Assert(tuple_desc->natts > 0);
     for (col_cnt = 0; col_cnt < tuple_desc->natts; col_cnt++) {
 
-        if (!attrs[col_cnt]->attisdropped && attrs[col_cnt]->attnum > 0) {
-            col_map[attrs[col_cnt]->attnum >> 3] |= (1 << (attrs[col_cnt]->attnum % COLS_IN_BYTE));
+        if (!attrs[col_cnt].attisdropped && attrs[col_cnt].attnum > 0) {
+            col_map[attrs[col_cnt].attnum >> 3] |= (1 << (attrs[col_cnt].attnum % COLS_IN_BYTE));
         }
     }
 
@@ -7549,7 +7549,7 @@ bool* CheckPartkeyHasTimestampwithzone(Relation partTableRel, bool isForSubParti
     int16* attnums = NULL;
     int relationAttNumber = 0;
     TupleDesc relationTupleDesc = NULL;
-    Form_pg_attribute* relationAtts = NULL;
+    FormData_pg_attribute* relationAtts = NULL;
 
     pgPartRel = relation_open(PartitionRelationId, AccessShareLock);
 
@@ -7606,7 +7606,7 @@ bool* CheckPartkeyHasTimestampwithzone(Relation partTableRel, bool isForSubParti
     for (int i = 0; i < n_key_column; i++) {
         int attnum = (int)(attnums[i]);
         if (attnum >= 1 && attnum <= relationAttNumber) {
-            if (relationAtts[attnum - 1]->atttypid == TIMESTAMPTZOID) {
+            if (relationAtts[attnum - 1].atttypid == TIMESTAMPTZOID) {
                 isTimestamptz[i] = true;
             }
         } else {

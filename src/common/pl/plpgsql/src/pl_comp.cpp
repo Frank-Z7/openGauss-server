@@ -3703,7 +3703,7 @@ PLpgSQL_row* build_row_from_class(Oid class_oid)
         /*
          * Get the attribute and check for dropped column
          */
-        attr_struct = row->rowtupdesc->attrs[i];
+        attr_struct = &row->rowtupdesc->attrs[i];
 
         if (!attr_struct->attisdropped) {
             char* attname = NULL;
@@ -3813,7 +3813,7 @@ PLpgSQL_row* build_row_from_tuple_desc(const char* rowname, int lineno, TupleDes
     row->default_val = NULL;
 
     for (int i = 0; i < desc->natts; i++) {
-        Form_pg_attribute pg_att_form = desc->attrs[i];
+        Form_pg_attribute pg_att_form = &desc->attrs[i];
         char* att_name = NameStr(pg_att_form->attname);
         if (att_name == NULL || strcmp(att_name, "?column?") == 0) {
             ereport(ERROR,

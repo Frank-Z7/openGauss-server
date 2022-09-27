@@ -465,7 +465,7 @@ void ExecAssignResultType(PlanState* planstate, TupleDesc tupDesc)
  *		ExecAssignResultTypeFromTL
  * ----------------
  */
-void ExecAssignResultTypeFromTL(PlanState* planstate, TableAmType tam)
+void ExecAssignResultTypeFromTL(PlanState* planstate, const TableAmRoutine* tam_ops)
 {
     bool hasoid = false;
     TupleDesc tupDesc;
@@ -482,7 +482,7 @@ void ExecAssignResultTypeFromTL(PlanState* planstate, TableAmType tam)
      * list of ExprStates.	This is good because some plan nodes don't bother
      * to set up planstate->targetlist ...
      */
-    tupDesc = ExecTypeFromTL(planstate->plan->targetlist, hasoid, false, tam);
+    tupDesc = ExecTypeFromTL(planstate->plan->targetlist, hasoid, false, tam_ops);
     ExecAssignResultType(planstate, tupDesc);
 }
 
@@ -672,7 +672,7 @@ ProjectionInfo* ExecBuildVecProjectionInfo(
             else if (variable->varattno <= inputDesc->natts) {
                 Form_pg_attribute attr;
 
-                attr = inputDesc->attrs[variable->varattno - 1];
+                attr = &inputDesc->attrs[variable->varattno - 1];
                 if (!attr->attisdropped && variable->vartype == attr->atttypid)
                     isSimpleVar = true;
             }
@@ -2275,8 +2275,8 @@ Datum GetAttributeByName(HeapTupleHeader tuple, const char* attname, bool* isNul
 
     attrno = InvalidAttrNumber;
     for (i = 0; i < tupDesc->natts; i++) {
-        if (namestrcmp(&(tupDesc->attrs[i]->attname), attname) == 0) {
-            attrno = tupDesc->attrs[i]->attnum;
+        if (namestrcmp(&(tupDesc->attrs[i].attname), attname) == 0) {
+            attrno = tupDesc->attrs[i].attnum;
             break;
         }
     }

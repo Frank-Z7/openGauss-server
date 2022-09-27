@@ -380,7 +380,7 @@ static void ReadBinaryFileBlocksFirstCall(PG_FUNCTION_ARGS, int32 startBlockNum,
      * build tupdesc for result tuples. This must match this function's
      * pg_proc entry!
      */
-    TupleDesc tupdesc = CreateTemplateTupleDesc(4, false, TAM_HEAP);
+    TupleDesc tupdesc = CreateTemplateTupleDesc(4, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)1, "path", TEXTOID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)2, "blocknum", INT4OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)3, "len", INT4OID, -1, 0);
@@ -466,7 +466,7 @@ Datum pg_stat_file(PG_FUNCTION_ARGS)
      * This record type had better match the output parameters declared for me
      * in pg_proc.h.
      */
-    tupdesc = CreateTemplateTupleDesc(6, false, TAM_HEAP);
+    tupdesc = CreateTemplateTupleDesc(6, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)1, "size", INT8OID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)2, "access", TIMESTAMPTZOID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)3, "modification", TIMESTAMPTZOID, -1, 0);
@@ -635,7 +635,7 @@ Datum pg_stat_file_recursive(PG_FUNCTION_ARGS)
          * This record type had better match the output parameters declared for me
          * in pg_proc.h.
          */
-        tupdesc = CreateTemplateTupleDesc(4, false, TAM_HEAP);
+        tupdesc = CreateTemplateTupleDesc(4, false);
         TupleDescInitEntry(tupdesc, (AttrNumber)1, "path", TEXTOID, -1, 0);
         TupleDescInitEntry(tupdesc, (AttrNumber)2, "filename", TEXTOID, -1, 0);
         TupleDescInitEntry(tupdesc, (AttrNumber)3, "size", INT8OID, -1, 0);

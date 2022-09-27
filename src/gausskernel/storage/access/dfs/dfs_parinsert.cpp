@@ -407,9 +407,9 @@ inline char *DfsPartitionInsert::FormPartitionSignature(Datum *values, const boo
 
         if (nulls[attno - 1]) {
             rc = sprintf_s(curpos, MAX_PARSIG_LENGTH - strlen(m_parsigs), "%s=__HIVE_DEFAULT_PARTITION__/",
-                           tupdesc->attrs[attno - 1]->attname.data);
+                           tupdesc->attrs[attno - 1].attname.data);
 
-            CHECK_PARTITION_SIGNATURE_CREATE(rc, tupdesc->attrs[attno - 1]->attname.data, curpos);
+            CHECK_PARTITION_SIGNATURE_CREATE(rc, tupdesc->attrs[attno - 1].attname.data, curpos);
         } else {
             /*
              * The formed partition-signature is written to m_parsig[MAX_PARSIG_LEN],
@@ -417,8 +417,8 @@ inline char *DfsPartitionInsert::FormPartitionSignature(Datum *values, const boo
              * buffer to hold the parsig for current partition which is relative
              * expensive than a pre-allocated buffer.
              */
-            GetCStringFromDatum(tupdesc->attrs[attno - 1]->atttypid, 0, values[attno - 1],
-                                tupdesc->attrs[attno - 1]->attname.data, curpos);
+            GetCStringFromDatum(tupdesc->attrs[attno - 1].atttypid, 0, values[attno - 1],
+                                tupdesc->attrs[attno - 1].attname.data, curpos);
         }
     }
 
@@ -676,7 +676,7 @@ void DfsPartitionInsert::TupleInsert(Datum *values, bool *nulls, int option)
             return;
 
         /* insert tuple into delta table */
-        HeapTuple tuple = (HeapTuple)tableam_tops_form_tuple(m_delta->rd_att, values, nulls, HEAP_TUPLE);
+        HeapTuple tuple = (HeapTuple)tableam_tops_form_tuple(m_delta->rd_att, values, nulls);
         (void)tableam_tuple_insert(m_delta, tuple, GetCurrentCommandId(true), option, NULL);
 
         /* free the temp materialized tuple */
@@ -750,7 +750,7 @@ void DfsPartitionInsert::TupleInsert(Datum *values, bool *nulls, int option)
         }
         (void)MemoryContextSwitchTo(oldMemoryContext);
 
-        HeapTuple tuple = (HeapTuple)tableam_tops_form_tuple(m_delta->rd_att, values, nulls, HEAP_TUPLE);
+        HeapTuple tuple = (HeapTuple)tableam_tops_form_tuple(m_delta->rd_att, values, nulls);
 
         nwrites = BufFileWrite(psf->sfile, tuple, HEAPTUPLESIZE + tuple->t_len);
         if (nwrites != (size_t)HEAPTUPLESIZE + tuple->t_len) {

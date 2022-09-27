@@ -1656,7 +1656,7 @@ int HdfsAcquireSampleRows(Relation relation, int logLevel, HeapTuple* sampleRows
     SplitMap* fileMap = (SplitMap*)additionalData;
     fileList = fileMap->splits;
 
-    columnList = CreateColList((Form_pg_attribute*)tupleDescriptor->attrs, columnCount);
+    columnList = CreateColList(tupleDescriptor->attrs, columnCount);
     unsigned int totalFileNumbers = list_length(fileList);
 
     /* description: change file -> stride: Jason's advice */
@@ -1681,7 +1681,7 @@ int HdfsAcquireSampleRows(Relation relation, int logLevel, HeapTuple* sampleRows
          * columnList changed in HdfsBeginForeignScan
          */
         list_free(columnList);
-        columnList = CreateColList((Form_pg_attribute*)tupleDescriptor->attrs, columnCount);
+        columnList = CreateColList(tupleDescriptor->attrs, columnCount);
 
         /* Put file information into SplitInfo struct */
         SplitInfo* splitinfo = (SplitInfo*)list_nth(fileList, targFile);

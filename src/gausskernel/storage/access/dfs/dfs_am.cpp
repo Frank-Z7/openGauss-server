@@ -1705,10 +1705,10 @@ DfsScanState *DFSBeginScan(Relation rel, List *splitList, int colNum, int16 *col
 
     if (colIdx == NULL) {
         /* Scan all the columns by default. */
-        columnList = CreateColList((Form_pg_attribute *)tupDesc->attrs, tupDesc->natts);
+        columnList = CreateColList(tupDesc->attrs, tupDesc->natts);
     } else {
         /* Scan the special list of columns. */
-        columnList = CreateColList((Form_pg_attribute *)tupDesc->attrs, colNum, colIdx);
+        columnList = CreateColList(tupDesc->attrs, colNum, colIdx);
     }
     DfsPrivateItem *item = MakeDfsPrivateItem(columnList, columnList, NIL, NIL, NIL, NIL, NULL, tupDesc->natts,
                                               partList);
@@ -1960,16 +1960,16 @@ const char *WriterImpl::getRelName()
 void WriterImpl::bindTransformFunc()
 {
     int cols = m_relation->rd_att->natts;
-    Form_pg_attribute *attrs = m_relation->rd_att->attrs;
+    FormData_pg_attribute *attrs = m_relation->rd_att->attrs;
     for (int i = 0; i < cols; i++) {
-        if (IS_DROPPED_COLUMN(m_relation->rd_att->attrs[i])) {
+        if (IS_DROPPED_COLUMN(&m_relation->rd_att->attrs[i])) {
             /*
              * If the column is dropped, do not write data into file for
              * this column.
              */
             continue;
         }
-        switch (attrs[i]->atttypid) {
+        switch (attrs[i].atttypid) {
             case BPCHAROID:
             case TEXTOID:
             case VARCHAROID:
@@ -2010,7 +2010,7 @@ void WriterImpl::appendBatch(const VectorBatch *batch)
     Assert(m_colWriter != NULL);
     ScalarVector *vecs = batch->m_arr;
     for (int i = 0; i < batch->m_cols; i++) {
-        if (IS_DROPPED_COLUMN(m_relation->rd_att->attrs[i])) {
+        if (IS_DROPPED_COLUMN(&m_relation->rd_att->attrs[i])) {
             /*
              * If the column is dropped, do not write data into file for
              * this column.
@@ -2029,7 +2029,7 @@ void WriterImpl::appendTuple(Datum *values, bool *nulls)
 {
     Assert(m_colWriter != NULL);
     for (int i = 0; i < m_relation->rd_att->natts; i++) {
-        if (IS_DROPPED_COLUMN(m_relation->rd_att->attrs[i])) {
+        if (IS_DROPPED_COLUMN(&m_relation->rd_att->attrs[i])) {
             /*
              * If the column is dropped, do not write data into file for
              * this column.
