@@ -1421,6 +1421,7 @@ static char* get_drop_seq_query_string(AlterTableStmt* stmt, Oid rel_id)
  *
  *	parse_tree: the parse tree for the utility statement
  *	query_string: original source text of command
+ *	readOnlyTree: if true, pstmt's node tree must not be modified
  *	params: parameters to use during execution
  *	is_top_level: true if executing a "top level" (interactively issued) command
  *	dest: where to send results
@@ -1435,7 +1436,8 @@ static char* get_drop_seq_query_string(AlterTableStmt* stmt, Oid rel_id)
  *
  * completion_tag may be NULL if caller doesn't want a status string.
  */
-void ProcessUtility(Node* parse_tree, const char* query_string, ParamListInfo params, bool is_top_level, DestReceiver* dest,
+void ProcessUtility(Node* parse_tree, const char* query_string, bool readOnlyTree, ParamListInfo params, bool is_top_level, 
+    DestReceiver* dest,
 #ifdef PGXC
     bool sent_to_remote,
 #endif /* PGXC */
@@ -1454,6 +1456,7 @@ void ProcessUtility(Node* parse_tree, const char* query_string, ParamListInfo pa
     if (ProcessUtility_hook && !(g_instance.status > NoShutdown))
         (*ProcessUtility_hook)(parse_tree,
             query_string,
+            readOnlyTree,
             params,
             is_top_level,
             dest,
@@ -1465,6 +1468,7 @@ void ProcessUtility(Node* parse_tree, const char* query_string, ParamListInfo pa
     else
         standard_ProcessUtility(parse_tree,
             query_string,
+            readOnlyTree,
             params,
             is_top_level,
             dest,
@@ -2194,6 +2198,7 @@ void CreateCommand(CreateStmt *parse_tree, const char *query_string, ParamListIn
             /* Recurse for anything else */
             ProcessUtility(stmt,
                 query_string_with_info,
+                false,
                 params,
                 false,
                 None_Receiver,
@@ -2397,7 +2402,7 @@ ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 #endif
 }
 
-void standard_ProcessUtility(Node* parse_tree, const char* query_string, ParamListInfo params, bool is_top_level,
+void standard_ProcessUtility(Node* parse_tree, const char* query_string, bool readOnlyTree, ParamListInfo params, bool is_top_level,
     DestReceiver* dest,
 #ifdef PGXC
     bool sent_to_remote,
@@ -2407,6 +2412,9 @@ void standard_ProcessUtility(Node* parse_tree, const char* query_string, ParamLi
 {
     /* This can recurse, so check for excessive recursion */
     check_stack_depth();
+
+    if (readOnlyTree)
+        parse_tree = (Node*)copyObject(parse_tree);
 
 #ifdef ENABLE_MULTIPLE_NODES
     /*
@@ -4105,6 +4113,7 @@ void standard_ProcessUtility(Node* parse_tree, const char* query_string, ParamLi
                         /* Recurse for anything else */
                         ProcessUtility(stmt,
                             query_string,
+                            false,
                             params,
                             false,
                             None_Receiver,

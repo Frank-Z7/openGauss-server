@@ -811,7 +811,7 @@ static void light_unified_audit_executor(const Query *query)
     access_audit_policy_run(query->rtable, query->commandType);
 }
 
-static void gsaudit_ProcessUtility_hook(Node *parsetree, const char *queryString, ParamListInfoData *params,
+static void gsaudit_ProcessUtility_hook(Node *parsetree, const char *queryString, bool readOnlyTree, ParamListInfoData *params,
     bool isTopLevel, DestReceiver *dest, bool sentToRemote, char *completionTag, bool isCTAS = false)
 {
     /* do nothing when enable_security_policy is off */
@@ -819,10 +819,10 @@ static void gsaudit_ProcessUtility_hook(Node *parsetree, const char *queryString
         u_sess->proc_cxt.IsInnerMaintenanceTools || IsConnFromCoord() ||
         !is_audit_policy_exist_load_policy_info()) {
         if (next_ProcessUtility_hook) {
-            next_ProcessUtility_hook(parsetree, queryString, params, isTopLevel, dest, sentToRemote, completionTag,
+            next_ProcessUtility_hook(parsetree, queryString, readOnlyTree, params, isTopLevel, dest, sentToRemote, completionTag,
                 false);
         } else {
-            standard_ProcessUtility(parsetree, queryString, params, isTopLevel, dest, sentToRemote, completionTag,
+            standard_ProcessUtility(parsetree, queryString, readOnlyTree, params, isTopLevel, dest, sentToRemote, completionTag,
                 false);
         }
         return;
@@ -1615,10 +1615,10 @@ static void gsaudit_ProcessUtility_hook(Node *parsetree, const char *queryString
     PG_TRY();
     {
         if (next_ProcessUtility_hook) {
-            next_ProcessUtility_hook(parsetree, queryString, params, isTopLevel, dest, sentToRemote, completionTag,
+            next_ProcessUtility_hook(parsetree, queryString, readOnlyTree, params, isTopLevel, dest, sentToRemote, completionTag,
                 false);
         } else {
-            standard_ProcessUtility(parsetree, queryString, params, isTopLevel, dest, sentToRemote, completionTag,
+            standard_ProcessUtility(parsetree, queryString, readOnlyTree, params, isTopLevel, dest, sentToRemote, completionTag,
                 false);
         }
         flush_access_logs(AUDIT_OK);

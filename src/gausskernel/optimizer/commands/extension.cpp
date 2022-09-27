@@ -757,6 +757,7 @@ static void execute_sql_string(const char* sql, const char* filename)
             } else {
                 ProcessUtility(stmt,
                     query_string,
+                    false,
                     NULL,
                     false, /* not top level */
                     dest,

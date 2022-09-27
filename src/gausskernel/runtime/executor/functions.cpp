@@ -830,6 +830,7 @@ static bool postquel_getnext(execution_state* es, SQLFunctionCachePtr fcache)
         /* ProcessUtility needs the PlannedStmt for DECLARE CURSOR */
         ProcessUtility((es->qd->plannedstmt ? (Node*)es->qd->plannedstmt : es->qd->utilitystmt),
             fcache->src,
+            false,
             es->qd->params,
             false, /* not top level */
             es->qd->dest,

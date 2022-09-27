@@ -4508,7 +4508,7 @@ static void InitTempTableNamespace(void)
     ret = snprintf_s(
         str, sizeof(str), sizeof(str) - 1, "CREATE SCHEMA %s AUTHORIZATION \"%s\"", namespaceName, bootstrap_username);
     securec_check_ss(ret, "\0", "\0");
-    ProcessUtility((Node*)create_stmt, str, NULL, false, None_Receiver, false, NULL);
+    ProcessUtility((Node*)create_stmt, str, false, NULL, false, None_Receiver, false, NULL);
 
     if (IS_PGXC_COORDINATOR)
         if (PoolManagerSetCommand(POOL_CMD_TEMP, namespaceName) < 0)
@@ -4561,7 +4561,7 @@ static void InitTempTableNamespace(void)
         toastNamespaceName,
         bootstrap_username);
     securec_check_ss(ret, "\0", "\0");
-    ProcessUtility((Node*)create_stmt, str, NULL, false, None_Receiver, false, NULL);
+    ProcessUtility((Node*)create_stmt, str, false, NULL, false, None_Receiver, false, NULL);
 
     /* Advance command counter to make namespace visible */
     CommandCounterIncrement();
@@ -5384,7 +5384,7 @@ dropExistTempNamespace(char *namespaceName)
     ereport(NOTICE, (errmsg("Deleting invalid temp schema %s.", namespaceName)));
     ret = snprintf_s(str, sizeof(str), sizeof(str) - 1, "DROP SCHEMA %s CASCADE", namespaceName);
     securec_check_ss(ret, "\0", "\0");
-    ProcessUtility((Node*)drop_stmt, str, NULL, false, None_Receiver, false, NULL);
+    ProcessUtility((Node*)drop_stmt, str, false, NULL, false, None_Receiver, false, NULL);
     CommandCounterIncrement();
 }
 

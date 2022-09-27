@@ -3217,7 +3217,7 @@ List* QueryRewriteCTAS(Query* parsetree)
         /* If MATILIZED VIEW exists, cannot send create table to DNs. */
         if (stmt->relkind != OBJECT_MATVIEW) {
             ProcessUtility(cparsetree->utilityStmt,
-                           create_sql,
+                           create_sql, false,
                            NULL, true, NULL, false, NULL);
         }
 
@@ -3226,7 +3226,7 @@ List* QueryRewriteCTAS(Query* parsetree)
             Query *query = (Query *)stmt->query;
 
             ProcessUtility(zparsetree->utilityStmt,
-                           view_sql,
+                           view_sql, false,
                            NULL, true, NULL, false, NULL);
 
             create_matview_meta(query, stmt->into->rel, stmt->into->ivm);
