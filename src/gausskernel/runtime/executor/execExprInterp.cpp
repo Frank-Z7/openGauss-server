@@ -870,8 +870,8 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			*op->resvalue = op->d.constval.value;
 
 			/* if a const cursor, copy cursor option data to econtext */
-    		if ((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
-				op->d.constval.con->consttype == REFCURSOROID) {
+    		if (unlikely((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
+				op->d.constval.con->consttype == REFCURSOROID)) {
     		    CopyCursorInfoData(&econtext->cursor_data, &op->d.constval.con->cursor_data);
     		    econtext->dno = op->d.constval.con->cursor_data.cur_dno;
     		}
@@ -2443,8 +2443,8 @@ ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull)
 	*isnull = op->d.constval.isnull;
 
 	/* if a const cursor, copy cursor option data to econtext */
-    if ((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
-		op->d.constval.con->consttype == REFCURSOROID) {
+    if (unlikely((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
+		op->d.constval.con->consttype == REFCURSOROID)) {
         CopyCursorInfoData(&econtext->cursor_data, &op->d.constval.con->cursor_data);
         econtext->dno = op->d.constval.con->cursor_data.cur_dno;
     }

@@ -524,7 +524,7 @@ Oid DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, bool is_al
     CheckCompressOption(&indexCreateSupport);
 
     /* Forbidden to create gin index on ustore table. */
-    if (rel->rd_tam_type == TAM_USTORE) {
+    if (rel->rd_tam_ops == TableAmUstore) {
         if (strcmp(stmt->accessMethod, "btree") == 0) {
             elog(ERROR, "btree index is not supported for ustore, please use ubtree instead");
         }
@@ -543,7 +543,7 @@ Oid DefineIndex(Oid relationId, IndexStmt* stmt, Oid indexRelationId, bool is_al
     }
 
     if (strcmp(stmt->accessMethod, "ubtree") == 0 &&
-        rel->rd_tam_type != TAM_USTORE) {
+        rel->rd_tam_ops != TableAmUstore) {
         elog(ERROR, "ubtree index is only supported for ustore");
     }
 

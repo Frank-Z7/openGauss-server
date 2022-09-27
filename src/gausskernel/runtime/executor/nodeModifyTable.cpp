@@ -775,7 +775,7 @@ static Oid ExecUpsert(ModifyTableState* state, TupleTableSlot* slot, TupleTableS
     /* try to insert tuple into mlog-table. */
     if (targetrel != NULL && targetrel->rd_mlogoid != InvalidOid) {
         /* judge whether need to insert into mlog-table */
-        if (targetrel->rd_tam_type == TAM_USTORE) {
+        if (targetrel->rd_tam_ops == TableAmUstore) {
             tuple = (Tuple)UHeapToHeap(targetrel->rd_att, (UHeapTuple)tuple);
         }
         insert_into_mlog_table(targetrel, targetrel->rd_mlogoid, (HeapTuple)tuple,
@@ -961,7 +961,7 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
         } else
 #endif
             if (useHeapMultiInsert) {
-                TupleTableSlot* tmp_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, false, GetTableAmRoutine(result_relation_desc->rd_tam_type));
+                TupleTableSlot* tmp_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, false, result_relation_desc->rd_tam_ops);
 
                 bool is_partition_rel = result_relation_desc->rd_rel->parttype == PARTTYPE_PARTITIONED_RELATION;
                 Oid targetOid = InvalidOid;
@@ -1023,7 +1023,7 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
                 tuple = tableam_tops_form_tuple(slot->tts_tupleDescriptor,
                                                 slot->tts_values, 
                                                 slot->tts_isnull, 
-                                                GetTableAmRoutine(result_relation_desc->rd_tam_type));
+                                                result_relation_desc->rd_tam_ops);
                 if (rel_isblockchain) {
                     MemoryContext old_context = MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
                     tuple = set_user_tuple_hash((HeapTuple)tuple, result_relation_desc);
@@ -1222,7 +1222,7 @@ TupleTableSlot* ExecInsertT(ModifyTableState* state, TupleTableSlot* slot, Tuple
     /* try to insert tuple into mlog-table. */
     if (target_rel != NULL && target_rel->rd_mlogoid != InvalidOid) {
         /* judge whether need to insert into mlog-table */
-        if (target_rel->rd_tam_type == TAM_USTORE) {
+        if (target_rel->rd_tam_ops == TableAmUstore) {
             tuple = (Tuple)UHeapToHeap(target_rel->rd_att, (UHeapTuple)tuple);
         }
         insert_into_mlog_table(target_rel, target_rel->rd_mlogoid, (HeapTuple)tuple,
@@ -1587,7 +1587,7 @@ end:;
                 if (slot->tts_tupleDescriptor != RelationGetDescr(result_relation_desc)) {
                     ExecSetSlotDescriptor(slot, RelationGetDescr(result_relation_desc));
                 }
-                slot->tts_tam_ops = GetTableAmRoutine(result_relation_desc->rd_tam_type);
+                slot->tts_tam_ops = result_relation_desc->rd_tam_ops;
                 if (oldtuple != NULL) {
                     Assert(!TTS_TABLEAM_IS_USTORE(slot));
                     del_tuple.t_data = oldtuple;
@@ -2544,7 +2544,7 @@ ldelete:
         insert_into_mlog_table(result_relation_desc, result_relation_desc->rd_mlogoid,
                                NULL, tupleid, tmfd.xmin, 'D');
         /* 2. insert new tuple */
-        if (result_relation_desc->rd_tam_type == TAM_USTORE) {
+        if (result_relation_desc->rd_tam_ops == TableAmUstore) {
             tuple = (Tuple)UHeapToHeap(result_relation_desc->rd_att, (UHeapTuple)tuple);
         }
         insert_into_mlog_table(result_relation_desc, result_relation_desc->rd_mlogoid,
@@ -2919,7 +2919,7 @@ static TupleTableSlot* ExecModifyTable(PlanState* state)
 
         EvalPlanQualSetSlot(&node->mt_epqstate, plan_slot);
         slot = plan_slot;
-        slot->tts_tupleDescriptor->td_tam_ops = GetTableAmRoutine(result_rel_info->ri_RelationDesc->rd_tam_type);
+        slot->tts_tupleDescriptor->td_tam_ops = result_rel_info->ri_RelationDesc->rd_tam_ops;
 
         if (operation == CMD_MERGE) {
             if (junk_filter == NULL) {
@@ -3352,7 +3352,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
          * RETURNING list.	We assume the rest will look the same.
          */
         tup_desc = ExecTypeFromTL((List*)linitial(node->returningLists), false, false, 
-                    GetTableAmRoutine(mt_state->resultRelInfo->ri_RelationDesc->rd_tam_type));
+                    mt_state->resultRelInfo->ri_RelationDesc->rd_tam_ops);
 
         /* Set up a slot for the output of the RETURNING projection(s) */
         ExecInitResultTupleSlot(estate, &mt_state->ps);
@@ -3406,7 +3406,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
 
         /* initialize slot for the existing tuple */
         upsertState->us_existing =
-            ExecInitExtraTupleSlot(mt_state->ps.state, GetTableAmRoutine(result_rel_info->ri_RelationDesc->rd_tam_type));
+            ExecInitExtraTupleSlot(mt_state->ps.state, result_rel_info->ri_RelationDesc->rd_tam_ops);
         ExecSetSlotDescriptor(upsertState->us_existing, result_rel_info->ri_RelationDesc->rd_att);
 
         upsertState->us_excludedtlist = node->exclRelTlist;
@@ -3414,7 +3414,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
         /* create target slot for UPDATE SET projection */
         tupDesc = ExecTypeFromTL((List*)node->updateTlist, result_rel_info->ri_RelationDesc->rd_rel->relhasoids);
         upsertState->us_updateproj =
-            ExecInitExtraTupleSlot(mt_state->ps.state, GetTableAmRoutine(result_rel_info->ri_RelationDesc->rd_tam_type));
+            ExecInitExtraTupleSlot(mt_state->ps.state, result_rel_info->ri_RelationDesc->rd_tam_ops);
         ExecSetSlotDescriptor(upsertState->us_updateproj, tupDesc);
 
         /* build UPDATE SET expression and projection state */
@@ -3544,7 +3544,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
 
                 j = ExecInitJunkFilter(sub_plan->targetlist,
                     result_rel_info->ri_RelationDesc->rd_att->tdhasoid,
-                    ExecInitExtraTupleSlot(estate, GetTableAmRoutine(result_rel_info->ri_RelationDesc->rd_tam_type)));
+                    ExecInitExtraTupleSlot(estate, result_rel_info->ri_RelationDesc->rd_tam_ops));
 
                 if (operation == CMD_UPDATE || operation == CMD_DELETE || operation == CMD_MERGE) {
                     /* For UPDATE/DELETE, find the appropriate junk attr now */
@@ -3632,7 +3632,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
      */
     if (estate->es_trig_tuple_slot == NULL) {
         result_rel_info = mt_state->resultRelInfo;
-        estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate, GetTableAmRoutine(result_rel_info->ri_RelationDesc->rd_tam_type));
+        estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate, result_rel_info->ri_RelationDesc->rd_tam_ops);
     }
 
     /*

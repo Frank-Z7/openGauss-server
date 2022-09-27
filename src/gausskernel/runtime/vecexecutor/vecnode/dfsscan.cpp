@@ -209,7 +209,7 @@ DfsScanState* ExecInitDfsScan(DfsScan* node, Relation parentHeapRel, EState* est
     /*
      * Initialize result tuple type and projection info.
      */
-    ExecAssignResultTypeFromTL(&scanState->ps, GetTableAmRoutine(currentRelation->rd_tam_type));
+    ExecAssignResultTypeFromTL(&scanState->ps, currentRelation->rd_tam_ops);
 
     scanState->ps.vectorized = true;
     scanState->isPartTbl = node->isPartTbl;
