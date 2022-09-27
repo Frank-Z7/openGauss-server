@@ -3190,7 +3190,7 @@ TupleTableSlot *EvalPlanQualUSlot(EPQState *epqstate, Relation relation, Index r
     if (*slot == NULL) {
         MemoryContext oldcontext = MemoryContextSwitchTo(epqstate->parentestate->es_query_cxt);
 
-        *slot = ExecAllocTableSlot(&epqstate->estate->es_tupleTable, TAM_USTORE);
+        *slot = ExecAllocTableSlot(&epqstate->estate->es_tupleTable, TableAmUstore);
         if (relation)
             ExecSetSlotDescriptor(*slot, RelationGetDescr(relation));
         else
@@ -3199,7 +3199,7 @@ TupleTableSlot *EvalPlanQualUSlot(EPQState *epqstate, Relation relation, Index r
         MemoryContextSwitchTo(oldcontext);
     }
 
-    (*slot)->tts_tupslotTableAm = TAM_USTORE;
+    (*slot)->tts_tam_ops = TableAmUstore;
 
     return *slot;
 }

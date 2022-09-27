@@ -1314,8 +1314,8 @@ HeapTuple UHeapCopyHeapTuple(TupleTableSlot *slot)
 {
     HeapTuple tuple;
 
-    Assert(!slot->tts_isempty);
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(!TTS_EMPTY(slot));
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     UHeapSlotGetAllAttrs(slot);
 
@@ -1342,20 +1342,20 @@ void UHeapSlotClear(TupleTableSlot *slot)
      * sanity checks
      */
     Assert(slot != NULL);
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     /*
      * Free any old physical tuple belonging to the slot.
      */
-    if (slot->tts_shouldFree && (UHeapTuple)slot->tts_tuple != NULL) {
+    if (TTS_SHOULDFREE(slot) && (UHeapTuple)slot->tts_tuple != NULL) {
         UHeapFreeTuple(slot->tts_tuple);
         slot->tts_tuple = NULL;
-        slot->tts_shouldFree = false;
+        slot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
     }
 
-    if (slot->tts_shouldFreeMin) {
+    if (TTS_SHOULDFREEMIN(slot)) {
         heap_free_minimal_tuple(slot->tts_mintuple);
-        slot->tts_shouldFreeMin = false;
+        slot->tts_flags &= ~TTS_FLAG_SHOULDFREEMIN;
     }
 }
 
@@ -1369,7 +1369,7 @@ void UHeapSlotClear(TupleTableSlot *slot)
  */
 void UHeapSlotGetSomeAttrs(TupleTableSlot *slot, int attnum)
 {
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     /* Quick out if we have 'em all already */
     if (slot->tts_nvalid >= attnum) {
@@ -1383,7 +1383,7 @@ void UHeapSlotGetSomeAttrs(TupleTableSlot *slot, int attnum)
 
 void UHeapSlotFormBatch(TupleTableSlot* slot, VectorBatch* batch, int cur_rows, int attnum)
 {
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     /* Quick out if we have all already */
     if (slot->tts_nvalid >= attnum) {
@@ -1479,7 +1479,7 @@ bool UHeapSlotAttIsNull(const TupleTableSlot *slot, int attnum)
     TupleDesc tupleDesc = slot->tts_tupleDescriptor;
     UHeapTuple uhtup = (UHeapTuple)slot->tts_tuple;
 
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     /*
      * system attributes are handled by heap_attisnull
@@ -1536,7 +1536,7 @@ bool UHeapSlotAttIsNull(const TupleTableSlot *slot, int attnum)
  */
 void UHeapSlotGetAllAttrs(TupleTableSlot *slot)
 {
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     /* Quick out if we have 'em all already */
     if (slot->tts_nvalid == slot->tts_tupleDescriptor->natts) {
@@ -1673,9 +1673,9 @@ MinimalTuple UHeapSlotCopyMinimalTuple(TupleTableSlot *slot)
      * sanity checks.
      */
     Assert(slot != NULL);
-    Assert(!slot->tts_isempty);
+    Assert(!TTS_EMPTY(slot));
     Assert(slot->tts_tupleDescriptor != NULL);
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     UHeapSlotGetAllAttrs(slot);
 
@@ -1698,7 +1698,7 @@ MinimalTuple UHeapSlotGetMinimalTuple(TupleTableSlot *slot)
      * sanity checks
      */
     Assert(slot != NULL);
-    Assert(!slot->tts_isempty);
+    Assert(!TTS_EMPTY(slot));
 
     /*
      * If we have a minimal physical tuple (local or not) then just return it.
@@ -1715,7 +1715,7 @@ MinimalTuple UHeapSlotGetMinimalTuple(TupleTableSlot *slot)
      */
     MemoryContext oldContext = MemoryContextSwitchTo(slot->tts_mcxt);
     slot->tts_mintuple = UHeapSlotCopyMinimalTuple(slot);
-    slot->tts_shouldFreeMin = true;
+    slot->tts_flags |= TTS_FLAG_SHOULDFREEMIN;
     MemoryContextSwitchTo(oldContext);
 
     /*
@@ -1743,16 +1743,16 @@ void UHeapSlotStoreMinimalTuple(MinimalTuple mtup, TupleTableSlot *slot, bool sh
     Assert(mtup != NULL);
     Assert(slot != NULL);
     Assert(slot->tts_tupleDescriptor != NULL);
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
 
     /*
      * Free any old physical tuple belonging to the slot.
      */
-    if (slot->tts_shouldFree && (UHeapTuple)slot->tts_tuple != NULL) {
+    if (TTS_SHOULDFREE(slot) && (UHeapTuple)slot->tts_tuple != NULL) {
         UHeapFreeTuple(slot->tts_tuple);
         slot->tts_tuple = NULL;
     }
-    if (slot->tts_shouldFreeMin) {
+    if (TTS_SHOULDFREEMIN(slot)) {
         heap_free_minimal_tuple(slot->tts_mintuple);
     }
 
@@ -1767,9 +1767,13 @@ void UHeapSlotStoreMinimalTuple(MinimalTuple mtup, TupleTableSlot *slot, bool sh
     /*
      * Store the new tuple into the specified slot.
      */
-    slot->tts_isempty = false;
-    slot->tts_shouldFree = false;
-    slot->tts_shouldFreeMin = shouldFree;
+    slot->tts_flags &= ~TTS_FLAG_EMPTY;
+    slot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
+    if (shouldFree)
+        slot->tts_flags |= TTS_FLAG_SHOULDFREEMIN;
+    else 
+        slot->tts_flags &= ~TTS_FLAG_SHOULDFREEMIN;
+
     slot->tts_tuple = &slot->tts_minhdr;
     slot->tts_mintuple = mtup;
 
@@ -1778,7 +1782,7 @@ void UHeapSlotStoreMinimalTuple(MinimalTuple mtup, TupleTableSlot *slot, bool sh
     slot->tts_minhdr.t_data = (HeapTupleHeader)((char *)mtup - MINIMAL_TUPLE_OFFSET);
 
     /* This slot now contains a HEAP_TUPLE so make sure to let callers know how to read it */
-    slot->tts_tupslotTableAm = TAM_HEAP;
+    slot->tts_tam_ops = TableAmHeap;
 
     /* no need to set t_self or t_tableOid since we won't allow access */
     /* Mark extracted state invalid */
@@ -1798,12 +1802,12 @@ void UHeapSlotStoreUHeapTuple(UHeapTuple utuple, TupleTableSlot *slot, bool shou
      * sanity checks
      */
     Assert(utuple != NULL && utuple->tupTableType == UHEAP_TUPLE);
-    Assert(slot != NULL && slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(slot != NULL && TTS_TABLEAM_IS_USTORE(slot));
     Assert(slot->tts_tupleDescriptor != NULL);
 
-    if (slot->tts_shouldFreeMin) {
+    if (TTS_SHOULDFREEMIN(slot)) {
         heap_free_minimal_tuple(slot->tts_mintuple);
-        slot->tts_shouldFreeMin = false;
+        slot->tts_flags &= ~TTS_FLAG_SHOULDFREEMIN;
     }
 
     UHeapSlotClear(slot);
@@ -1811,9 +1815,12 @@ void UHeapSlotStoreUHeapTuple(UHeapTuple utuple, TupleTableSlot *slot, bool shou
     /*
      * Store the new tuple into the specified slot.
      */
-    slot->tts_isempty = false;
-    slot->tts_shouldFree = shouldFree;
-    slot->tts_shouldFreeMin = false;
+    slot->tts_flags &= ~TTS_FLAG_EMPTY;
+    if (shouldFree)
+        slot->tts_flags |= TTS_FLAG_SHOULDFREE;
+    else
+        slot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
+    slot->tts_flags &= ~TTS_FLAG_SHOULDFREEMIN;
     slot->tts_tuple = utuple;
     slot->tts_mintuple = NULL;
 
@@ -1829,14 +1836,14 @@ void UHeapSlotStoreUHeapTuple(UHeapTuple utuple, TupleTableSlot *slot, bool shou
  */
 Tuple UHeapMaterialize(TupleTableSlot *slot)
 {
-    Assert(!slot->tts_isempty);
-    Assert(slot->tts_tupslotTableAm == TAM_USTORE);
+    Assert(!TTS_EMPTY(slot));
+    Assert(TTS_TABLEAM_IS_USTORE(slot));
     Assert(slot->tts_tupleDescriptor != NULL);
     /*
      * If we have a regular physical tuple, and it's locally palloc'd, we have
      * nothing to do.
      */
-    if (slot->tts_tuple && slot->tts_shouldFree) {
+    if (slot->tts_tuple && TTS_SHOULDFREE(slot)) {
         return slot->tts_tuple;
     }
 
@@ -1853,7 +1860,7 @@ Tuple UHeapMaterialize(TupleTableSlot *slot)
     } else {
         slot->tts_tuple = UHeapFormTuple(slot->tts_tupleDescriptor, slot->tts_values, slot->tts_isnull);
     }
-    slot->tts_shouldFree = true;
+    slot->tts_flags |= TTS_FLAG_SHOULDFREE;
     MemoryContextSwitchTo(old_context);
 
     /*

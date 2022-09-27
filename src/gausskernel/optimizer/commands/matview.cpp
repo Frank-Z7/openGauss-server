@@ -382,7 +382,7 @@ static void ExecHandleMatData(TupleTableSlot *slot, Relation matview, Oid mapid,
     HeapTuple tuple;
     Oid matid = RelationGetRelid(matview);
 
-    if (slot == NULL || slot->tts_isempty) {
+    if (slot == NULL || TTS_EMPTY(slot)) {
         return;
     }
 
@@ -442,7 +442,7 @@ static void ExecHandleIncData(TupleTableSlot *slot, Relation matview, Oid mapid,
     HeapTuple tuple;
     Oid mvid = RelationGetRelid(matview);
 
-    if (slot == NULL || slot->tts_isempty) {
+    if (slot == NULL || TTS_EMPTY(slot)) {
         return;
     }
 

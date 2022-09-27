@@ -802,8 +802,8 @@ BitmapHeapScanState* ExecInitBitmapHeapScan(BitmapHeapScan* node, EState* estate
     /*
      * tuple table initialization
      */
-    ExecInitResultTupleSlot(estate, &scanstate->ss.ps, currentRelation->rd_tam_type);
-    ExecInitScanTupleSlot(estate, &scanstate->ss, currentRelation->rd_tam_type);
+    ExecInitResultTupleSlot(estate, &scanstate->ss.ps, GetTableAmRoutine(currentRelation->rd_tam_type));
+    ExecInitScanTupleSlot(estate, &scanstate->ss, GetTableAmRoutine(currentRelation->rd_tam_type));
 
     InitBitmapHeapScanNextMtd(scanstate);
 

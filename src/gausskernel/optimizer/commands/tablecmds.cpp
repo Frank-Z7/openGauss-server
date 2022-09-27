@@ -8378,8 +8378,8 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
          * tuples are the same, the tupDescs might not be (consider ADD COLUMN
          * without a default).
          */
-        oldslot = MakeSingleTupleTableSlot(oldTupDesc, false, oldrel->rd_tam_type);
-        newslot = MakeSingleTupleTableSlot(newTupDesc, false, oldrel->rd_tam_type);
+        oldslot = MakeSingleTupleTableSlot(oldTupDesc, false, GetTableAmRoutine(oldrel->rd_tam_type));
+        newslot = MakeSingleTupleTableSlot(newTupDesc, false, GetTableAmRoutine(oldrel->rd_tam_type));
 
         /* Preallocate values/isnull arrays */
         i = Max(newTupDesc->natts, oldTupDesc->natts);
@@ -8531,7 +8531,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                  * will not try to clear it after we reset the context. Note that we don't explicitly pfree its
                  * tuple since the per-tuple memory context will be reset shortly.
                  */
-                oldslot->tts_shouldFree = false;
+                oldslot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
 
                 UHeapTuple backUpTup = BackUpScanCuTup(((UHeapScanDesc) scan)->rs_cutup);
                 ResetExprContext(econtext);
@@ -12036,7 +12036,7 @@ static void validateCheckConstraint(Relation rel, HeapTuple constrtup)
     List* exprstate = ExecPrepareExprList(make_ands_implicit(origexpr), estate);
     ExprContext* econtext = GetPerTupleExprContext(estate);
     TupleDesc tupdesc = RelationGetDescr(rel);
-    TupleTableSlot* slot = MakeSingleTupleTableSlot(tupdesc, false, rel->rd_tam_type);
+    TupleTableSlot* slot = MakeSingleTupleTableSlot(tupdesc, false, GetTableAmRoutine(rel->rd_tam_type));
 
     econtext->ecxt_scantuple = slot;
 
@@ -26387,7 +26387,7 @@ static void exec_only_test_dfs_table(AlteredTableInfo* tab)
         /*
          * Create tuple slot for scanning.
          */
-        scan_tuple_slot = MakeTupleTableSlot(true, tuple_desc->tdTableAmType);
+        scan_tuple_slot = MakeTupleTableSlot(true, GetTableAmRoutine(tuple_desc->tdTableAmType));
         scan_tuple_slot->tts_tupleDescriptor = tuple_desc;
         scan_tuple_slot->tts_values = values;
         scan_tuple_slot->tts_isnull = nulls;
@@ -26395,7 +26395,7 @@ static void exec_only_test_dfs_table(AlteredTableInfo* tab)
         do {
             dfs::reader::DFSGetNextTuple(scan, scan_tuple_slot);
 
-            if (!scan_tuple_slot->tts_isempty) {
+            if (!TTS_EMPTY(scan_tuple_slot)) {
 
                 tuple = heap_form_tuple(tuple_desc, values, nulls);
                 foreach (lc, not_null_attrs) {
