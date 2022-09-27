@@ -109,11 +109,11 @@ IndexTuple index_form_tuple(TupleDesc tuple_descriptor, Datum* values, const boo
 
 #ifdef TOAST_INDEX_HACK
     uint32 toastTarget = TOAST_INDEX_TARGET;
-    if (tuple_descriptor->tdTableAmType == TAM_USTORE) {
+    if (tuple_descriptor->td_tam_ops == TableAmUstore) {
         toastTarget = UTOAST_INDEX_TARGET;
     }   
     for (i = 0; i < attributeNum; i++) {
-        Form_pg_attribute att = TupleDescAttr(tuple_descriptor, i);
+        Form_pg_attribute att = &tuple_descriptor->attrs[i];
 
         untoasted_values[i] = values[i];
         untoasted_free[i] = false;

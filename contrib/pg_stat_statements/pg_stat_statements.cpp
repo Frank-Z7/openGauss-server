@@ -223,7 +223,7 @@ static void pgss_ExecutorStart(QueryDesc* queryDesc, int eflags);
 static void pgss_ExecutorRun(QueryDesc* queryDesc, ScanDirection direction, long count);
 static void pgss_ExecutorFinish(QueryDesc* queryDesc);
 static void pgss_ExecutorEnd(QueryDesc* queryDesc);
-static void pgss_ProcessUtility(Node* parsetree, const char* queryString, ParamListInfo params, bool isTopLevel,
+static void pgss_ProcessUtility(Node* parsetree, const char* queryString, bool readOnlyTree, ParamListInfo params, bool isTopLevel,
     DestReceiver* dest,
 #ifdef PGXC
     bool sentToRemote,
@@ -722,7 +722,7 @@ static void pgss_ExecutorEnd(QueryDesc* queryDesc)
 /*
  * ProcessUtility hook
  */
-static void pgss_ProcessUtility(Node* parsetree, const char* queryString, ParamListInfo params, bool isTopLevel,
+static void pgss_ProcessUtility(Node* parsetree, const char* queryString, bool readOnlyTree, ParamListInfo params, bool isTopLevel,
     DestReceiver* dest,
 #ifdef PGXC
     bool sentToRemote,
@@ -756,6 +756,7 @@ static void pgss_ProcessUtility(Node* parsetree, const char* queryString, ParamL
             if (prev_ProcessUtility)
                 prev_ProcessUtility(parsetree,
                     queryString,
+                    readOnlyTree,
                     params,
                     isTopLevel,
                     dest,
@@ -766,6 +767,7 @@ static void pgss_ProcessUtility(Node* parsetree, const char* queryString, ParamL
             else
                 standard_ProcessUtility(parsetree,
                     queryString,
+                    readOnlyTree,
                     params,
                     isTopLevel,
                     dest,
@@ -819,6 +821,7 @@ static void pgss_ProcessUtility(Node* parsetree, const char* queryString, ParamL
         if (prev_ProcessUtility)
             prev_ProcessUtility(parsetree,
                 queryString,
+                readOnlyTree,
                 params,
                 isTopLevel,
                 dest,
@@ -829,6 +832,7 @@ static void pgss_ProcessUtility(Node* parsetree, const char* queryString, ParamL
         else
             standard_ProcessUtility(parsetree,
                 queryString,
+                readOnlyTree,
                 params,
                 isTopLevel,
                 dest,

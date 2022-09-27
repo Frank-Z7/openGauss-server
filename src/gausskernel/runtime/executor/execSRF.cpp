@@ -299,7 +299,7 @@ static void init_fcache(
                 fcache->funcReturnsTuple = true;
             } else if (functypclass == TYPEFUNC_SCALAR) {
                 /* Base data type, i.e. scalar */
-                tupdesc = CreateTemplateTupleDesc(1, false, TAM_HEAP);
+                tupdesc = CreateTemplateTupleDesc(1, false);
                 TupleDescInitEntry(tupdesc, (AttrNumber)1, NULL, funcrettype, -1, 0);
                 fcache->funcResultDesc = tupdesc;
                 fcache->funcReturnsTuple = false;
@@ -670,7 +670,7 @@ Tuplestorestate* ExecMakeTableFunctionResult(
                     /*
                      * Scalar type, so make a single-column descriptor
                      */
-                    tupdesc = CreateTemplateTupleDesc(1, false, TAM_HEAP);
+                    tupdesc = CreateTemplateTupleDesc(1, false);
                     TupleDescInitEntry(tupdesc, (AttrNumber)1, "column", funcrettype, -1, 0);
                 }
                 tupstore = tuplestore_begin_heap(randomAccess, false, u_sess->attr.attr_memory.work_mem);
@@ -833,8 +833,8 @@ static void tupledesc_match(TupleDesc dst_tupdesc, TupleDesc src_tupdesc)
                     dst_tupdesc->natts)));
 
     for (i = 0; i < dst_tupdesc->natts; i++) {
-        Form_pg_attribute dattr = dst_tupdesc->attrs[i];
-        Form_pg_attribute sattr = src_tupdesc->attrs[i];
+        Form_pg_attribute dattr = &dst_tupdesc->attrs[i];
+        Form_pg_attribute sattr = &src_tupdesc->attrs[i];
 
         if (IsBinaryCoercible(sattr->atttypid, dattr->atttypid))
             continue; /* no worries */

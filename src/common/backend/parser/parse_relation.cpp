@@ -895,7 +895,7 @@ static void buildRelationAliases(TupleDesc tupdesc, Alias* alias, Alias* eref)
     }
 
     for (varattno = 0; varattno < maxattrs; varattno++) {
-        Form_pg_attribute attr = tupdesc->attrs[varattno];
+        Form_pg_attribute attr = &tupdesc->attrs[varattno];
         Value* attrname = NULL;
 
         if (attr->attisdropped) {
@@ -2237,7 +2237,7 @@ static void expandTupleDesc(TupleDesc tupdesc, Alias* eref, int rtindex, int sub
     int varattno;
 
     for (varattno = 0; varattno < maxattrs; varattno++) {
-        Form_pg_attribute attr = tupdesc->attrs[varattno];
+        Form_pg_attribute attr = &tupdesc->attrs[varattno];
 
         if (attr->attisdropped) {
             if (include_dropped) {
@@ -2517,7 +2517,7 @@ void get_rte_attribute_type(RangeTblEntry* rte, AttrNumber attnum, Oid* vartype,
                             errmsg("column %d of relation \"%s\" does not exist", attnum, rte->eref->aliasname)));
                 }
 
-                att_tup = tupdesc->attrs[attnum - 1];
+                att_tup = &tupdesc->attrs[attnum - 1];
 
                 /*
                  * If dropped column, pretend it ain't there.  See notes
@@ -2759,7 +2759,7 @@ int attnameAttNum(Relation rd, const char* attname, bool sysColOK)
     int i;
 
     for (i = 0; i < rd->rd_rel->relnatts; i++) {
-        Form_pg_attribute att = rd->rd_att->attrs[i];
+        Form_pg_attribute att = &rd->rd_att->attrs[i];
 
         if (namestrcmp(&(att->attname), attname) == 0 && !att->attisdropped) {
             return i + 1;
@@ -2823,7 +2823,7 @@ Name attnumAttName(Relation rd, int attid)
     if (attid > rd->rd_att->natts) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_ATTRIBUTE), errmsg("invalid attribute number %d", attid)));
     }
-    return &rd->rd_att->attrs[attid - 1]->attname;
+    return &rd->rd_att->attrs[attid - 1].attname;
 }
 
 /*
@@ -2845,7 +2845,7 @@ Oid attnumTypeId(Relation rd, int attid)
     if (attid > rd->rd_att->natts) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_ATTRIBUTE), errmsg("invalid attribute number %d", attid)));
     }
-    return rd->rd_att->attrs[attid - 1]->atttypid;
+    return rd->rd_att->attrs[attid - 1].atttypid;
 }
 
 /*
@@ -2862,7 +2862,7 @@ Oid attnumCollationId(Relation rd, int attid)
     if (attid > rd->rd_att->natts) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_ATTRIBUTE), errmsg("invalid attribute number %d", attid)));
     }
-    return rd->rd_att->attrs[attid - 1]->attcollation;
+    return rd->rd_att->attrs[attid - 1].attcollation;
 }
 
 /*

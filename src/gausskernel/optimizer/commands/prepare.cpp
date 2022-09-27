@@ -126,12 +126,9 @@ void PrepareQuery(PrepareStmt* stmt, const char* queryString)
      * Analyze the statement using these parameter types (any parameters
      * passed in from above us will not be visible to it), allowing
      * information about unknown parameters to be deduced from context.
-     *
-     * Because parse analysis scribbles on the raw querytree, we must make a
-     * copy to ensure we don't modify the passed-in tree.
      */
 
-    query = parse_analyze_varparams((Node*)copyObject(stmt->query), queryString, &argtypes, &nargs);
+    query = parse_analyze_varparams(stmt->query, queryString, &argtypes, &nargs);
 
     if (ENABLE_CN_GPC && plansource->gpc.status.IsSharePlan() && contains_temp_tables(query->rtable)) {
         /* temp table unsupport shared */
@@ -1293,7 +1290,7 @@ Datum pg_prepared_statement(PG_FUNCTION_ARGS)
      * build tupdesc for result tuples. This must match the definition of the
      * pg_prepared_statements view in system_views.sql
      */
-    tupdesc = CreateTemplateTupleDesc(5, false, TAM_HEAP);
+    tupdesc = CreateTemplateTupleDesc(5, false);
     TupleDescInitEntry(tupdesc, (AttrNumber)1, "name", TEXTOID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)2, "statement", TEXTOID, -1, 0);
     TupleDescInitEntry(tupdesc, (AttrNumber)3, "prepare_time", TIMESTAMPTZOID, -1, 0);

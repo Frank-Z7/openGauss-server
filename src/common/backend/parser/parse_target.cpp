@@ -398,8 +398,8 @@ Expr* transformAssignedExpr(ParseState* pstate, Expr* expr, ParseExprKind exprKi
                 parser_errposition(pstate, location)));
     }
     attrtype = attnumTypeId(rd, attrno);
-    attrtypmod = rd->rd_att->attrs[attrno - 1]->atttypmod;
-    attrcollation = rd->rd_att->attrs[attrno - 1]->attcollation;
+    attrtypmod = rd->rd_att->attrs[attrno - 1].atttypmod;
+    attrcollation = rd->rd_att->attrs[attrno - 1].attcollation;
 
     /*
      * If the expression is a DEFAULT placeholder, insert the attribute's
@@ -857,7 +857,7 @@ List* checkInsertTargets(ParseState* pstate, List* cols, List** attrnos)
                     errmsg("pstate->p_target_relation is NULL unexpectedly")));
         }
 
-        Form_pg_attribute* attr = pstate->p_target_relation->rd_att->attrs;
+        FormData_pg_attribute* attr = pstate->p_target_relation->rd_att->attrs;
         int numcol = RelationGetNumberOfAttributes(pstate->p_target_relation);
         int i;
         is_blockchain_rel = pstate->p_target_relation->rd_isblockchain;
@@ -865,7 +865,7 @@ List* checkInsertTargets(ParseState* pstate, List* cols, List** attrnos)
         for (i = 0; i < numcol; i++) {
             ResTarget* col = NULL;
 
-            if (attr[i]->attisdropped) {
+            if (attr[i].attisdropped) {
                 continue;
             }
             /* If the hidden column in timeseries relation, skip it */
@@ -874,7 +874,7 @@ List* checkInsertTargets(ParseState* pstate, List* cols, List** attrnos)
             }
 
             col = makeNode(ResTarget);
-            col->name = pstrdup(NameStr(attr[i]->attname));
+            col->name = pstrdup(NameStr(attr[i].attname));
             if (is_blockchain_rel && strcmp(col->name, "hash") == 0) {
                 continue;
             }
@@ -1263,7 +1263,7 @@ static List* ExpandRowReference(ParseState* pstate, Node* expr, bool targetlist)
     /* Generate a list of references to the individual fields */
     numAttrs = tupleDesc->natts;
     for (i = 0; i < numAttrs; i++) {
-        Form_pg_attribute att = tupleDesc->attrs[i];
+        Form_pg_attribute att = &tupleDesc->attrs[i];
         FieldSelect* fselect = NULL;
 
         if (att->attisdropped) {

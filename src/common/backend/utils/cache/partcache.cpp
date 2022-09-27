@@ -1266,7 +1266,7 @@ void UpdatePartrelPointer(Relation partrel, Relation rel, Partition part)
     partrel->rd_indextuple = rel->rd_indextuple;
     partrel->rd_am = rel->rd_am;
     partrel->rd_indnkeyatts = rel->rd_indnkeyatts;
-    Assert(partrel->rd_tam_type == rel->rd_tam_type);
+    Assert(partrel->rd_tam_ops == rel->rd_tam_ops);
 
     partrel->rd_aminfo = rel->rd_aminfo;
     partrel->rd_opfamily = rel->rd_opfamily;
@@ -1391,7 +1391,7 @@ Relation partitionGetRelation(Relation rel, Partition part)
     relation->rd_indextuple = rel->rd_indextuple;
     relation->rd_am = rel->rd_am;
     relation->rd_indnkeyatts = rel->rd_indnkeyatts;
-	relation->rd_tam_type = rel->rd_tam_type;
+	relation->rd_tam_ops = rel->rd_tam_ops;
 
     if (!OidIsValid(rel->rd_rel->relam)) {
         relation->rd_indexcxt = NULL;

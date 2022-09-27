@@ -1020,6 +1020,7 @@ static void ConvertTriggerToFK(CreateTrigStmt* stmt, Oid funcoid)
         /* ... and execute it */
         ProcessUtility((Node*)atstmt,
             "(generated ALTER TABLE ADD FOREIGN KEY command)",
+            false,
             NULL,
             false,
             None_Receiver,
@@ -2680,7 +2681,7 @@ static HeapTuple GetTupleForTrigger(EState* estate, EPQState* epqstate, ResultRe
     }
 
     if (RelationIsUstoreFormat(relation)) {
-        TupleTableSlot *slot = MakeSingleTupleTableSlot(relation->rd_att, false, TAM_USTORE);
+        TupleTableSlot *slot = MakeSingleTupleTableSlot(relation->rd_att, false, TableAmUstore);
         UHeapTuple utuple;
 
         UHeapTupleData uheaptupdata;

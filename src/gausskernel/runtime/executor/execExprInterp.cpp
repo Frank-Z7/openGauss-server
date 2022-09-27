@@ -870,8 +870,8 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 			*op->resvalue = op->d.constval.value;
 
 			/* if a const cursor, copy cursor option data to econtext */
-    		if ((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
-				op->d.constval.con->consttype == REFCURSOROID) {
+    		if (unlikely((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
+				op->d.constval.con->consttype == REFCURSOROID)) {
     		    CopyCursorInfoData(&econtext->cursor_data, &op->d.constval.con->cursor_data);
     		    econtext->dno = op->d.constval.con->cursor_data.cur_dno;
     		}
@@ -2443,8 +2443,8 @@ ExecJustConst(ExprState *state, ExprContext *econtext, bool *isnull)
 	*isnull = op->d.constval.isnull;
 
 	/* if a const cursor, copy cursor option data to econtext */
-    if ((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
-		op->d.constval.con->consttype == REFCURSOROID) {
+    if (unlikely((econtext->is_cursor || op->d.constval.is_cursor) && op->d.constval.con && 
+		op->d.constval.con->consttype == REFCURSOROID)) {
         CopyCursorInfoData(&econtext->cursor_data, &op->d.constval.con->cursor_data);
         econtext->dno = op->d.constval.con->cursor_data.cur_dno;
     }
@@ -2753,7 +2753,7 @@ static Datum CheckRowTypeIsNull(TupleDesc tupDesc, HeapTupleData tmptup, bool ch
 
     for (att = 1; att <= tupDesc->natts; att++) {
         /* ignore dropped columns */
-        if (tupDesc->attrs[att - 1]->attisdropped)
+        if (tupDesc->attrs[att - 1].attisdropped)
             continue;
         if (tableam_tops_tuple_attisnull(&tmptup, att, tupDesc)) {
             /* null field disproves IS NOT NULL */
@@ -2775,7 +2775,7 @@ static Datum CheckRowTypeIsNullForAFormat(TupleDesc tupDesc, HeapTupleData tmptu
 
     for (att = 1; att <= tupDesc->natts; att++) {
         /* ignore dropped columns */
-        if (tupDesc->attrs[att - 1]->attisdropped)
+        if (tupDesc->attrs[att - 1].attisdropped)
             continue;
         if (!tableam_tops_tuple_attisnull(&tmptup, att, tupDesc)) {
             /* non-null field disproves IS NULL */
@@ -3139,8 +3139,7 @@ ExecEvalRow(ExprState *state, ExprEvalStep *op)
 	/* build tuple from evaluated field values */
 	tuple = (HeapTuple)tableam_tops_form_tuple(op->d.row.tupdesc,
 							op->d.row.elemvalues,
-							op->d.row.elemnulls,
-							HEAP_TUPLE);
+							op->d.row.elemnulls);
 
 	*op->resvalue = HeapTupleGetDatum(tuple);
 	*op->resnull = false;
@@ -3249,7 +3248,7 @@ ExecEvalFieldSelect(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
             (errcode(ERRCODE_INVALID_ATTRIBUTE),
                 errmodule(MOD_EXECUTOR),
                 errmsg("attribute number %d exceeds number of columns %d", fieldnum, tupDesc->natts)));
-    attr = tupDesc->attrs[fieldnum - 1];
+    attr = &tupDesc->attrs[fieldnum - 1];
 
 	/* Check for dropped column, and force a NULL result if so */
 	if (attr->attisdropped)
@@ -3340,7 +3339,7 @@ ExecEvalFieldStoreForm(ExprState *state, ExprEvalStep *op, ExprContext *econtext
 
 	/* argdesc should already be valid from the DeForm step */
 	tuple = (HeapTuple)tableam_tops_form_tuple(*op->d.fieldstore.argdesc, 
-		op->d.fieldstore.values, op->d.fieldstore.nulls, HEAP_TUPLE);
+		op->d.fieldstore.values, op->d.fieldstore.nulls);
 	
 	*op->resvalue = HeapTupleGetDatum(tuple);
 	*op->resnull = false;
@@ -4323,8 +4322,8 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
     	                    var_tupdesc->natts)));
 
     	    for (i = 0; i < var_tupdesc->natts; i++) {
-    	        Form_pg_attribute vattr = var_tupdesc->attrs[i];
-    	        Form_pg_attribute sattr = slot_tupdesc->attrs[i];
+    	        Form_pg_attribute vattr = &var_tupdesc->attrs[i];
+    	        Form_pg_attribute sattr = &slot_tupdesc->attrs[i];
 
     	        if (vattr->atttypid == sattr->atttypid)
     	            continue; /* no worries */
@@ -4387,8 +4386,8 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 
 		for (i = 0; i < var_tupdesc->natts; i++)
 		{
-			Form_pg_attribute vattr = var_tupdesc->attrs[i];
-			Form_pg_attribute sattr = tupleDesc->attrs[i];
+			Form_pg_attribute vattr = &var_tupdesc->attrs[i];
+			Form_pg_attribute sattr = &tupleDesc->attrs[i];
 
 			if (!vattr->attisdropped)
 				continue;		/* already checked non-dropped cols */

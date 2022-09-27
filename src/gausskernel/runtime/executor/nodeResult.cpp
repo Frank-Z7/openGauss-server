@@ -225,7 +225,7 @@ ResultState* ExecInitResult(BaseResult* node, EState* estate, int eflags)
      * no relations are involved in nodeResult, set the default
      * tableAm type to HEAP
      */
-    ExecAssignResultTypeFromTL(&resstate->ps, TAM_HEAP);
+    ExecAssignResultTypeFromTL(&resstate->ps);
 
     ExecAssignProjectionInfo(&resstate->ps, NULL);
 

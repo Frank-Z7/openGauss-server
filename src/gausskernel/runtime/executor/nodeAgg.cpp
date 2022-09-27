@@ -307,7 +307,7 @@ static void initialize_aggregate(AggState* aggstate, AggStatePerTrans pertrans, 
          */
         if (pertrans->numInputs == 1) {
             pertrans->sortstates[aggstate->current_set] =
-                tuplesort_begin_datum(pertrans->sortdesc->attrs[0]->atttypid,
+                tuplesort_begin_datum(pertrans->sortdesc->attrs[0].atttypid,
                     pertrans->sortOperators[0],
                     pertrans->sortCollations[0],
                     pertrans->sortNullsFirst[0],
@@ -858,7 +858,7 @@ static void prepare_projection_slot(AggState* aggstate, TupleTableSlot* slot, in
 
         aggstate->grouped_cols = grouped_cols;
 
-        if (slot->tts_isempty) {
+        if (TTS_EMPTY(slot)) {
             /*
              * Force all values to be NULL if working on an empty input tuple
              * (i.e. an empty grouping set for which no input rows were
@@ -1932,7 +1932,7 @@ AggState* ExecInitAgg(Agg* node, EState* estate, int eflags)
      * Result tuple slot of Aggregation always contains a virtual tuple,
      * Default tableAMtype for this slot is Heap.
      */
-    ExecAssignResultTypeFromTL(&aggstate->ss.ps, TAM_HEAP);
+    ExecAssignResultTypeFromTL(&aggstate->ss.ps);
     ExecAssignProjectionInfo(&aggstate->ss.ps, NULL);
 
 

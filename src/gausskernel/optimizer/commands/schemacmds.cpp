@@ -269,6 +269,7 @@ void CreateSchemaCommand(CreateSchemaStmt* stmt, const char* queryString)
         /* do this step */
         ProcessUtility(stmt_tmp,
             queryString,
+            false,
             NULL,
             false, /* not top level */
             None_Receiver,

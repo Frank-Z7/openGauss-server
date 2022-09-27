@@ -33,7 +33,7 @@
     } while(0) \
 
 /* Hook for plugins to get control in ProcessUtility() */
-typedef void (*ProcessUtility_hook_type)(Node* parsetree, const char* queryString, ParamListInfo params,
+typedef void (*ProcessUtility_hook_type)(Node* parsetree, const char* queryString, bool readOnlyTree, ParamListInfo params,
     bool isTopLevel, DestReceiver* dest,
 #ifdef PGXC
     bool sentToRemote,
@@ -42,14 +42,14 @@ typedef void (*ProcessUtility_hook_type)(Node* parsetree, const char* queryStrin
     bool isCTAS);
 extern THR_LOCAL PGDLLIMPORT ProcessUtility_hook_type ProcessUtility_hook;
 
-extern void ProcessUtility(Node* parsetree, const char* queryString, ParamListInfo params, bool isTopLevel,
+extern void ProcessUtility(Node* parsetree, const char* queryString, bool readOnlyTree, ParamListInfo params, bool isTopLevel,
     DestReceiver* dest,
 #ifdef PGXC
     bool sentToRemote,
 #endif /* PGXC */
     char* completionTag,
     bool isCTAS = false);
-extern void standard_ProcessUtility(Node* parsetree, const char* queryString, ParamListInfo params, bool isTopLevel,
+extern void standard_ProcessUtility(Node* parsetree, const char* queryString, bool readOnlyTree, ParamListInfo params, bool isTopLevel,
     DestReceiver* dest,
 #ifdef PGXC
     bool sentToRemote,

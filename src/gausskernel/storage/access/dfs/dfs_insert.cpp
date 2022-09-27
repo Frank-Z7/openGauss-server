@@ -101,7 +101,7 @@ IndexInsertInfo *BuildIndexInsertInfo(Relation rel, ResultRelInfo *resultRelInfo
     if (resultRelInfo != NULL && resultRelInfo->ri_NumIndices > 0) {
         IndexInsertInfo *indexInfo = (IndexInsertInfo *)palloc0(sizeof(IndexInsertInfo));
         int attNo = rel->rd_att->natts;
-        Form_pg_attribute *attrs = rel->rd_att->attrs;
+        FormData_pg_attribute *attrs = rel->rd_att->attrs;
         indexInfo->maxKeyNum = 0;
         indexInfo->indexNum = resultRelInfo->ri_NumIndices;
 
@@ -141,7 +141,7 @@ IndexInsertInfo *BuildIndexInsertInfo(Relation rel, ResultRelInfo *resultRelInfo
             /* Initialize index key logical column id. */
             for (int j = 0; j < indexInfo->idxKeyNum[i]; ++j) {
                 for (int col = 0; col < attNo; ++col) {
-                    if (attrs[col]->attnum == keyPtr[j]) {
+                    if (attrs[col].attnum == keyPtr[j]) {
                         indexInfo->idxKeyAttr[i][j] = col;
                         break;
                     }
@@ -428,7 +428,7 @@ void DfsInsert::TupleInsert(Datum *values, bool *nulls, int option)
         /* insert tuple into delta table */
         MemoryContextReset(m_iterContext);
         AutoContextSwitch newContext(m_iterContext);
-        HeapTuple tuple = (HeapTuple)tableam_tops_form_tuple(m_delta->rd_att, values, nulls, HEAP_TUPLE);
+        HeapTuple tuple = (HeapTuple)tableam_tops_form_tuple(m_delta->rd_att, values, nulls);
         (void)heap_insert(m_delta, tuple, GetCurrentCommandId(true), option, NULL);
 
         return;

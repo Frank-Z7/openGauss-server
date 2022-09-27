@@ -661,7 +661,7 @@ static List* rewriteTargetListIU(List* targetList, CmdType commandType, Relation
                 ereport(ERROR,
                     (errcode(ERRCODE_OPTIMIZER_INCONSISTENT_STATE), errmsg("bogus resno %d in targetlist", attrno)));
             }
-            att_tup = target_relation->rd_att->attrs[attrno - 1];
+            att_tup = &target_relation->rd_att->attrs[attrno - 1];
 
             /* put attrno into attrno_list even if it's dropped */
             if (attrno_list != NULL)
@@ -698,7 +698,7 @@ static List* rewriteTargetListIU(List* targetList, CmdType commandType, Relation
         bool applyDefault = false;
         bool generateCol = ISGENERATEDCOL(target_relation->rd_att, attrno - 1);
 
-        att_tup = target_relation->rd_att->attrs[attrno - 1];
+        att_tup = &target_relation->rd_att->attrs[attrno - 1];
 
         /* We can (and must) ignore deleted attributes */
         if (att_tup->attisdropped)
@@ -931,7 +931,7 @@ static Node* get_assignment_input(Node* node)
 Node* build_column_default(Relation rel, int attrno, bool isInsertCmd)
 {
     TupleDesc rd_att = rel->rd_att;
-    Form_pg_attribute att_tup = rd_att->attrs[attrno - 1];
+    Form_pg_attribute att_tup = &rd_att->attrs[attrno - 1];
     Oid atttype = att_tup->atttypid;
     int32 atttypmod = att_tup->atttypmod;
     Node* expr = NULL;
@@ -1069,7 +1069,7 @@ static void rewriteValuesRTE(RangeTblEntry* rte, Relation target_relation, List*
         {
             Node *col = (Node *)lfirst(lc2);
             int attrno = lfirst_int(lc3);
-            Form_pg_attribute att_tup = target_relation->rd_att->attrs[attrno - 1];
+            Form_pg_attribute att_tup = &target_relation->rd_att->attrs[attrno - 1];
             bool generatedCol = ISGENERATEDCOL(target_relation->rd_att, attrno - 1);
             bool applyDefault = IsA(col, SetToDefault);
 
@@ -1235,7 +1235,7 @@ static void rewriteTargetListUD(Query* parsetree, RangeTblEntry* target_rte, Rel
             continue;
         }
 
-        att_tup = target_relation->rd_att->attrs[var->varattno - 1];
+        att_tup = &target_relation->rd_att->attrs[var->varattno - 1];
         tle = makeTargetEntry(
             (Expr*)var, list_length(parsetree->targetList) + 1, pstrdup(NameStr(att_tup->attname)), true);
 
@@ -1260,7 +1260,7 @@ static void rewriteTargetListUD(Query* parsetree, RangeTblEntry* target_rte, Rel
             Node* new_expr = NULL;
             TargetEntry* new_tle = NULL;
 
-            att_tup = target_relation->rd_att->attrs[att_no - 1];
+            att_tup = &target_relation->rd_att->attrs[att_no - 1];
 
             new_expr = (Node*)makeVar(
                 parsetree->resultRelation, att_no, att_tup->atttypid, att_tup->atttypmod, att_tup->attcollation, 0);
@@ -2054,7 +2054,7 @@ static List* rewriteTargetListMergeInto(
                 ereport(ERROR, (errcode(ERRCODE_AMBIGUOUS_COLUMN), errmsg("bogus resno %d in targetlist", attrno)));
             }
 
-            att_tup = target_relation->rd_att->attrs[attrno - 1];
+            att_tup = &target_relation->rd_att->attrs[attrno - 1];
 
             /* put attrno into attrno_list even if it's dropped */
             if (attrno_list != NULL)
@@ -2089,7 +2089,7 @@ static List* rewriteTargetListMergeInto(
         TargetEntry* new_tle = new_tles[attrno - 1];
         bool apply_default = false;
 
-        att_tup = target_relation->rd_att->attrs[attrno - 1];
+        att_tup = &target_relation->rd_att->attrs[attrno - 1];
 
         /* We can (and must) ignore deleted attributes */
         if (att_tup->attisdropped)
@@ -3217,7 +3217,7 @@ List* QueryRewriteCTAS(Query* parsetree)
         /* If MATILIZED VIEW exists, cannot send create table to DNs. */
         if (stmt->relkind != OBJECT_MATVIEW) {
             ProcessUtility(cparsetree->utilityStmt,
-                           create_sql,
+                           create_sql, false,
                            NULL, true, NULL, false, NULL);
         }
 
@@ -3226,7 +3226,7 @@ List* QueryRewriteCTAS(Query* parsetree)
             Query *query = (Query *)stmt->query;
 
             ProcessUtility(zparsetree->utilityStmt,
-                           view_sql,
+                           view_sql, false,
                            NULL, true, NULL, false, NULL);
 
             create_matview_meta(query, stmt->into->rel, stmt->into->ivm);

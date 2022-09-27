@@ -1562,7 +1562,7 @@ void CalculateWeightByColumns(PlannerInfo *root, List *hdfsQualColumn, List *hdf
  * @Return: the list of columns which are needed for dfs scan
  * @See also:
  */
-List *CreateColList(Form_pg_attribute *attributes, const int columnCount, const int16 *colIdx)
+List *CreateColList(FormData_pg_attribute *attributes, const int columnCount, const int16 *colIdx)
 {
     List *columnList = NIL;
     int16 columnIndex = 0;
@@ -1584,14 +1584,14 @@ List *CreateColList(Form_pg_attribute *attributes, const int columnCount, const 
          * If the column is dropped, it is not necessary to add this column
          * into column list.
          */
-        if (attributes[columnIndex]->attisdropped) {
+        if (attributes[columnIndex].attisdropped) {
             continue;
         }
 
         /* only assign required fields for column mapping hash */
         column->varattno = columnIndex + 1;
-        column->vartype = attributes[columnIndex]->atttypid;
-        column->vartypmod = attributes[columnIndex]->atttypmod;
+        column->vartype = attributes[columnIndex].atttypid;
+        column->vartypmod = attributes[columnIndex].atttypmod;
 
         columnList = lappend(columnList, column);
     }

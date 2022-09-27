@@ -36,6 +36,7 @@
 #include "access/reloptions.h"
 #include "access/sysattr.h"
 #include "access/transam.h"
+#include "access/tableam.h"
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "access/multixact.h"
@@ -1415,9 +1416,9 @@ static Relation AllocateRelationDesc(Form_pg_class relp)
     relation->rd_rel = relationForm;
 
     /* and allocate attribute tuple form storage */
-    relation->rd_att = CreateTemplateTupleDesc(relationForm->relnatts, relationForm->relhasoids, TAM_INVALID);
+    relation->rd_att = CreateTemplateTupleDesc(relationForm->relnatts, relationForm->relhasoids);
     //TODO:this should be TAM_invalid when merge ustore
-    relation->rd_tam_type = TAM_HEAP;
+    relation->rd_tam_ops = TableAmHeap;
     /* which we mark as a reference-counted tupdesc */
     relation->rd_att->tdrefcount = 1;
 
@@ -1577,14 +1578,14 @@ static void RelationBuildTupleDesc(Relation relation, bool onlyLoadInitDefVal)
              * Since relation->rd_att->atts palloc0 in function CreateTemplateTupleDesc,
              * its attnum should be zero, use it to check if above scenario happened.
              */
-            if (relation->rd_att->attrs[attp->attnum - 1]->attnum != 0) {
+            if (relation->rd_att->attrs[attp->attnum - 1].attnum != 0) {
                 /* Panic if we hit here many times, plus 2 make sure it has enough room in err stack */
                 int eLevel = ((t_thrd.log_cxt.errordata_stack_depth + 2) < ERRORDATA_STACK_SIZE) ? ERROR : PANIC;
                 ereport(eLevel,(errmsg("Catalog attribute %d for relation \"%s\" has been updated concurrently",
                     attp->attnum, RelationGetRelationName(relation))));
             }
             errno_t rc = memcpy_s(
-                relation->rd_att->attrs[attp->attnum - 1], ATTRIBUTE_FIXED_PART_SIZE, attp, ATTRIBUTE_FIXED_PART_SIZE);
+                &relation->rd_att->attrs[attp->attnum - 1], ATTRIBUTE_FIXED_PART_SIZE, attp, ATTRIBUTE_FIXED_PART_SIZE);
             securec_check(rc, "\0", "\0");
         }
         if (initdvals != NULL) {
@@ -1636,7 +1637,7 @@ static void RelationBuildTupleDesc(Relation relation, bool onlyLoadInitDefVal)
         /* find all missed attributes, and print them */
         StringInfo missing_attnums = makeStringInfo();
         for (int i = 0; i <  RelationGetNumberOfAttributes(relation); i++) {
-            if (0 == relation->rd_att->attrs[i]->attnum) {
+            if (0 == relation->rd_att->attrs[i].attnum) {
                 appendStringInfo(missing_attnums, "%d ", (i + 1));
             }
         }
@@ -1679,7 +1680,7 @@ static void RelationBuildTupleDesc(Relation relation, bool onlyLoadInitDefVal)
         int i;
 
         for (i = 0; i < RelationGetNumberOfAttributes(relation); i++)
-            Assert(relation->rd_att->attrs[i]->attcacheoff == -1);
+            Assert(relation->rd_att->attrs[i].attcacheoff == -1);
     }
 #endif
 
@@ -1689,7 +1690,7 @@ static void RelationBuildTupleDesc(Relation relation, bool onlyLoadInitDefVal)
      * for attnum=1 that used to exist in fastgetattr() and index_getattr().
      */
     if (!RelationIsUstoreFormat(relation) && RelationGetNumberOfAttributes(relation) > 0)
-        relation->rd_att->attrs[0]->attcacheoff = 0;
+        relation->rd_att->attrs[0].attcacheoff = 0;
 
     /*
      * Set up constraint/default info
@@ -1981,23 +1982,23 @@ static Relation CatalogRelationBuildDesc(const char* relationName, Oid relationR
     relation->rd_rel->relhasoids = hasoids;
     relation->rd_rel->relnatts = (int16)natts;
     // Catalog tables are heap table type.
-    relation->rd_tam_type = TAM_HEAP;
-    relation->rd_att = CreateTemplateTupleDesc(natts, hasoids, TAM_HEAP);
+    relation->rd_tam_ops = TableAmHeap;
+    relation->rd_att = CreateTemplateTupleDesc(natts, hasoids);
     relation->rd_att->tdrefcount = 1; /* mark as refcounted */
     relation->rd_att->tdtypeid = relationReltype;
     relation->rd_att->tdtypmod = -1;
     has_not_null = false;
     for (i = 0; i < natts; i++) {
         errno_t rc = EOK;
-        rc = memcpy_s(relation->rd_att->attrs[i], ATTRIBUTE_FIXED_PART_SIZE, &attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
+        rc = memcpy_s(&relation->rd_att->attrs[i], ATTRIBUTE_FIXED_PART_SIZE, &attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
         securec_check(rc, "\0", "\0");
         has_not_null = has_not_null || attrs[i].attnotnull;
         /* make sure attcacheoff is valid */
-        relation->rd_att->attrs[i]->attcacheoff = -1;
+        relation->rd_att->attrs[i].attcacheoff = -1;
     }
 
     /* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
-    relation->rd_att->attrs[0]->attcacheoff = 0;
+    relation->rd_att->attrs[0].attcacheoff = 0;
 
     /* mark not-null status */
     if (has_not_null) {
@@ -2010,7 +2011,7 @@ static Relation CatalogRelationBuildDesc(const char* relationName, Oid relationR
     /*
      * initialize relation id from info in att array (my, this is ugly)
      */
-    RelationGetRelid(relation) = relation->rd_att->attrs[0]->attrelid;
+    RelationGetRelid(relation) = relation->rd_att->attrs[0].attrelid;
 
     (void)MemoryContextSwitchTo(oldcxt);
 
@@ -2199,9 +2200,9 @@ Relation RelationBuildDesc(Oid targetRelId, bool insertIt, bool buildkey)
 
     /*  get the table access method type from reloptions
      * and populate them in relation and tuple descriptor */
-    relation->rd_tam_type =
-        get_tableam_from_reloptions(relation->rd_options, relation->rd_rel->relkind, relation->rd_rel->relam);
-    relation->rd_att->tdTableAmType = relation->rd_tam_type;
+    relation->rd_tam_ops = GetTableAmRoutine(
+        get_tableam_from_reloptions(relation->rd_options, relation->rd_rel->relkind, relation->rd_rel->relam));
+    relation->rd_att->td_tam_ops = relation->rd_tam_ops;
 
     relation->rd_indexsplit = get_indexsplit_from_reloptions(relation->rd_options, relation->rd_rel->relam);
 
@@ -2385,7 +2386,7 @@ RelationInitBucketKey(Relation relation, HeapTuple tuple)
     Oid        *bkeytype = NULL;
     int16      *attNum = NULL;
     int         nColumn;
-    Form_pg_attribute *rel_attrs = RelationGetDescr(relation)->attrs;
+    FormData_pg_attribute *rel_attrs = RelationGetDescr(relation)->attrs;
 
     if (!RelationIsRelation(relation) ||
         !OidIsValid(relation->rd_bucketoid)) {
@@ -2413,8 +2414,8 @@ RelationInitBucketKey(Relation relation, HeapTuple tuple)
     for (int i = 0; i < nColumn; i++) {
         bkey->values[i] = attNum[i];
         for (int j = 0; j < RelationGetDescr(relation)->natts; j++) {
-            if (attNum[i] == rel_attrs[j]->attnum) {
-                bkeytype[i] = rel_attrs[j]->atttypid;
+            if (attNum[i] == rel_attrs[j].attnum) {
+                bkeytype[i] = rel_attrs[j].atttypid;
                 break;
             }
         }
@@ -2990,8 +2991,8 @@ extern void formrdesc(const char* relationName, Oid relationReltype, bool isshar
      * Below Catalog tables are heap table type.
        pg_database, pg_authid, pg_auth_members,  pg_class, pg_attribute, pg_proc, and pg_type 
     */
-    relation->rd_att = CreateTemplateTupleDesc(natts, hasoids, TAM_HEAP);
-    relation->rd_tam_type = TAM_HEAP;
+    relation->rd_att = CreateTemplateTupleDesc(natts, hasoids);
+    relation->rd_tam_ops = TableAmHeap;
     relation->rd_att->tdrefcount = 1; /* mark as refcounted */
 
     relation->rd_att->tdtypeid = relationReltype;
@@ -3002,17 +3003,17 @@ extern void formrdesc(const char* relationName, Oid relationReltype, bool isshar
      */
     has_not_null = false;
     for (i = 0; i < natts; i++) {
-        errno_t rc = memcpy_s(relation->rd_att->attrs[i], ATTRIBUTE_FIXED_PART_SIZE,
+        errno_t rc = memcpy_s(&relation->rd_att->attrs[i], ATTRIBUTE_FIXED_PART_SIZE,
             &attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
         securec_check(rc, "", "");
         has_not_null = has_not_null || attrs[i].attnotnull;
         /* make sure attcacheoff is valid */
-        relation->rd_att->attrs[i]->attcacheoff = -1;
+        relation->rd_att->attrs[i].attcacheoff = -1;
     }
 
     /* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
     if (!RelationIsUstoreFormat(relation))
-        relation->rd_att->attrs[0]->attcacheoff = 0;
+        relation->rd_att->attrs[0].attcacheoff = 0;
 
     /* mark not-null status */
     if (has_not_null) {
@@ -3025,7 +3026,7 @@ extern void formrdesc(const char* relationName, Oid relationReltype, bool isshar
     /*
      * initialize relation id from info in att array (my, this is ugly)
      */
-    RelationGetRelid(relation) = relation->rd_att->attrs[0]->attrelid;
+    RelationGetRelid(relation) = relation->rd_att->attrs[0].attrelid;
 
     /*
      * All relations made with formrdesc are mapped.  This is necessarily so
@@ -4351,6 +4352,7 @@ Relation RelationBuildLocalRelation(const char* relname, Oid relnamespace, Tuple
     int i;
     bool has_not_null = false;
     bool nailit = false;
+    const TableAmRoutine* tam_ops = GetTableAmRoutine(tam_type);
 
     AssertArg(natts >= 0);
 
@@ -4426,14 +4428,14 @@ Relation RelationBuildLocalRelation(const char* relname, Oid relnamespace, Tuple
      * catalogs.  We can copy attnotnull constraints here, however.
      */
     rel->rd_att = CreateTupleDescCopy(tupDesc);
-    rel->rd_tam_type = tam_type;
+    rel->rd_tam_ops = tam_ops;
     rel->rd_indexsplit = relindexsplit;
-    rel->rd_att->tdTableAmType = tam_type;
+    rel->rd_att->td_tam_ops = tam_ops;
     rel->rd_att->tdrefcount = 1; /* mark as refcounted */
     has_not_null = false;
     for (i = 0; i < natts; i++) {
-        rel->rd_att->attrs[i]->attnotnull = tupDesc->attrs[i]->attnotnull;
-        has_not_null = has_not_null || tupDesc->attrs[i]->attnotnull;
+        rel->rd_att->attrs[i].attnotnull = tupDesc->attrs[i].attnotnull;
+        has_not_null = has_not_null || tupDesc->attrs[i].attnotnull;
     }
 
     if (has_not_null) {
@@ -4490,7 +4492,7 @@ Relation RelationBuildLocalRelation(const char* relname, Oid relnamespace, Tuple
     RelationGetRelid(rel) = relid;
 
     for (i = 0; i < natts; i++)
-        rel->rd_att->attrs[i]->attrelid = relid;
+        rel->rd_att->attrs[i].attrelid = relid;
 
     rel->rd_rel->reltablespace = reltablespace;
 
@@ -5429,19 +5431,19 @@ TupleDesc BuildHardcodedDescriptor(int natts, const FormData_pg_attribute* attrs
 {
     TupleDesc result;
     int i;
-    result = CreateTemplateTupleDesc(natts, hasoids, TAM_HEAP);
+    result = CreateTemplateTupleDesc(natts, hasoids);
     result->tdtypeid = RECORDOID; /* not right, but we don't care */
     result->tdtypmod = -1;
 
     for (i = 0; i < natts; i++) {
-        errno_t rc = memcpy_s(result->attrs[i], ATTRIBUTE_FIXED_PART_SIZE, &attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
+        errno_t rc = memcpy_s(&result->attrs[i], ATTRIBUTE_FIXED_PART_SIZE, &attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
         securec_check(rc, "", "");
         /* make sure attcacheoff is valid */
-        result->attrs[i]->attcacheoff = -1;
+        result->attrs[i].attcacheoff = -1;
     }
 
     /* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
-    result->attrs[0]->attcacheoff = 0;
+    result->attrs[0].attcacheoff = 0;
 
     /* Note: we don't bother to set up a TupleConstr entry */
 
@@ -5544,7 +5546,7 @@ static void AttrDefaultFetch(Relation relation)
 
             if (attrdef[i].adbin != NULL)
                 ereport(WARNING, (errmsg("multiple attrdef records found for attr %s of rel %s",
-                    NameStr(relation->rd_att->attrs[adform->adnum - 1]->attname), RelationGetRelationName(relation))));
+                    NameStr(relation->rd_att->attrs[adform->adnum - 1].attname), RelationGetRelationName(relation))));
             else
                 found++;
 
@@ -5555,7 +5557,7 @@ static void AttrDefaultFetch(Relation relation)
             val = fastgetattr(htup, Anum_pg_attrdef_adbin, adrel->rd_att, &isnull);
             if (isnull)
                 ereport(WARNING, (errmsg("null adbin for attr %s of rel %s",
-                    NameStr(relation->rd_att->attrs[adform->adnum - 1]->attname), RelationGetRelationName(relation))));
+                    NameStr(relation->rd_att->attrs[adform->adnum - 1].attname), RelationGetRelationName(relation))));
             else
                 attrdef[i].adbin = MemoryContextStrdup(LocalMyDBCacheMemCxt(), TextDatumGetCString(val));
             break;
@@ -6965,7 +6967,7 @@ static bool load_relcache_init_file(bool shared)
 
         /* initialize attribute tuple forms */
         //XXTAM:
-        rel->rd_att = CreateTemplateTupleDesc(relform->relnatts, relform->relhasoids, TAM_HEAP);
+        rel->rd_att = CreateTemplateTupleDesc(relform->relnatts, relform->relhasoids);
         rel->rd_att->tdrefcount = 1; /* mark as refcounted */
 
         rel->rd_att->tdtypeid = relform->reltype;
@@ -6979,12 +6981,12 @@ static bool load_relcache_init_file(bool shared)
                 goto read_failed;
             if (len != ATTRIBUTE_FIXED_PART_SIZE)
                 goto read_failed;
-            if (fread(rel->rd_att->attrs[i], 1, len, fp) != len)
+            if (fread(&rel->rd_att->attrs[i], 1, len, fp) != len)
                 goto read_failed;
 
-            has_not_null = has_not_null || rel->rd_att->attrs[i]->attnotnull;
+            has_not_null = has_not_null || rel->rd_att->attrs[i].attnotnull;
 
-            if (rel->rd_att->attrs[i]->atthasdef) {
+            if (rel->rd_att->attrs[i].atthasdef) {
                 /*
                  * Caution! For autovacuum, catchup and walsender thread, they will return before
                  * calling RelationCacheInitializePhase3, so they cannot load default vaules of adding
@@ -7371,7 +7373,7 @@ static void write_relcache_init_file(bool shared)
 
         /* next, do all the attribute tuple form data entries */
         for (i = 0; i < relform->relnatts; i++) {
-            write_item(rel->rd_att->attrs[i], ATTRIBUTE_FIXED_PART_SIZE, fp);
+            write_item(&rel->rd_att->attrs[i], ATTRIBUTE_FIXED_PART_SIZE, fp);
         }
 
         /* next, do the access method specific field */
@@ -7916,24 +7918,24 @@ RelationMetaData* make_relmeta(Relation rel)
     for (int i = 0; i < rel->rd_att->natts; i++) {
         AttrMetaData* attr = makeNode(AttrMetaData);
 
-        attr->attalign = rel->rd_att->attrs[i]->attalign;
-        attr->attbyval = rel->rd_att->attrs[i]->attbyval;
-        attr->attkvtype = rel->rd_att->attrs[i]->attkvtype;
-        attr->attcmprmode = rel->rd_att->attrs[i]->attcmprmode;
-        attr->attcollation = rel->rd_att->attrs[i]->attcollation;
-        attr->atthasdef = rel->rd_att->attrs[i]->atthasdef;
-        attr->attinhcount = rel->rd_att->attrs[i]->attinhcount;
-        attr->attisdropped = rel->rd_att->attrs[i]->attisdropped;
-        attr->attislocal = rel->rd_att->attrs[i]->attislocal;
-        attr->attnotnull = rel->rd_att->attrs[i]->attnotnull;
-        attr->attlen = rel->rd_att->attrs[i]->attlen;
-        attr->attnum = rel->rd_att->attrs[i]->attnum;
-        attr->attstorage = rel->rd_att->attrs[i]->attstorage;
-        attr->atttypid = rel->rd_att->attrs[i]->atttypid;
-        attr->atttypmod = rel->rd_att->attrs[i]->atttypmod;
+        attr->attalign = rel->rd_att->attrs[i].attalign;
+        attr->attbyval = rel->rd_att->attrs[i].attbyval;
+        attr->attkvtype = rel->rd_att->attrs[i].attkvtype;
+        attr->attcmprmode = rel->rd_att->attrs[i].attcmprmode;
+        attr->attcollation = rel->rd_att->attrs[i].attcollation;
+        attr->atthasdef = rel->rd_att->attrs[i].atthasdef;
+        attr->attinhcount = rel->rd_att->attrs[i].attinhcount;
+        attr->attisdropped = rel->rd_att->attrs[i].attisdropped;
+        attr->attislocal = rel->rd_att->attrs[i].attislocal;
+        attr->attnotnull = rel->rd_att->attrs[i].attnotnull;
+        attr->attlen = rel->rd_att->attrs[i].attlen;
+        attr->attnum = rel->rd_att->attrs[i].attnum;
+        attr->attstorage = rel->rd_att->attrs[i].attstorage;
+        attr->atttypid = rel->rd_att->attrs[i].atttypid;
+        attr->atttypmod = rel->rd_att->attrs[i].atttypmod;
 
         attr->attname = (char*)palloc0(NAMEDATALEN);
-        err = memcpy_s(attr->attname, NAMEDATALEN, rel->rd_att->attrs[i]->attname.data, NAMEDATALEN);
+        err = memcpy_s(attr->attname, NAMEDATALEN, rel->rd_att->attrs[i].attname.data, NAMEDATALEN);
         securec_check_c(err, "\0", "\0");
 
         node->attrs = lappend(node->attrs, attr);
@@ -7982,23 +7984,23 @@ Relation get_rel_from_meta(RelationMetaData* node)
     for (int i = 0; i < rel->rd_att->natts; i++) {
         AttrMetaData* attr = (AttrMetaData*)list_nth(node->attrs, i);
 
-        rel->rd_att->attrs[i]->attalign = attr->attalign;
-        rel->rd_att->attrs[i]->attbyval = attr->attbyval;
-        rel->rd_att->attrs[i]->attkvtype = attr->attkvtype;
-        rel->rd_att->attrs[i]->attcmprmode = attr->attcmprmode;
-        rel->rd_att->attrs[i]->attcollation = attr->attcollation;
-        rel->rd_att->attrs[i]->atthasdef = attr->atthasdef;
-        rel->rd_att->attrs[i]->attinhcount = attr->attinhcount;
-        rel->rd_att->attrs[i]->attisdropped = attr->attisdropped;
-        rel->rd_att->attrs[i]->attislocal = attr->attislocal;
-        rel->rd_att->attrs[i]->attnotnull = attr->attnotnull;
-        rel->rd_att->attrs[i]->attlen = attr->attlen;
-        rel->rd_att->attrs[i]->attnum = attr->attnum;
-        rel->rd_att->attrs[i]->attstorage = attr->attstorage;
-        rel->rd_att->attrs[i]->atttypid = attr->atttypid;
-        rel->rd_att->attrs[i]->atttypmod = attr->atttypmod;
+        rel->rd_att->attrs[i].attalign = attr->attalign;
+        rel->rd_att->attrs[i].attbyval = attr->attbyval;
+        rel->rd_att->attrs[i].attkvtype = attr->attkvtype;
+        rel->rd_att->attrs[i].attcmprmode = attr->attcmprmode;
+        rel->rd_att->attrs[i].attcollation = attr->attcollation;
+        rel->rd_att->attrs[i].atthasdef = attr->atthasdef;
+        rel->rd_att->attrs[i].attinhcount = attr->attinhcount;
+        rel->rd_att->attrs[i].attisdropped = attr->attisdropped;
+        rel->rd_att->attrs[i].attislocal = attr->attislocal;
+        rel->rd_att->attrs[i].attnotnull = attr->attnotnull;
+        rel->rd_att->attrs[i].attlen = attr->attlen;
+        rel->rd_att->attrs[i].attnum = attr->attnum;
+        rel->rd_att->attrs[i].attstorage = attr->attstorage;
+        rel->rd_att->attrs[i].atttypid = attr->atttypid;
+        rel->rd_att->attrs[i].atttypmod = attr->atttypmod;
 
-        rc = memcpy_s(rel->rd_att->attrs[i]->attname.data, NAMEDATALEN, attr->attname, strlen(attr->attname));
+        rc = memcpy_s(rel->rd_att->attrs[i].attname.data, NAMEDATALEN, attr->attname, strlen(attr->attname));
         securec_check(rc, "", "");
     }
 
