@@ -128,7 +128,7 @@ static void SegTerminateBufferIO(BufferDesc *buf, bool clear_dirty, uint32 set_f
     buf_state &= ~(BM_IO_IN_PROGRESS | BM_IO_ERROR);
     if (clear_dirty) {
         if (ENABLE_INCRE_CKPT) {
-            if (!XLogRecPtrIsInvalid(pg_atomic_read_u64(&buf->rec_lsn))) {
+            if (!XLogRecPtrIsInvalid(pg_atomic_read_u64(&buf->extra->rec_lsn))) {
                 remove_dirty_page_from_queue(buf);
             } else {
                 ereport(PANIC, (errmodule(MOD_INCRE_CKPT), errcode(ERRCODE_INVALID_BUFFER),
@@ -316,7 +316,7 @@ void SegMarkBufferDirty(Buffer buf)
     if (ENABLE_INCRE_CKPT) {
         for (;;) {
             buf_state = old_buf_state | (BM_DIRTY | BM_JUST_DIRTIED);
-            if (!XLogRecPtrIsInvalid(pg_atomic_read_u64(&bufHdr->rec_lsn))) {
+            if (!XLogRecPtrIsInvalid(pg_atomic_read_u64(&bufHdr->extra->rec_lsn))) {
                 break;
             }
 
@@ -444,7 +444,7 @@ Buffer ReadBufferFast(SegSpace *spc, RelFileNode rnode, ForkNumber forkNum, Bloc
                                 blockNum, relpathperm(rnode, forkNum), PageGetPageLayoutVersion(bufBlock))));
             }
         }
-        bufHdr->lsn_on_disk = PageGetLSN(bufBlock);
+        bufHdr->extra->lsn_on_disk = PageGetLSN(bufBlock);
 #ifdef USE_ASSERT_CHECKING
         bufHdr->lsn_dirty = InvalidXLogRecPtr;
 #endif
