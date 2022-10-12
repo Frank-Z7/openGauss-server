@@ -2233,21 +2233,39 @@ ExecInitFunc(ExprEvalStep *scratch, Expr *node, List *args, Oid funcid,
 	foreach(lc, args)
 	{
 		Expr	   *arg = (Expr *) lfirst(lc);
-		ExecInitExprRec(arg, state, &fcinfo->arg[argno], &fcinfo->argnull[argno], node);
-		fcinfo->argTypes[argno] = exprType((Node*)arg);
-        if (fcinfo->argTypes[argno] == CLOBOID && !fcinfo->argnull[argno]) {
-            /*maybe huge clob */
-            func_flags |= FUNC_EXPR_FLAG_ORACLE_COMPATIBILITY;
-        }
 
-        if (IsA(arg, Param)) {
-            Param* param = (Param*) arg;
-            if (param->paramkind == PARAM_EXTERN 
-                && (OidIsValid(param->tableOfIndexType) || OidIsValid(param->recordVarTypOid)))
-            {
-                func_flags |= FUNC_EXPR_FLAG_ORACLE_COMPATIBILITY;
-            }
-        }
+		if (IsA(arg, Const) && !(func_flags & (FUNC_EXPR_FLAG_IS_PLPGSQL | FUNC_EXPR_FLAG_HAS_REFCURSOR | FUNC_EXPR_FLAG_HAS_CURSOR_RETURN)))
+		{
+			/*
+			 * Don't evaluate const arguments every round; especially
+			 * interesting for constants in comparisons.
+			 */
+			Const	   *con = (Const *) arg;
+
+			fcinfo->arg[argno] = con->constvalue;
+			fcinfo->argnull[argno] = con->constisnull;
+		}
+		else
+		{
+			ExecInitExprRec(arg, state, &fcinfo->arg[argno], &fcinfo->argnull[argno], node);
+
+			if (IsA(arg, Param)) {
+        	    Param* param = (Param*) arg;
+        	    if (param->paramkind == PARAM_EXTERN && 
+					(OidIsValid(param->tableOfIndexType) || OidIsValid(param->recordVarTypOid)))
+        	    {
+        	        func_flags |= FUNC_EXPR_FLAG_ORACLE_COMPATIBILITY;
+        	    }
+        	}
+		}
+
+		fcinfo->argTypes[argno] = exprType((Node*)arg);
+
+		if (fcinfo->argTypes[argno] == CLOBOID && !fcinfo->argnull[argno]) {
+			/*maybe huge clob */
+			func_flags |= FUNC_EXPR_FLAG_ORACLE_COMPATIBILITY;
+		}
+
 		argno++;
 	}
 
