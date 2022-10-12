@@ -130,8 +130,6 @@ typedef struct knl_u_executor_context {
 
     struct PartitionIdentifier* route;
 
-    struct TupleHashTableData* cur_tuple_hash_table;
-
     class lightProxy* cur_light_proxy_obj;
 
     /*
