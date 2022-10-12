@@ -1377,8 +1377,6 @@ void UHeapSlotGetSomeAttrs(TupleTableSlot *slot, int attnum)
     }
     UHeapDeformTupleGuts((UHeapTuple)slot->tts_tuple, slot->tts_tupleDescriptor, slot->tts_values, slot->tts_isnull,
         attnum);
-
-    slot->tts_nvalid = attnum;
 }
 
 void UHeapSlotFormBatch(TupleTableSlot* slot, VectorBatch* batch, int cur_rows, int attnum)
