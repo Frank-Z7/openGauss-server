@@ -1429,6 +1429,56 @@ void* MemoryContextAllocHugeDebug(MemoryContext context, Size size, const char* 
 }
 
 /**
+ * @Description: Allocate (possibly-expansive) space within the specified context.
+ *				See considerations in comment at MaxAllocHugeSize.
+ * @in context - the pointer of memory context
+ * @in size - the allocated size
+ * @in file - which file are allocating memory
+ * @in line - which line are allocating memory
+ */
+void* MemoryContextAllocHugeZeroDebug(MemoryContext context, Size size, const char* file, int line)
+{
+    void* ret = NULL;
+
+    AssertArg(MemoryContextIsValid(context));
+
+    if (!AllocHugeSizeIsValid(size)) {
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), 
+                errmsg("invalid memory alloc request size %zu in %s:%d", size, file, line)));
+    }
+
+    context->isReset = false;
+
+    ret = (*context->methods->alloc)(context, 0, size, file, line);
+    if (ret == NULL)
+        ereport(ERROR,
+            (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
+                errmsg("memory is temporarily unavailable"),
+                errdetail("Failed on request of size %lu bytes under queryid %lu in %s:%d.",
+                    (unsigned long)size,
+                    u_sess->debug_query_id,
+                    file,
+                    line)));
+
+#ifdef MEMORY_CONTEXT_CHECKING
+    /* check if the memory context is out of control */
+    MemoryContextCheckMaxSize(context, size, file, line);
+#endif
+
+    /* check if the session used memory is beyond the limitation */
+    if (unlikely(STATEMENT_MAX_MEM)) {
+        MemoryContextCheckSessionMemory(context, size, file, line);
+    }
+    MemSetAligned(ret, 0, size);
+
+    InsertMemoryAllocInfo(ret, context, file, line, size);
+
+    return ret;
+}
+
+
+
+/**
  * @Description: Adjust the size of a previously allocated chunk, permitting a large
  *				value.  The previous allocation need not have been "huge".
  * @in pointer -  the pointer to the orignal memory region

@@ -130,8 +130,6 @@ typedef struct knl_u_executor_context {
 
     struct PartitionIdentifier* route;
 
-    struct TupleHashTableData* cur_tuple_hash_table;
-
     class lightProxy* cur_light_proxy_obj;
 
     /*
@@ -1801,7 +1799,7 @@ typedef struct knl_u_storage_context {
     /* Pointers to shared state */
     // struct BufferStrategyControl* StrategyControl;
     int NLocBuffer; /* until buffers are initialized */
-    struct BufferDesc* LocalBufferDescriptors;
+    union LocalBufferDescPadded* LocalBufferDescriptors;
     Block* LocalBufferBlockPointers;
     int32* LocalRefCount;
     int nextFreeLocalBuf;
