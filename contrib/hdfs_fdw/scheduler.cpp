@@ -705,7 +705,7 @@ List* CNSchedulingForAnalyze(unsigned int* totalFilesNum, unsigned int* numOfDns
 
     srvType = getServerType(foreignTableId);
     tupleDescriptor = RelationGetDescr(relation);
-    columnList = CreateColList((Form_pg_attribute*)tupleDescriptor->attrs, tupleDescriptor->natts);
+    columnList = CreateColList(tupleDescriptor->attrs, tupleDescriptor->natts);
 
     RelationClose(relation);
 
@@ -2261,7 +2261,7 @@ static bool PartitionFilterClause(SplitInfo* split, List* scanClauses, Var* valu
 static void CollectPartPruneInfo(List*& prunningResult, int sum, int notprunning, int colno, Oid relOid)
 {
     Relation rel = heap_open(relOid, AccessShareLock);
-    char* attName = NameStr(rel->rd_att->attrs[colno - 1]->attname);
+    char* attName = NameStr(rel->rd_att->attrs[colno - 1].attname);
 
     /*
      * Add 16 here because we need to add some description words, three separate characters

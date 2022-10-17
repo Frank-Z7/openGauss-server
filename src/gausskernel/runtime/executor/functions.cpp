@@ -830,6 +830,7 @@ static bool postquel_getnext(execution_state* es, SQLFunctionCachePtr fcache)
         /* ProcessUtility needs the PlannedStmt for DECLARE CURSOR */
         ProcessUtility((es->qd->plannedstmt ? (Node*)es->qd->plannedstmt : es->qd->utilitystmt),
             fcache->src,
+            false,
             es->qd->params,
             false, /* not top level */
             es->qd->dest,
@@ -1263,8 +1264,8 @@ Datum fmgr_sql(PG_FUNCTION_ARGS)
 
         if (IsClientLogicType(fcache->rettype)) {
             for (int i = 0; i < rsi->expectedDesc->natts; i++) {
-                if (IsClientLogicType(rsi->expectedDesc->attrs[i]->atttypid)) {
-                    rsi->expectedDesc->attrs[i]->atttypmod = fcache->rettype_orig;
+                if (IsClientLogicType(rsi->expectedDesc->attrs[i].atttypid)) {
+                    rsi->expectedDesc->attrs[i].atttypmod = fcache->rettype_orig;
                 }
             }
         }
@@ -1770,7 +1771,7 @@ bool check_sql_fn_retval(Oid func_id, Oid ret_type, List* query_tree_list, bool*
                         (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
                             errmsg("return type mismatch in function declared to return %s", format_type_be(ret_type)),
                             errdetail("Final statement returns too many columns.")));
-                attr = tup_desc->attrs[col_index - 1];
+                attr = &tup_desc->attrs[col_index - 1];
                 if (attr->attisdropped && modify_target_list) {
                     Expr* null_expr = NULL;
 
@@ -1823,7 +1824,7 @@ bool check_sql_fn_retval(Oid func_id, Oid ret_type, List* query_tree_list, bool*
 
                     for (int j = 0; j < col_index - 1; j++) {
                         all_types_orig[j] = -1;
-                        all_types[j] = ObjectIdGetDatum(tup_desc->attrs[j]->atttypid);
+                        all_types[j] = ObjectIdGetDatum(tup_desc->attrs[j].atttypid);
                     }
                 }
                 all_types_orig[col_index - 1] = ObjectIdGetDatum(att_type);
@@ -1861,7 +1862,7 @@ bool check_sql_fn_retval(Oid func_id, Oid ret_type, List* query_tree_list, bool*
 
         /* remaining columns in tupdesc had better all be dropped */
         for (col_index++; col_index <= tup_natts; col_index++) {
-            if (!tup_desc->attrs[col_index - 1]->attisdropped)
+            if (!tup_desc->attrs[col_index - 1].attisdropped)
                 ereport(ERROR,
                     (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
                         errmsg("return type mismatch in function declared to return %s", format_type_be(ret_type)),

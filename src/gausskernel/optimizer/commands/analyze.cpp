@@ -422,8 +422,8 @@ void analyze_rel(Oid relid, VacuumStmt* vacstmt, BufferAccessStrategy bstrategy)
          */
         if (RelationIsUstoreFormat(onerel)) {
             for (int i = 0; i < onerel->rd_att->natts; i++) {
-                if (onerel->rd_att->attrs[i]->attcacheoff >= 0) {
-                    onerel->rd_att->attrs[i]->attcacheoff = -1;
+                if (onerel->rd_att->attrs[i].attcacheoff >= 0) {
+                    onerel->rd_att->attrs[i].attcacheoff = -1;
                 }
             }
         }
@@ -1085,7 +1085,7 @@ static BlockNumber estimate_cstore_blocks(
 
     /* just as get_rel_data_width */
     for (i = 1; i <= RelationGetNumberOfAttributes(rel); i++) {
-        Form_pg_attribute att = rel->rd_att->attrs[i - 1];
+        Form_pg_attribute att = &rel->rd_att->attrs[i - 1];
         int32 item_width = -1;
 
         if (att->attisdropped)
@@ -1157,7 +1157,7 @@ static BlockNumber estimate_tsstore_blocks(Relation rel, int attrCnt, double tot
 
     /* just as get_rel_data_width */
     for (i = 1; i <= attrCnt; i++) {
-        Form_pg_attribute att = rel->rd_att->attrs[i - 1];
+        Form_pg_attribute att = &rel->rd_att->attrs[i - 1];
         int32 item_width = -1;
 
         if (att->attisdropped)
@@ -1225,10 +1225,10 @@ static BlockNumber estimate_psort_index_blocks(TupleDesc desc, double totalTuple
 {
     int totalWidth = 0;
     int attrCnt = desc->natts;
-    Form_pg_attribute* attrs = desc->attrs;
+    FormData_pg_attribute* attrs = desc->attrs;
 
     for (int attIdx = 0; attIdx < attrCnt; ++attIdx) {
-        Form_pg_attribute thisatt = attrs[attIdx];
+        Form_pg_attribute thisatt = &attrs[attIdx];
         totalWidth += get_typavgwidth(thisatt->atttypid, thisatt->atttypmod);
     }
 
@@ -1247,12 +1247,12 @@ static BlockNumber estimate_btree_index_blocks(TupleDesc desc, double totalTuple
 {
     int totalWidth = 0;
     int attrCnt = desc->natts;
-    Form_pg_attribute* attrs = desc->attrs;
+    FormData_pg_attribute* attrs = desc->attrs;
     BlockNumber totalPages = 0;   /* returning block number */
     bool hasToast = false;
 
     for (int attIdx = 0; attIdx < attrCnt; ++attIdx) {
-        Form_pg_attribute thisatt = attrs[attIdx];
+        Form_pg_attribute thisatt = &attrs[attIdx];
         totalWidth += get_typavgwidth(thisatt->atttypid, thisatt->atttypmod);
         AssertEreport(totalWidth > 0,
             MOD_OPT,
@@ -2114,7 +2114,7 @@ VacAttrStats* examine_attribute(Relation onerel, Bitmapset* bms_attnums, bool is
 {
     /* only analyze multi-column when each single column is valid */
     for (int attnum = -1; (attnum = bms_next_member(bms_attnums, attnum)) > 0;) {
-        Form_pg_attribute attr = onerel->rd_att->attrs[attnum - 1];
+        Form_pg_attribute attr = &onerel->rd_att->attrs[attnum - 1];
         if (!es_is_valid_column_to_analyze(attr)) {
             return NULL;
         }
@@ -2139,7 +2139,7 @@ VacAttrStats* examine_attribute(Relation onerel, Bitmapset* bms_attnums, bool is
     /* Set stats->attrs */
     int index = 0;
     for (int attnum = -1; (attnum = bms_next_member(bms_attnums, attnum)) > 0;) {
-        Form_pg_attribute attr = onerel->rd_att->attrs[attnum - 1];
+        Form_pg_attribute attr = &onerel->rd_att->attrs[attnum - 1];
 
         stats->attrs[index] = (Form_pg_attribute)palloc0(ATTRIBUTE_FIXED_PART_SIZE);
 
@@ -2176,7 +2176,7 @@ static VacAttrStats* examine_attribute(Relation onerel, int attnum, Node* index_
     int i;
     bool ok = false;
 
-    Form_pg_attribute attr = onerel->rd_att->attrs[attnum - 1];
+    Form_pg_attribute attr = &onerel->rd_att->attrs[attnum - 1];
 
     /* Check wheather the column is valid to analyze */
     if (!es_is_valid_column_to_analyze(attr)) {
@@ -2647,13 +2647,13 @@ retry:
              * reset to avoid their usage while reading heap tuples from rows array.
              */
             for (int i = 0; i < onerel->rd_att->natts; i++) {
-                if (onerel->rd_att->attrs[i]->attcacheoff >= 0) {
-                    onerel->rd_att->attrs[i]->attcacheoff = -1;
+                if (onerel->rd_att->attrs[i].attcacheoff >= 0) {
+                    onerel->rd_att->attrs[i].attcacheoff = -1;
                 }
             }
 
             /* TO DO: Need to switch this to inplaceheapam_scan_analyze_next_block after we have tableam. */
-            TupleTableSlot *slot = MakeSingleTupleTableSlot(RelationGetDescr(onerel), false, onerel->rd_tam_type);
+            TupleTableSlot *slot = MakeSingleTupleTableSlot(RelationGetDescr(onerel), false, onerel->rd_tam_ops);
             maxoffset = UHeapPageGetMaxOffsetNumber(targpage);
 
             /* Inner loop over all tuples on the selected page */
@@ -2809,8 +2809,8 @@ retry:
              * reset to avoid their usage while reading heap tuples from rows array.
              */
             for (int i = 0; i < onerel->rd_att->natts; i++) {
-                if (onerel->rd_att->attrs[i]->attcacheoff >= 0) {
-                    onerel->rd_att->attrs[i]->attcacheoff = -1;
+                if (onerel->rd_att->attrs[i].attcacheoff >= 0) {
+                    onerel->rd_att->attrs[i].attcacheoff = -1;
                 }
             }
 
@@ -3423,7 +3423,7 @@ static int64 AcquireSampleCStoreRows(Relation onerel, int elevel, HeapTuple* row
 
     /* Prepare for sampling rows */
     CStore* cstore = cstoreScanDesc->m_CStore;
-    Form_pg_attribute* attrs = cstore->m_relation->rd_att->attrs;
+    FormData_pg_attribute* attrs = cstore->m_relation->rd_att->attrs;
     GetValFunc* getValFuncPtr = (GetValFunc*)palloc(sizeof(GetValFunc) * colTotalNum);
 
     /* change sample rows pointer */
@@ -3431,7 +3431,7 @@ static int64 AcquireSampleCStoreRows(Relation onerel, int elevel, HeapTuple* row
 
     for (int col = 0; col < num_attnums; ++col) {
         int colSeq = attrSeq[col] = colIdx[col] - 1;
-        InitGetValFunc(attrs[colSeq]->attlen, getValFuncPtr, colSeq);
+        InitGetValFunc(attrs[colSeq].attlen, getValFuncPtr, colSeq);
     }
 
     ADIO_RUN()
@@ -3540,8 +3540,8 @@ static int64 AcquireSampleCStoreRows(Relation onerel, int elevel, HeapTuple* row
     do {                                                                            \
         old_context = MemoryContextSwitchTo(sample_context);                        \
         Datum dm = getValFuncPtr[colNum][funcIdx[colNum]](cuPtr[colNum], (offset)); \
-        int16 valueTyplen = attrs[(col_num)]->attlen;                               \
-        bool valueTypbyval = attrs[(col_num)]->attlen == 0 ? false : true;          \
+        int16 valueTyplen = attrs[(col_num)].attlen;                               \
+        bool valueTypbyval = attrs[(col_num)].attlen == 0 ? false : true;          \
         if (valueTyplen < 0)                                                        \
             (dest) = PointerGetDatum(PG_DETOAST_DATUM_COPY(dm));                    \
         else                                                                        \
@@ -3628,7 +3628,7 @@ static int64 AcquireSampleCStoreRows(Relation onerel, int elevel, HeapTuple* row
 
                 nullValues[colNum] = false;
                 old_context = MemoryContextSwitchTo(sample_context);
-                constValues[colNum] = CStore::CudescTupGetMinMaxDatum(&cuDesc, attrs[colNum], true, &shoulFree);
+                constValues[colNum] = CStore::CudescTupGetMinMaxDatum(&cuDesc, &attrs[colNum], true, &shoulFree);
                 (void)MemoryContextSwitchTo(old_context);
                 elog(DEBUG2,
                     "ANALYZE INFO - table \"%s\": attnum(%d), cuid(%u) is const value",
@@ -3639,7 +3639,7 @@ static int64 AcquireSampleCStoreRows(Relation onerel, int elevel, HeapTuple* row
             } else {
                 nullValues[colNum] = false;
                 constValues[colNum] = 0;
-                cuPtr[colNum] = cstore->GetCUData(&cuDesc, colNum, attrs[colNum]->attlen, slotIdList[col]);
+                cuPtr[colNum] = cstore->GetCUData(&cuDesc, colNum, attrs[colNum].attlen, slotIdList[col]);
                 funcIdx[colNum] = cuPtr[colNum]->HasNullValue() ? 1 : 0;
                 /*  check vacuum delay each CU IO action. if it's enable to fetch cu data from cu cache, we should
                  * reduce the calling number AMAP. */
@@ -3745,7 +3745,7 @@ static int64 AcquireSampleCStoreRows(Relation onerel, int elevel, HeapTuple* row
                 load_cu_data(0, num_attnums - 1, values, nulls, false);
 
                 tableam_tops_free_tuple(rows[location]);
-                rows[location] = (HeapTuple)tableam_tops_form_tuple(onerel->rd_att, values, nulls, HEAP_TUPLE);
+                rows[location] = (HeapTuple)tableam_tops_form_tuple(onerel->rd_att, values, nulls);
 
                 ItemPointerSet(&(rows[location])->t_self, targblock, targoffset + 1);
             }
@@ -3764,7 +3764,7 @@ static int64 AcquireSampleCStoreRows(Relation onerel, int elevel, HeapTuple* row
                 targoffset = lfirst_int(cell3);
 
                 tableam_tops_free_tuple(rows[location]);
-                rows[location] = (HeapTuple)tableam_tops_form_tuple(onerel->rd_att, st_cell->values, st_cell->nulls, HEAP_TUPLE);
+                rows[location] = (HeapTuple)tableam_tops_form_tuple(onerel->rd_att, st_cell->values, st_cell->nulls);
 
                 ItemPointerSet(&(rows[location])->t_self, targblock, targoffset + 1);
             }
@@ -3920,7 +3920,7 @@ static int64 AcquireSampleDfsStoreRows(Relation onerel, int elevel, HeapTuple* r
     totalblocks = list_length(fileList);
 
     /* create tuple slot for scanning */
-    scanTupleSlot = MakeTupleTableSlot(true, tupdesc->tdTableAmType);
+    scanTupleSlot = MakeTupleTableSlot(true, tupdesc->td_tam_ops);
     scanTupleSlot->tts_tupleDescriptor = tupdesc;
     scanTupleSlot->tts_values = columnValues;
     scanTupleSlot->tts_isnull = columnNulls;
@@ -3987,12 +3987,12 @@ static int64 AcquireSampleDfsStoreRows(Relation onerel, int elevel, HeapTuple* r
             randomskip = (int)(skip_factor * anl_random_fract());
             do {
                 dfs::reader::DFSGetNextTuple(scanState, scanTupleSlot);
-            } while (randomskip-- > 0 && !scanTupleSlot->tts_isempty);
+            } while (randomskip-- > 0 && !TTS_EMPTY(scanTupleSlot));
 
             /*
              * if there are no more records to read, break.
              */
-            if (scanTupleSlot->tts_isempty) {
+            if (TTS_EMPTY(scanTupleSlot)) {
                 (void)ExecClearTuple(scanTupleSlot);
                 break;
             }
@@ -4004,7 +4004,7 @@ static int64 AcquireSampleDfsStoreRows(Relation onerel, int elevel, HeapTuple* r
              */
             if (numrows < targrows) {
 
-                rows[numrows++] = (HeapTuple)tableam_tops_form_tuple(tupdesc, columnValues, columnNulls,  HEAP_TUPLE);
+                rows[numrows++] = (HeapTuple)tableam_tops_form_tuple(tupdesc, columnValues, columnNulls);
 
             } else {
                 /*
@@ -4025,7 +4025,7 @@ static int64 AcquireSampleDfsStoreRows(Relation onerel, int elevel, HeapTuple* r
                         rowIndex >= 0 && rowIndex < targrows, MOD_OPT, "index out of range when replacing tuple.");
 
                     tableam_tops_free_tuple(rows[rowIndex]);
-                    rows[rowIndex] = (HeapTuple)tableam_tops_form_tuple(tupdesc, columnValues, columnNulls, HEAP_TUPLE);
+                    rows[rowIndex] = (HeapTuple)tableam_tops_form_tuple(tupdesc, columnValues, columnNulls);
 
                 }
                 rowstoskip -= 1;
@@ -4556,7 +4556,7 @@ static int64 acquirePartitionedSampleRows(Relation onerel, VacuumStmt* vacstmt, 
             Relation deltaRel = relation_open(partRel->rd_rel->reldeltarelid, AccessShareLock);
             int16* colIdx = (int16*)palloc(sizeof(int16) * attrAnalyzeNum);
             for (int i = 0; i < attrAnalyzeNum; ++i)
-                colIdx[i] = onerel->rd_att->attrs[vacattrstats[i]->tupattnum - 1]->attnum;
+                colIdx[i] = onerel->rd_att->attrs[vacattrstats[i]->tupattnum - 1].attnum;
 
             CStoreScanDesc cstoreScanDesc = CStoreBeginScan(partRel, attrAnalyzeNum, colIdx, NULL, false);
 
@@ -6583,7 +6583,7 @@ static void do_sampling_complex_by_secsample(Relation onerel, VacuumStmt* vacstm
          * send the second sample rows num to cn,
          * because cn will identify which rows belong dfs or delta from complex sample rows.
          */
-        tupdesc = CreateTemplateTupleDesc(2, false, TAM_HEAP);
+        tupdesc = CreateTemplateTupleDesc(2, false);
         TupleDescInitEntry(tupdesc, (AttrNumber)1, "DfsSecSampleRows", FLOAT8OID, -1, 0);
         TupleDescInitEntry(tupdesc, (AttrNumber)2, "DeltaSecSampleRows", FLOAT8OID, -1, 0);
         tstate = begin_tup_output_tupdesc(vacstmt->dest, tupdesc);
@@ -6591,7 +6591,7 @@ static void do_sampling_complex_by_secsample(Relation onerel, VacuumStmt* vacstm
         tstate->slot->tts_isnull[0] = false;
         tstate->slot->tts_values[1] = pstDeltaSampleRows->secsamplerows;
         tstate->slot->tts_isnull[1] = false;
-        tstate->slot->tts_tuple = (HeapTuple)tableam_tops_form_tuple(tupdesc, tstate->slot->tts_values, tstate->slot->tts_isnull, HEAP_TUPLE);
+        tstate->slot->tts_tuple = (HeapTuple)tableam_tops_form_tuple(tupdesc, tstate->slot->tts_values, tstate->slot->tts_isnull);
         (vacstmt->dest->receiveSlot)(tstate->slot, vacstmt->dest);
 
         /* Send sample rows to CN is end after delta table sampling the third times. */
@@ -6717,8 +6717,8 @@ static bool equalTupleDescAttrsTypeid(TupleDesc tupdesc1, TupleDesc tupdesc2)
         return false;
 
     for (int i = 0; i < tupdesc1->natts; i++) {
-        Form_pg_attribute attr1 = tupdesc1->attrs[i];
-        Form_pg_attribute attr2 = tupdesc2->attrs[i];
+        Form_pg_attribute attr1 = &tupdesc1->attrs[i];
+        Form_pg_attribute attr2 = &tupdesc2->attrs[i];
 
         if ((!attr1->attisdropped && !attr2->attisdropped) &&
             ((attr1->atttypid != attr2->atttypid) || (attr1->attlen != attr2->attlen)))
@@ -7536,7 +7536,7 @@ static void spi_callback_get_sample_rows(void* clientData)
             int dropped_num = 0;
 
             for (int j = 0; j < spec->tupDesc->natts; j++) {
-                Form_pg_attribute attr1 = spec->tupDesc->attrs[j];
+                Form_pg_attribute attr1 = &spec->tupDesc->attrs[j];
 
                 if (attr1->attisdropped) {
                     nulls[j] = true;
@@ -7547,7 +7547,7 @@ static void spi_callback_get_sample_rows(void* clientData)
             }
 
             AssertEreport(spec->tupDesc->natts == (SPI_tuptable->tupdesc->natts + dropped_num), MOD_OPT, "");
-            spec->samplerows[i] = (HeapTuple)tableam_tops_form_tuple(spec->tupDesc, values, nulls, HEAP_TUPLE);
+            spec->samplerows[i] = (HeapTuple)tableam_tops_form_tuple(spec->tupDesc, values, nulls);
         }
     }
 
@@ -8047,7 +8047,7 @@ void dropSampleTable(const char* tableName)
 static ArrayBuildState* spi_get_result_array(int attrno, MemoryContext memory_context)
 {
     ArrayBuildState* result = NULL;
-    Form_pg_attribute attribute = SPI_tuptable->tupdesc->attrs[attrno];
+    Form_pg_attribute attribute = &SPI_tuptable->tupdesc->attrs[attrno];
 
     AssertEreport(attribute, MOD_OPT, "");
 
@@ -8134,7 +8134,7 @@ static void spi_callback_get_singlerow(void* clientData)
     } else {
         AssertEreport(SPI_tuptable != NULL, MOD_OPT, "must have result");       /* must have result */
         AssertEreport(SPI_processed == 1, MOD_OPT, "we expect only one tuple"); /* we expect only one tuple. */
-        AssertEreport(SPI_tuptable->tupdesc->attrs[0]->atttypid == INT8OID, MOD_OPT, "");
+        AssertEreport(SPI_tuptable->tupdesc->attrs[0].atttypid == INT8OID, MOD_OPT, "");
 
         datum_f = tableam_tops_tuple_getattr(SPI_tuptable->vals[0], 1, SPI_tuptable->tupdesc, &isnull);
 
@@ -8419,9 +8419,9 @@ static void analyze_compute_mcv(
      * is the same with local attribute for analyzed or not.
      */
     if (spec->stats->num_attrs == 1 && result.spi_tupDesc &&
-        (result.spi_tupDesc->attrs[0]->atttypid != spec->stats->attrs[0]->atttypid ||
-            result.spi_tupDesc->attrs[0]->atttypmod != spec->stats->attrs[0]->atttypmod ||
-            result.spi_tupDesc->attrs[0]->attlen != spec->stats->attrs[0]->attlen)) {
+        (result.spi_tupDesc->attrs[0].atttypid != spec->stats->attrs[0]->atttypid ||
+            result.spi_tupDesc->attrs[0].atttypmod != spec->stats->attrs[0]->atttypmod ||
+            result.spi_tupDesc->attrs[0].attlen != spec->stats->attrs[0]->attlen)) {
         ereport(WARNING,
             (errmsg("The tupleDesc analyzed on %s is different from tupleDesc which received from datanode "
                     "when computing mcv.",
@@ -8429,7 +8429,7 @@ static void analyze_compute_mcv(
                 errdetail("Attribute \"%s\" of type %s does not match corresponding attribute of type %s.",
                     NameStr(spec->stats->attrs[0]->attname),
                     format_type_be(spec->stats->attrs[0]->atttypid),
-                    format_type_be(result.spi_tupDesc->attrs[0]->atttypid))));
+                    format_type_be(result.spi_tupDesc->attrs[0].atttypid))));
         FreeTupleDesc(result.spi_tupDesc);
 
         DEBUG_MOD_STOP_TIMER(MOD_AUTOVAC, "Compute MCV for table %s failed.", tableName);
@@ -8536,7 +8536,7 @@ static void compute_histgram_internal(AnalyzeResultMultiColAsArraySpecInfo* spec
         }                                                                            \
     } while (0)
 
-    get_typlenbyvalalign(tupDesc->attrs[VALUE_COLUMN - 1]->atttypid, &valueTyplen, &valueTypbyval, &valueTypalign);
+    get_typlenbyvalalign(tupDesc->attrs[VALUE_COLUMN - 1].atttypid, &valueTyplen, &valueTypbyval, &valueTypalign);
 
     for (uint32 i = 0; i < SPI_processed; i++) {
         vcount = tableam_tops_tuple_getattr(SPI_tuptable->vals[i], ROWCOUNT_COLUMN, tupDesc, &isnull);
@@ -8719,13 +8719,13 @@ static void analyze_compute_histgram(int* slot_idx, const char* tableName, Analy
 
         if (!CHAR_WIDTH_EXCEED_20(spec)) {
             is_attr_diff =
-                result.spi_tupDesc && (result.spi_tupDesc->attrs[0]->atttypid != spec->stats->attrs[0]->atttypid ||
-                                          result.spi_tupDesc->attrs[0]->atttypmod != spec->stats->attrs[0]->atttypmod ||
-                                          result.spi_tupDesc->attrs[0]->attlen != spec->stats->attrs[0]->attlen);
+                result.spi_tupDesc && (result.spi_tupDesc->attrs[0].atttypid != spec->stats->attrs[0]->atttypid ||
+                                          result.spi_tupDesc->attrs[0].atttypmod != spec->stats->attrs[0]->atttypmod ||
+                                          result.spi_tupDesc->attrs[0].attlen != spec->stats->attrs[0]->attlen);
         } else {
-            is_attr_diff = result.spi_tupDesc && (result.spi_tupDesc->attrs[0]->atttypid != TEXTOID ||
-                                                     result.spi_tupDesc->attrs[0]->atttypmod != -1 ||
-                                                     result.spi_tupDesc->attrs[0]->attlen != -1);
+            is_attr_diff = result.spi_tupDesc && (result.spi_tupDesc->attrs[0].atttypid != TEXTOID ||
+                                                     result.spi_tupDesc->attrs[0].atttypmod != -1 ||
+                                                     result.spi_tupDesc->attrs[0].attlen != -1);
         }
 
         /*
@@ -8740,7 +8740,7 @@ static void analyze_compute_histgram(int* slot_idx, const char* tableName, Analy
                     errdetail("Attribute \"%s\" of type %s does not match corresponding attribute of type %s.",
                         NameStr(spec->stats->attrs[0]->attname),
                         format_type_be(spec->stats->attrs[0]->atttypid),
-                        format_type_be(result.spi_tupDesc->attrs[0]->atttypid))));
+                        format_type_be(result.spi_tupDesc->attrs[0].atttypid))));
             FreeTupleDesc(result.spi_tupDesc);
 
             return;

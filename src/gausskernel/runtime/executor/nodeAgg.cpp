@@ -167,7 +167,7 @@ static TupleTableSlot* project_aggregates(AggState* aggstate);
 static Bitmapset* find_unaggregated_cols(AggState* aggstate);
 static bool find_unaggregated_cols_walker(Node* node, Bitmapset** colnos);
 static void build_hash_table(AggState* aggstate);
-static AggHashEntry lookup_hash_entry(AggState* aggstate, TupleTableSlot* inputslot);
+static TupleHashEntryData* lookup_hash_entry(AggState* aggstate, TupleTableSlot* inputslot);
 static TupleTableSlot* agg_retrieve_direct(AggState* aggstate);
 static void agg_fill_hash_table(AggState* aggstate);
 static TupleTableSlot* agg_retrieve_hash_table(AggState* aggstate);
@@ -307,7 +307,7 @@ static void initialize_aggregate(AggState* aggstate, AggStatePerTrans pertrans, 
          */
         if (pertrans->numInputs == 1) {
             pertrans->sortstates[aggstate->current_set] =
-                tuplesort_begin_datum(pertrans->sortdesc->attrs[0]->atttypid,
+                tuplesort_begin_datum(pertrans->sortdesc->attrs[0].atttypid,
                     pertrans->sortOperators[0],
                     pertrans->sortCollations[0],
                     pertrans->sortNullsFirst[0],
@@ -858,7 +858,7 @@ static void prepare_projection_slot(AggState* aggstate, TupleTableSlot* slot, in
 
         aggstate->grouped_cols = grouped_cols;
 
-        if (slot->tts_isempty) {
+        if (TTS_EMPTY(slot)) {
             /*
              * Force all values to be NULL if working on an empty input tuple
              * (i.e. an empty grouping set for which no input rows were
@@ -992,7 +992,7 @@ static void build_hash_table(AggState* aggstate)
 {
     Agg* node = (Agg*)aggstate->ss.ps.plan;
     MemoryContext tmpmem = aggstate->tmpcontext->ecxt_per_tuple_memory;
-    Size entrysize;
+    Size additionalsize;
     int64 workMem = SET_NODEMEM(node->plan.operatorMemKB[0], node->plan.dop);
 
     Assert(node->aggstrategy == AGG_HASHED);
@@ -1005,14 +1005,14 @@ static void build_hash_table(AggState* aggstate)
     }
 #endif
 
-    entrysize = offsetof(AggHashEntryData, pergroup) + (aggstate->numaggs) * sizeof(AggStatePerGroupData);
+    additionalsize = aggstate->numaggs * sizeof(AggStatePerGroupData);
 
     aggstate->hashtable = BuildTupleHashTable(node->numCols,
         node->grpColIdx,
         aggstate->phase->eqfunctions,
         aggstate->hashfunctions,
         node->numGroups,
-        entrysize,
+        additionalsize,
         aggstate->aggcontexts[0],
         tmpmem,
         workMem);
@@ -1066,20 +1066,21 @@ List* find_hash_columns(AggState* aggstate)
 }
 
 /*
- * Estimate per-hash-table-entry overhead for the planner.
- *
- * Note that the estimate does not include space for pass-by-reference
- * transition data values, nor for the representative tuple of each group.
- */
+* Estimate per-hash-table-entry overhead for the planner.
+*
+* Note that the estimate does not include space for pass-by-reference
+* transition data values, nor for the representative tuple of each group.
+* Nor does this account of the target fill-factor and growth policy of the
+* hash table.
+*/
 Size hash_agg_entry_size(int numAggs)
 {
     Size entrysize;
 
     /* This must match build_hash_table */
-    entrysize = offsetof(AggHashEntryData, pergroup) + numAggs * sizeof(AggStatePerGroupData);
+    entrysize = sizeof(TupleHashEntryData) + numAggs * sizeof(AggStatePerGroupData);
     entrysize = MAXALIGN(entrysize);
-    /* Account for hashtable overhead (assuming fill factor = 1) */
-    entrysize += 3 * sizeof(void*);
+
     return entrysize;
 }
 
@@ -1133,11 +1134,11 @@ uint32 ComputeHashValue(TupleHashTable hashtbl)
  *
  * When called, CurrentMemoryContext should be the per-query context.
  */
-static AggHashEntry lookup_hash_entry(AggState* aggstate, TupleTableSlot* inputslot)
+static TupleHashEntryData * lookup_hash_entry(AggState* aggstate, TupleTableSlot* inputslot)
 {
     TupleTableSlot* hashslot = aggstate->hashslot;
     ListCell* l = NULL;
-    AggHashEntry entry;
+    TupleHashEntryData* entry;
     bool isnew = false;
     AggWriteFileControl* TempFileControl = (AggWriteFileControl*)aggstate->aggTempFileControl;
 
@@ -1159,17 +1160,20 @@ static AggHashEntry lookup_hash_entry(AggState* aggstate, TupleTableSlot* inputs
 
     if (TempFileControl->spillToDisk == false || TempFileControl->finishwrite == true) {
         /* find or create the hashtable entry using the filtered tuple */
-        entry = (AggHashEntry)LookupTupleHashEntry(aggstate->hashtable, hashslot, &isnew, true);
+        entry = LookupTupleHashEntry(aggstate->hashtable, hashslot, &isnew, true);
     } else {
         /* this solt need be insert into temp file instead of hash table if it is not existed in hash table */
-        entry = (AggHashEntry)LookupTupleHashEntry(aggstate->hashtable, hashslot, &isnew, false);
+        entry = LookupTupleHashEntry(aggstate->hashtable, hashslot, &isnew, false);
     }
 
     if (isnew) {
         /* this slot is new and has be inserted to hash table */
         if (entry) {
             /* initialize aggregates for new tuple group */
-            initialize_aggregates(aggstate, aggstate->peragg, entry->pergroup);
+            entry->additional = (AggStatePerGroup)
+                                MemoryContextAlloc(aggstate->hashtable->tablecxt,
+                                    sizeof(AggStatePerGroupData) * aggstate->numaggs);
+            initialize_aggregates(aggstate, aggstate->peragg, (AggStatePerGroup)entry->additional);
             agg_spill_to_disk(TempFileControl,
                             aggstate->hashtable,
                             aggstate->hashslot,
@@ -1204,7 +1208,7 @@ static AggHashEntry lookup_hash_entry(AggState* aggstate, TupleTableSlot* inputs
 
     /*for execInterpExpr to run.*/
     if (entry)
-        aggstate->all_pergroups = entry->pergroup;
+        aggstate->all_pergroups = (AggStatePerGroup)entry->additional;
     else
         aggstate->all_pergroups = NULL;
     return entry;
@@ -1620,7 +1624,7 @@ static TupleTableSlot* agg_retrieve_direct(AggState* aggstate)
 static void agg_fill_hash_table(AggState* aggstate)
 {
     ExprContext* tmpcontext = NULL;
-    AggHashEntry entry;
+    TupleHashEntryData* entry;
     TupleTableSlot* outerslot = NULL;
     AggWriteFileControl* TempFileControl = (AggWriteFileControl*)aggstate->aggTempFileControl;
 
@@ -1663,7 +1667,7 @@ static void agg_fill_hash_table(AggState* aggstate)
 
         if (entry != NULL) {
             /* Advance the aggregates */
-            advance_aggregates(aggstate, entry->pergroup);
+            advance_aggregates(aggstate, (AggStatePerGroup)entry->additional);
         } else {
             /* this outerslot is inserted to temp table, it will be compute when the temp file be readed */
         }
@@ -1702,7 +1706,7 @@ static TupleTableSlot* agg_retrieve_hash_table(AggState* aggstate)
     ExprContext* econtext = NULL;
     AggStatePerAgg peragg;
     AggStatePerGroup pergroup;
-    AggHashEntry entry;
+    TupleHashEntryData* entry;
     TupleTableSlot* firstSlot = NULL;
     TupleTableSlot* result = NULL;
 
@@ -1722,7 +1726,7 @@ static TupleTableSlot* agg_retrieve_hash_table(AggState* aggstate)
         /*
          * Find the next entry in the hash table
          */
-        entry = (AggHashEntry)ScanTupleHashTable(&aggstate->hashiter);
+        entry = ScanTupleHashTable(aggstate->hashtable, &aggstate->hashiter);
         if (entry == NULL) {
             /* No more entries in hashtable, so done */
             aggstate->agg_done = TRUE;
@@ -1738,9 +1742,9 @@ static TupleTableSlot* agg_retrieve_hash_table(AggState* aggstate)
          * Store the copied first input tuple in the tuple table slot reserved
          * for it, so that it can be used in ExecProject.
          */
-        ExecStoreMinimalTuple(entry->shared.firstTuple, firstSlot, false);
+        ExecStoreMinimalTuple(entry->firstTuple, firstSlot, false);
 
-        pergroup = entry->pergroup;
+        pergroup = (AggStatePerGroup)entry->additional;
 
         /*
          * Finalize each aggregate calculation, and stash results in the
@@ -1932,7 +1936,7 @@ AggState* ExecInitAgg(Agg* node, EState* estate, int eflags)
      * Result tuple slot of Aggregation always contains a virtual tuple,
      * Default tableAMtype for this slot is Heap.
      */
-    ExecAssignResultTypeFromTL(&aggstate->ss.ps, TAM_HEAP);
+    ExecAssignResultTypeFromTL(&aggstate->ss.ps);
     ExecAssignProjectionInfo(&aggstate->ss.ps, NULL);
 
 

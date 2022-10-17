@@ -11,10 +11,6 @@
  * Hence these functions are now called at the start of execution of their
  * respective utility commands.
  *
- * NOTE: in general we must avoid scribbling on the passed-in raw parse
- * tree, since it might be in a plan cache.  The simplest solution is
- * a quick copyObject() call before manipulating the query tree.
- *
  *
  * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
@@ -169,7 +165,7 @@ static void check_partition_name_less_than(List* partitionList, bool isPartition
 static void check_partition_name_start_end(List* partitionList, bool isPartition);
 
 /* for range partition: start/end syntax */
-static void precheck_start_end_defstate(List* pos, Form_pg_attribute* attrs,
+static void precheck_start_end_defstate(List* pos, FormData_pg_attribute* attrs,
     RangePartitionStartEndDefState* defState, bool isPartition);
 static Datum get_partition_arg_value(Node* node, bool* isnull);
 static Datum evaluate_opexpr(
@@ -216,11 +212,6 @@ Oid *namespaceid, bool isFirstNode)
     Oid existing_relid;
     bool is_ledger_nsp = false;
     bool is_row_table = is_ledger_rowstore(stmt->options);
-    /*
-     * We must not scribble on the passed-in CreateStmt, so copy it.  (This is
-     * overkill, but easy.)
-     */
-    stmt = (CreateStmt*)copyObject(stmt);
     
     if (uuids != NIL) {
         list_free_deep(stmt->uuids);
@@ -1271,7 +1262,7 @@ static DistributeBy* GetHideTagDistribution(TupleDesc tupleDesc)
     DistributeBy* distributeby = makeNode(DistributeBy);
     distributeby->disttype = DISTTYPE_HASH;
     for (int attno = 1; attno <= tupleDesc->natts; attno++) {
-        Form_pg_attribute attribute = tupleDesc->attrs[attno - 1];
+        Form_pg_attribute attribute = &tupleDesc->attrs[attno - 1];
         char* attributeName = NameStr(attribute->attname);
         if (attribute->attkvtype == ATT_KV_TAG) {
             distributeby->colname = lappend(distributeby->colname, makeString(attributeName));
@@ -1549,7 +1540,7 @@ static void transformTableLikeClause(
      */
     bool hideTag = false;
     for (parent_attno = 1; parent_attno <= tupleDesc->natts; parent_attno++) {
-        Form_pg_attribute attribute = tupleDesc->attrs[parent_attno - 1];
+        Form_pg_attribute attribute = &tupleDesc->attrs[parent_attno - 1];
         char* attributeName = NameStr(attribute->attname);
         ColumnDef* def = NULL;
 
@@ -1815,7 +1806,7 @@ static void transformTableLikeClause(
 
             for (pckNum = 0; pckNum < tupleDesc->constr->clusterKeyNum; pckNum++) {
                 AttrNumber attrNum = tupleDesc->constr->clusterKeys[pckNum];
-                Form_pg_attribute attribute = tupleDesc->attrs[attrNum - 1];
+                Form_pg_attribute attribute = &tupleDesc->attrs[attrNum - 1];
                 char* attrName = NameStr(attribute->attname);
 
                 n->contype = CONSTR_CLUSTER;
@@ -2080,7 +2071,7 @@ static void transformTableLikePartitionKeys(
     ColumnRef* c = NULL;
     Relation partitionRel = NULL;
     TupleDesc relationTupleDesc = NULL;
-    Form_pg_attribute* relationAtts = NULL;
+    FormData_pg_attribute* relationAtts = NULL;
     int relationAttNumber = 0;
     Datum partkey_raw = (Datum)0;
     ArrayType* partkey_columns = NULL;
@@ -2131,7 +2122,7 @@ static void transformTableLikePartitionKeys(
         int attnum = (int)(attnums[i]);
         if (attnum >= 1 && attnum <= relationAttNumber) {
             c = makeNode(ColumnRef);
-            c->fields = list_make1(makeString(pstrdup(NameStr(relationAtts[attnum - 1]->attname))));
+            c->fields = list_make1(makeString(pstrdup(NameStr(relationAtts[attnum - 1].attname))));
             *partKeyColumns = lappend(*partKeyColumns, c);
             *partKeyPosList = lappend_int(*partKeyPosList, attnum - 1);
         } else {
@@ -2222,7 +2213,7 @@ static void transformTableLikePartitionBoundaries(
             Value* boundaryValue = NULL;
             Datum boundaryDatum = (Datum)0;
             Node* boundaryNode = NULL;
-            Form_pg_attribute* relation_atts = NULL;
+            FormData_pg_attribute* relation_atts = NULL;
             Form_pg_attribute att = NULL;
             int partKeyPos = 0;
             int16 typlen = 0;
@@ -2247,7 +2238,7 @@ static void transformTableLikePartitionBoundaries(
             {
                 boundaryValue = (Value*)lfirst(boundaryCell);
                 partKeyPos = (int)lfirst_int(partKeyCell);
-                att = relation_atts[partKeyPos];
+                att = &relation_atts[partKeyPos];
 
                 /* get the oid/mod/collation/ of partition key */
                 typid = att->atttypid;
@@ -2305,7 +2296,7 @@ static void transformOfType(CreateStmtContext* cxt, TypeName* ofTypename)
 
     tupdesc = lookup_rowtype_tupdesc(ofTypeId, -1);
     for (i = 0; i < tupdesc->natts; i++) {
-        Form_pg_attribute attr = tupdesc->attrs[i];
+        Form_pg_attribute attr = &tupdesc->attrs[i];
         ColumnDef* n = NULL;
 
         if (attr->attisdropped)
@@ -2416,7 +2407,7 @@ IndexStmt* generateClonedIndexStmt(
     CreateStmtContext* cxt, Relation source_idx, const AttrNumber* attmap, int attmap_length, Relation rel, TransformTableType transformType)
 {
     Oid source_relid = RelationGetRelid(source_idx);
-    Form_pg_attribute* attrs = RelationGetDescr(source_idx)->attrs;
+    FormData_pg_attribute* attrs = RelationGetDescr(source_idx)->attrs;
     HeapTuple ht_idxrel;
     HeapTuple ht_idx;
     Form_pg_class idxrelrec;
@@ -2628,7 +2619,7 @@ IndexStmt* generateClonedIndexStmt(
         }
 
         /* Copy the original index column name */
-        iparam->indexcolname = pstrdup(NameStr(attrs[keyno]->attname));
+        iparam->indexcolname = pstrdup(NameStr(attrs[keyno].attname));
 
         /* Add the collation name, if non-default */
         iparam->collation = get_collation(indcollation->values[keyno], keycoltype);
@@ -3178,7 +3169,7 @@ static IndexStmt* transformIndexConstraint(Constraint* constraint, CreateStmtCon
              */
             if (attnum > 0) {
                 AssertEreport(attnum <= heap_rel->rd_att->natts, MOD_OPT, "");
-                attform = heap_rel->rd_att->attrs[attnum - 1];
+                attform = &heap_rel->rd_att->attrs[attnum - 1];
             } else
                 attform = SystemAttributeDefinition(attnum, heap_rel->rd_rel->relhasoids,  RELATION_HAS_BUCKET(heap_rel), RELATION_HAS_UIDS(heap_rel));
             attname = pstrdup(NameStr(attform->attname));
@@ -3283,7 +3274,7 @@ static IndexStmt* transformIndexConstraint(Constraint* constraint, CreateStmtCon
                             (errcode(ERRCODE_WRONG_OBJECT_TYPE),
                                 errmsg("inherited relation \"%s\" is not a table", inh->relname)));
                     for (count = 0; count < rel->rd_att->natts; count++) {
-                        Form_pg_attribute inhattr = rel->rd_att->attrs[count];
+                        Form_pg_attribute inhattr = &rel->rd_att->attrs[count];
                         char* inhname = NameStr(inhattr->attname);
 
                         if (inhattr->attisdropped)
@@ -3405,7 +3396,7 @@ static IndexStmt* transformIndexConstraint(Constraint* constraint, CreateStmtCon
                                 errmsg("inherited relation \"%s\" is not a table or foreign table", inh->relname)));
                     }
                     for (count = 0; count < rel->rd_att->natts; count++) {
-                        Form_pg_attribute inhattr = rel->rd_att->attrs[count];
+                        Form_pg_attribute inhattr = &rel->rd_att->attrs[count];
                         char* inhname = NameStr(inhattr->attname);
 
                         if (inhattr->attisdropped)
@@ -3579,12 +3570,6 @@ IndexStmt* transformIndexStmt(Oid relid, IndexStmt* stmt, const char* queryStrin
     RangeTblEntry* rte = NULL;
     ListCell* l = NULL;
     int crossbucketopt = -1; /* -1 means the SQL statement doesn't contain crossbucket option */
-
-    /*
-     * We must not scribble on the passed-in IndexStmt, so copy it.  (This is
-     * overkill, but easy.)
-     */
-    stmt = (IndexStmt*)copyObject(stmt);
 
     /* Set up pstate */
     pstate = make_parsestate(NULL);
@@ -3817,9 +3802,6 @@ static bool IsElementExisted(List* indexElements, IndexElem* ielem)
  *
  * actions and whereClause are output parameters that receive the
  * transformed results.
- *
- * Note that we must not scribble on the passed-in RuleStmt, so we do
- * copyObject() on the actions and WHERE clause.
  */
 void transformRuleStmt(RuleStmt* stmt, const char* queryString, List** actions, Node** whereClause)
 {
@@ -3895,7 +3877,7 @@ void transformRuleStmt(RuleStmt* stmt, const char* queryString, List** actions, 
     }
 
     /* take care of the where clause */
-    *whereClause = transformWhereClause(pstate, (Node*)copyObject(stmt->whereClause), EXPR_KIND_WHERE, "WHERE");
+    *whereClause = transformWhereClause(pstate, stmt->whereClause, EXPR_KIND_WHERE, "WHERE");
     /* we have to fix its collations too */
     assign_expr_collations(pstate, *whereClause);
 
@@ -3966,7 +3948,7 @@ void transformRuleStmt(RuleStmt* stmt, const char* queryString, List** actions, 
             addRTEtoQuery(sub_pstate, newrte, false, true, false);
 
             /* Transform the rule action statement */
-            top_subqry = transformStmt(sub_pstate, (Node*)copyObject(action));
+            top_subqry = transformStmt(sub_pstate, action);
             /*
              * We cannot support utility-statement actions (eg NOTIFY) with
              * nonempty rule WHERE conditions, because there's no way to make
@@ -4129,11 +4111,6 @@ List* transformAlterTableStmt(Oid relid, AlterTableStmt* stmt, const char* query
     SplitPartitionState* splitDefState = NULL;
     ListCell* cell = NULL;
 
-    /*
-     * We must not scribble on the passed-in AlterTableStmt, so copy it. (This
-     * is overkill, but easy.)
-     */
-    stmt = (AlterTableStmt*)copyObject(stmt);
     /* Caller is responsible for locking the relation */
     rel = relation_open(relid, NoLock);
     if (IS_FOREIGNTABLE(rel) || IS_STREAM_TABLE(rel)) {
@@ -6109,7 +6086,7 @@ static Oid get_split_partition_oid(Relation partTableRel, SplitPartitionState* s
  * precheck_start_end_defstate
  *    precheck start/end value of a range partition defstate
  */
-static void precheck_start_end_defstate(List* pos, Form_pg_attribute* attrs,
+static void precheck_start_end_defstate(List* pos, FormData_pg_attribute* attrs,
     RangePartitionStartEndDefState* defState, bool isPartition)
 {
     ListCell* cell = NULL;
@@ -6124,7 +6101,7 @@ static void precheck_start_end_defstate(List* pos, Form_pg_attribute* attrs,
     foreach (cell, pos) {
         int i = lfirst_int(cell);
 
-        switch (attrs[i]->atttypid) {
+        switch (attrs[i].atttypid) {
             case INT2OID:
             case INT4OID:
             case INT8OID:
@@ -6813,7 +6790,7 @@ static List* DividePartitionStartEndInterval(ParseState* pstate, Form_pg_attribu
  *
  * RETURN: a new partition list (wrote by "less/than" syntax).
  */
-List* transformRangePartStartEndStmt(ParseState* pstate, List* partitionList, List* pos, Form_pg_attribute* attrs,
+List* transformRangePartStartEndStmt(ParseState* pstate, List* partitionList, List* pos, FormData_pg_attribute* attrs,
     int32 existPartNum, Const* lowBound, Const* upBound, bool needFree, bool isPartition)
 {
     ListCell* cell = NULL;
@@ -6887,7 +6864,7 @@ List* transformRangePartStartEndStmt(ParseState* pstate, List* partitionList, Li
     /* check: datatype of partition key */
     foreach (cell, pos) {
         i = lfirst_int(cell);
-        attr = attrs[i];
+        attr = &attrs[i];
         target_type = attr->atttypid;
 
         switch (target_type) {
@@ -6910,7 +6887,7 @@ List* transformRangePartStartEndStmt(ParseState* pstate, List* partitionList, Li
                 ereport(ERROR,
                     (errcode(ERRCODE_DATATYPE_MISMATCH),
                         errmsg("datatype of column \"%s\" is unsupported for %s key in start/end clause.",
-                            NameStr(attrs[i]->attname), (isPartition ? "partition" : "distribution")),
+                            NameStr(attrs[i].attname), (isPartition ? "partition" : "distribution")),
                         errhint("Valid datatypes are: smallint, int, bigint, float4/real, float8/double, numeric, date "
                                 "and timestamp [with time zone].")));
                 break;

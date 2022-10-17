@@ -109,11 +109,11 @@ IndexTuple index_form_tuple(TupleDesc tuple_descriptor, Datum* values, const boo
 
 #ifdef TOAST_INDEX_HACK
     uint32 toastTarget = TOAST_INDEX_TARGET;
-    if (tuple_descriptor->tdTableAmType == TAM_USTORE) {
+    if (tuple_descriptor->td_tam_ops == TableAmUstore) {
         toastTarget = UTOAST_INDEX_TARGET;
     }   
     for (i = 0; i < attributeNum; i++) {
-        Form_pg_attribute att = tuple_descriptor->attrs[i];
+        Form_pg_attribute att = &tuple_descriptor->attrs[i];
 
         untoasted_values[i] = values[i];
         untoasted_free[i] = false;
@@ -243,7 +243,6 @@ IndexTuple index_form_tuple(TupleDesc tuple_descriptor, Datum* values, const boo
  */
 Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
 {
-    Form_pg_attribute* att = tuple_desc->attrs;
     char* tp = NULL;   /* ptr to data part of tuple */
     bits8* bp = NULL;  /* ptr to null bitmap in tuple */
     bool slow = false; /* do we have to walk attrs? */
@@ -296,13 +295,15 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
     tp = (char*)tup + data_off;
 
     if (!slow) {
+        Form_pg_attribute att;
+
         /*
-         * If we get here, there are no nulls up to and including the target
-         * attribute.  If we have a cached offset, we can use it.
-         */
-        if (att[attnum]->attcacheoff >= 0) {
-            return fetchatt(att[attnum], tp + att[attnum]->attcacheoff);
-        }
+            * If we get here, there are no nulls up to and including the target
+            * attribute.  If we have a cached offset, we can use it.
+            */
+        att = TupleDescAttr(tuple_desc, attnum);
+        if (att->attcacheoff >= 0)
+            return fetchatt(att, tp + att->attcacheoff);
 
         /*
          * Otherwise, check for non-fixed-length attrs up to and including
@@ -313,7 +314,7 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
             uint32 j;
 
             for (j = 0; j <= attnum; j++) {
-                if (att[j]->attlen <= 0) {
+                if (TupleDescAttr(tuple_desc, j)->attlen <= 0) {
                     slow = true;
                     break;
                 }
@@ -334,28 +335,31 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
          * fixed-width columns, in hope of avoiding future visits to this
          * routine.
          */
-        att[0]->attcacheoff = 0;
+        TupleDescAttr(tuple_desc, 0)->attcacheoff = 0;
 
         /* we might have set some offsets in the slow path previously */
-        while (j < natts && att[j]->attcacheoff > 0)
+        while (j < natts && TupleDescAttr(tuple_desc, j)->attcacheoff > 0)
             j++;
 
-        off = att[j - 1]->attcacheoff + att[j - 1]->attlen;
+        off = TupleDescAttr(tuple_desc, j - 1)->attcacheoff + 
+            TupleDescAttr(tuple_desc, j - 1)->attlen;
 
         for (; j < natts; j++) {
-            if (att[j]->attlen <= 0)
+            Form_pg_attribute attr = TupleDescAttr(tuple_desc, j);
+
+            if (attr->attlen <= 0)
                 break;
 
-            off = att_align_nominal((uint32)off, att[j]->attalign);
+            off = att_align_nominal((uint32)off, attr->attalign);
 
-            att[j]->attcacheoff = off;
+            attr->attcacheoff = off;
 
-            off += att[j]->attlen;
+            off += attr->attlen;
         }
 
         Assert(j > attnum);
 
-        off = att[attnum]->attcacheoff;
+        off = TupleDescAttr(tuple_desc, attnum)->attcacheoff;
     } else {
         bool usecache = true;
         uint32 i;
@@ -372,46 +376,48 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
          */
         off = 0;
         for (i = 0;; i++) { /* loop exit is at "break" */
+            Form_pg_attribute att = TupleDescAttr(tuple_desc, i);
+
             if (IndexTupleHasNulls(tup) && att_isnull(i, bp)) {
                 usecache = false;
                 continue; /* this cannot be the target att */
             }
 
             /* If we know the next offset, we can skip the rest */
-            if (usecache && att[i]->attcacheoff >= 0)
-                off = att[i]->attcacheoff;
-            else if (att[i]->attlen == -1) {
+            if (usecache && att->attcacheoff >= 0)
+                off = att->attcacheoff;
+            else if (att->attlen == -1) {
                 /*
                  * We can only cache the offset for a varlena attribute if the
                  * offset is already suitably aligned, so that there would be
                  * no pad bytes in any case: then the offset will be valid for
                  * either an aligned or unaligned value.
                  */
-                if (usecache && (uintptr_t)(off) == att_align_nominal((uint32)off, att[i]->attalign))
-                    att[i]->attcacheoff = off;
+                if (usecache && (uintptr_t)(off) == att_align_nominal((uint32)off, att->attalign))
+                    att->attcacheoff = off;
                 else {
-                    off = att_align_pointer((uint32)off, att[i]->attalign, -1, tp + off);
+                    off = att_align_pointer((uint32)off, att->attalign, -1, tp + off);
                     usecache = false;
                 }
             } else {
                 /* not varlena, so safe to use att_align_nominal */
-                off = att_align_nominal((uint32)off, att[i]->attalign);
+                off = att_align_nominal((uint32)off, att->attalign);
 
                 if (usecache)
-                    att[i]->attcacheoff = off;
+                    att->attcacheoff = off;
             }
 
             if (i == attnum)
                 break;
 
-            off = att_addlength_pointer(off, att[i]->attlen, tp + off);
+            off = att_addlength_pointer(off, att->attlen, tp + off);
 
-            if (usecache && att[i]->attlen <= 0)
+            if (usecache && att->attlen <= 0)
                 usecache = false;
         }
     }
 
-    return fetchatt(att[attnum], tp + off);
+    return fetchatt(TupleDescAttr(tuple_desc, attnum), tp + off);
 }
 
 /*

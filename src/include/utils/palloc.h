@@ -87,6 +87,7 @@ extern THR_LOCAL PGDLLIMPORT MemoryContext TopMemoryContext;
 extern void* MemoryAllocFromContext(MemoryContext context, Size size, const char* file, int line);
 extern void* MemoryContextAllocDebug(MemoryContext context, Size size, const char* file, int line);
 extern void* MemoryContextAllocHugeDebug(MemoryContext context, Size size, const char* file, int line);
+extern void* MemoryContextAllocHugeZeroDebug(MemoryContext context, Size size, const char* file, int line);
 extern void* repallocHugeDebug(void* pointer, Size size, const char* file, int line);
 extern void* MemoryContextAllocZeroDebug(MemoryContext context, Size size, const char* file, int line);
 extern void* MemoryContextAllocZeroAlignedDebug(MemoryContext context, Size size, const char* file, int line);
@@ -101,6 +102,7 @@ extern void* palloc0_noexcept(Size size);
 #define palloc0(sz) MemoryContextAllocZero(CurrentMemoryContext, (sz))
 
 #define palloc_huge(context, size) MemoryContextAllocHugeDebug(context, size, __FILE__, __LINE__)
+#define palloc0_huge(context, size) MemoryContextAllocHugeZeroDebug(context, size, __FILE__, __LINE__)
 
 #define repalloc_huge(pointer, size) repallocHugeDebug(pointer, size, __FILE__, __LINE__)
 

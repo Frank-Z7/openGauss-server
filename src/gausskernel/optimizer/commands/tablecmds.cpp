@@ -620,17 +620,17 @@ static void RangeVarCallbackForAlterRelation(
 
 static bool isQueryUsingTempRelation_walker(Node *node, void *context);
 static bool CheckRangePartitionKeyType(Oid typoid);
-static void CheckRangePartitionKeyType(Form_pg_attribute* attrs, List* pos);
+static void CheckRangePartitionKeyType(FormData_pg_attribute* attrs, List* pos);
 
 static bool CheckListPartitionKeyType(Oid typoid);
-static void CheckListPartitionKeyType(Form_pg_attribute* attrs, List* pos);
+static void CheckListPartitionKeyType(FormData_pg_attribute* attrs, List* pos);
 
 static bool CheckHashPartitionKeyType(Oid typoid);
-static void CheckHashPartitionKeyType(Form_pg_attribute* attrs, List* pos);
+static void CheckHashPartitionKeyType(FormData_pg_attribute* attrs, List* pos);
 
-static void CheckIntervalPartitionKeyType(Form_pg_attribute* attrs, List* pos);
+static void CheckIntervalPartitionKeyType(FormData_pg_attribute* attrs, List* pos);
 static void CheckIntervalValue(
-    const Form_pg_attribute* attrs, const List* pos, const IntervalPartitionDefState* intervalPartDef);
+    const FormData_pg_attribute* attrs, const List* pos, const IntervalPartitionDefState* intervalPartDef);
 static void CheckPartitionTablespace(const char* spcname, Oid owner);
 static Const* GetListPartitionValue(Form_pg_attribute attrs, List* value);
 static bool ConfirmTypeInfo(Oid* target_oid, int* target_mod, Const* src, Form_pg_attribute attrs, bool isinterval);
@@ -2558,7 +2558,7 @@ Oid DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, bool isCTAS)
 
 #ifdef ENABLE_MOT
         if (isMot) {
-            DetermineColumnCollationForMOTTable(&descriptor->attrs[attnum - 1]->attcollation);
+            DetermineColumnCollationForMOTTable(&descriptor->attrs[attnum - 1].attcollation);
         }
 #endif
 
@@ -2615,7 +2615,7 @@ Oid DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, bool isCTAS)
             rawEnt->raw_default = colDef->raw_default;
             rawEnt->generatedCol = colDef->generatedCol;
             rawDefaults = lappend(rawDefaults, rawEnt);
-            descriptor->attrs[attnum - 1]->atthasdef = true;
+            descriptor->attrs[attnum - 1].atthasdef  = true;
         } else if (colDef->cooked_default != NULL) {
             CookedConstraint* cooked = NULL;
 
@@ -2633,7 +2633,7 @@ Oid DefineRelation(CreateStmt* stmt, char relkind, Oid ownerId, bool isCTAS)
             cooked->inhcount = 0;    /* ditto */
             cooked->is_no_inherit = false;
             cookedDefaults = lappend(cookedDefaults, cooked);
-            descriptor->attrs[attnum - 1]->atthasdef = true;
+            descriptor->attrs[attnum - 1].atthasdef  = true;
         }
         if (colDef->clientLogicColumnRef != NULL) {
             CeHeapInfo *ceHeapInfo = NULL;
@@ -4790,7 +4790,7 @@ static List* MergeAttributes(
         newattno = (AttrNumber*)palloc0(tupleDesc->natts * sizeof(AttrNumber));
 
         for (parent_attno = 1; parent_attno <= tupleDesc->natts; parent_attno++) {
-            Form_pg_attribute attribute = tupleDesc->attrs[parent_attno - 1];
+            Form_pg_attribute attribute = &tupleDesc->attrs[parent_attno - 1];
             char* attributeName = NameStr(attribute->attname);
             int exist_attno;
             ColumnDef* def = NULL;
@@ -8333,7 +8333,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
          * pretty cheap test anyway.
          */
         for (i = 0; i < newTupDesc->natts; i++) {
-            if (newTupDesc->attrs[i]->attnotnull && !newTupDesc->attrs[i]->attisdropped)
+            if (newTupDesc->attrs[i].attnotnull && !newTupDesc->attrs[i].attisdropped)
                 notnull_attrs = lappend_int(notnull_attrs, i);
         }
         if (notnull_attrs != NULL)
@@ -8378,8 +8378,8 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
          * tuples are the same, the tupDescs might not be (consider ADD COLUMN
          * without a default).
          */
-        oldslot = MakeSingleTupleTableSlot(oldTupDesc, false, oldrel->rd_tam_type);
-        newslot = MakeSingleTupleTableSlot(newTupDesc, false, oldrel->rd_tam_type);
+        oldslot = MakeSingleTupleTableSlot(oldTupDesc, false, oldrel->rd_tam_ops);
+        newslot = MakeSingleTupleTableSlot(newTupDesc, false, oldrel->rd_tam_ops);
 
         /* Preallocate values/isnull arrays */
         i = Max(newTupDesc->natts, oldTupDesc->natts);
@@ -8396,7 +8396,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
          * attributes to avoid needing to do so in the per-tuple loop.
          */
         for (i = 0; i < newTupDesc->natts; i++) {
-            if (newTupDesc->attrs[i]->attisdropped)
+            if (newTupDesc->attrs[i].attisdropped)
                 dropped_attrs = lappend_int(dropped_attrs, i);
         }
 
@@ -8417,7 +8417,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                      * dependent on each tuple.
                      */
                     isnull[i] = false;
-                    values[i] = fetchatt(newTupDesc->attrs[i], defvals[i].datum);
+                    values[i] = fetchatt(&newTupDesc->attrs[i], defvals[i].datum);
                 }
             }
         }
@@ -8471,7 +8471,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                      * Form the new tuple. Note that we don't explicitly pfree it,
                      * since the per-tuple memory context will be reset shortly.
                      */
-                    utuple = (UHeapTuple)tableam_tops_form_tuple(newTupDesc, values, isnull, UHEAP_TUPLE);
+                    utuple = (UHeapTuple)tableam_tops_form_tuple(newTupDesc, values, isnull, TableAmUstore);
                 }
 
                 /* Now check any constraints on the possibly-changed tuple */
@@ -8489,7 +8489,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                             ereport(ERROR,
                                     (errcode(ERRCODE_NOT_NULL_VIOLATION),
                                              errmsg("column \"%s\" contains null values",
-                                                    NameStr(newTupDesc->attrs[attn]->attname))));
+                                                    NameStr(newTupDesc->attrs[attn].attname))));
                 }
 
                 foreach(l, tab->constraints)
@@ -8531,7 +8531,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                  * will not try to clear it after we reset the context. Note that we don't explicitly pfree its
                  * tuple since the per-tuple memory context will be reset shortly.
                  */
-                oldslot->tts_shouldFree = false;
+                oldslot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
 
                 UHeapTuple backUpTup = BackUpScanCuTup(((UHeapScanDesc) scan)->rs_cutup);
                 ResetExprContext(econtext);
@@ -8593,7 +8593,7 @@ static void ATRewriteTableInternal(AlteredTableInfo* tab, Relation oldrel, Relat
                      */
                     if (relationAttIsNull(tuple, attn + 1, newTupDesc))
                         ereport(ERROR, (errcode(ERRCODE_NOT_NULL_VIOLATION),
-                            errmsg("column \"%s\" contains null values", NameStr(newTupDesc->attrs[attn]->attname))));
+                            errmsg("column \"%s\" contains null values", NameStr(newTupDesc->attrs[attn].attname))));
                 }
 
                 foreach (l, tab->constraints) {
@@ -8706,7 +8706,7 @@ static void ATOnlyCheckCStoreTable(const AlteredTableInfo* tab, Relation rel)
          * If we added any new NOT NULL constraints, check all not-null constraints.
          */
         for (int i = 0; i < newTupDesc->natts; i++) {
-            if (newTupDesc->attrs[i]->attnotnull && !newTupDesc->attrs[i]->attisdropped)
+            if (newTupDesc->attrs[i].attnotnull && !newTupDesc->attrs[i].attisdropped)
                 notnullAttrs = lappend_int(notnullAttrs, i);
         }
         if (notnullAttrs != NULL)
@@ -8742,7 +8742,7 @@ static void ATOnlyCheckCStoreTable(const AlteredTableInfo* tab, Relation rel)
                     if (vec[attn].IsNull(rowIdx)) {
                         ereport(ERROR,
                         (errcode(ERRCODE_NOT_NULL_VIOLATION),
-                            errmsg("column \"%s\" contains null values", NameStr(newTupDesc->attrs[attn]->attname))));
+                            errmsg("column \"%s\" contains null values", NameStr(newTupDesc->attrs[attn].attname))));
                     }
                 }
             }
@@ -9021,7 +9021,7 @@ void find_composite_type_dependencies(Oid typeOid, Relation origRelation, const 
             continue;
 
         rel = relation_open(pg_depend->objid, AccessShareLock);
-        att = rel->rd_att->attrs[pg_depend->objsubid - 1];
+        att = &rel->rd_att->attrs[pg_depend->objsubid - 1];
 
         if (rel->rd_rel->relkind == RELKIND_RELATION || rel->rd_rel->relkind == RELKIND_MATVIEW) {
             if (origTypeName != NULL)
@@ -10364,7 +10364,7 @@ static void ATPrepDropColumn(
 static bool CheckLastColumn(Relation rel, AttrNumber attrnum)
 {
     for (int col = 0; col < rel->rd_att->natts; ++col) {
-        if (rel->rd_att->attrs[col]->attisdropped)
+        if (rel->rd_att->attrs[col].attisdropped)
             continue;
         if (ISGENERATEDCOL(rel->rd_att, col))
             continue;
@@ -10868,7 +10868,7 @@ static void ATExecAddConstraint(List** wqueue, AlteredTableInfo* tab, Relation r
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmsg("column store unsupport constraint \"%s\"", GetConstraintType(newConstraint->contype))));
 
-    if (rel->rd_tam_type == TAM_USTORE && newConstraint->deferrable == true) {
+    if (rel->rd_tam_ops == TableAmUstore && newConstraint->deferrable == true) {
         ereport(ERROR,
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                 errmodule(MOD_COMMAND),
@@ -11378,7 +11378,7 @@ static void ATAddForeignKeyConstraint(AlteredTableInfo* tab, Relation rel, Const
              * column types to the right (foreign) operand type of the pfeqop.
              * We may assume that pg_constraint.conkey is not changing.
              */
-            old_fktype = tab->oldDesc->attrs[fkattnum[i] - 1]->atttypid;
+            old_fktype = tab->oldDesc->attrs[fkattnum[i] - 1].atttypid;
             new_fktype = fktype;
             old_pathtype = findFkeyCast(pfeqop_right, old_fktype, &old_castfunc);
             new_pathtype = findFkeyCast(pfeqop_right, new_fktype, &new_castfunc);
@@ -12036,7 +12036,7 @@ static void validateCheckConstraint(Relation rel, HeapTuple constrtup)
     List* exprstate = ExecPrepareExprList(make_ands_implicit(origexpr), estate);
     ExprContext* econtext = GetPerTupleExprContext(estate);
     TupleDesc tupdesc = RelationGetDescr(rel);
-    TupleTableSlot* slot = MakeSingleTupleTableSlot(tupdesc, false, rel->rd_tam_type);
+    TupleTableSlot* slot = MakeSingleTupleTableSlot(tupdesc, false, rel->rd_tam_ops);
 
     econtext->ecxt_scantuple = slot;
 
@@ -12567,7 +12567,7 @@ static void CheckHugeToastInternal(TupleDesc reldesc, Relation rel, AttrNumber a
 void CheckHugeToast(AlteredTableInfo *tab, Relation rel, AttrNumber attnum)
 {
     TupleDesc reldesc = tab->oldDesc;
-    Form_pg_attribute attr = reldesc->attrs[attnum - 1];
+    Form_pg_attribute attr = &reldesc->attrs[attnum - 1];
 
     if (attr->atttypid != CLOBOID && attr->atttypid != BLOBOID) {
         return;
@@ -12942,8 +12942,8 @@ static void ATExecAlterColumnType(AlteredTableInfo* tab, Relation rel, AlterTabl
     }
 
     /* Check for multiple ALTER TYPE on same column --- can't cope */
-    if (attTup->atttypid != tab->oldDesc->attrs[attnum - 1]->atttypid ||
-        attTup->atttypmod != tab->oldDesc->attrs[attnum - 1]->atttypmod)
+    if (attTup->atttypid != tab->oldDesc->attrs[attnum - 1].atttypid ||
+        attTup->atttypmod != tab->oldDesc->attrs[attnum - 1].atttypmod)
         ereport(ERROR,
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("cannot alter type of column \"%s\" twice", colName)));
 
@@ -15563,7 +15563,7 @@ static void mergeHeapBlock(Relation src, Relation dest, ForkNumber forkNum, char
                     struct varlena* value = NULL;
 
                     value = (struct varlena*)DatumGetPointer(values[i]);
-                    if (srcTupleDesc->attrs[i]->attlen == -1 && !isNull[i] && VARATT_IS_EXTERNAL(value)) {
+                    if (srcTupleDesc->attrs[i].attlen == -1 && !isNull[i] && VARATT_IS_EXTERNAL(value)) {
                         struct varatt_external* toastPointer = NULL;
 
                         toastPointer = (varatt_external*)(VARDATA_EXTERNAL((varattrib_1b_e*)(value)));
@@ -16038,7 +16038,7 @@ static void MergeAttributesIntoExisting(Relation child_rel, Relation parent_rel)
     parent_natts = tupleDesc->natts;
 
     for (parent_attno = 1; parent_attno <= parent_natts; parent_attno++) {
-        Form_pg_attribute attribute = tupleDesc->attrs[parent_attno - 1];
+        Form_pg_attribute attribute = &tupleDesc->attrs[parent_attno - 1];
         char* attributeName = NameStr(attribute->attname);
 
         /* Ignore dropped columns in the parent. */
@@ -16468,7 +16468,7 @@ static void ATExecAddOf(Relation rel, const TypeName* ofTypename, LOCKMODE lockm
         const char* table_attname = NULL;
 
         /* Get the next non-dropped type attribute. */
-        type_attr = typeTupleDesc->attrs[type_attno - 1];
+        type_attr = &typeTupleDesc->attrs[type_attno - 1];
         if (type_attr->attisdropped)
             continue;
         type_attname = NameStr(type_attr->attname);
@@ -16478,7 +16478,7 @@ static void ATExecAddOf(Relation rel, const TypeName* ofTypename, LOCKMODE lockm
             if (table_attno > tableTupleDesc->natts)
                 ereport(ERROR,
                     (errcode(ERRCODE_DATATYPE_MISMATCH), errmsg("table is missing column \"%s\"", type_attname)));
-            table_attr = tableTupleDesc->attrs[table_attno++ - 1];
+            table_attr = &tableTupleDesc->attrs[table_attno++ - 1];
         } while (table_attr->attisdropped);
         table_attname = NameStr(table_attr->attname);
 
@@ -16501,7 +16501,7 @@ static void ATExecAddOf(Relation rel, const TypeName* ofTypename, LOCKMODE lockm
 
     /* Any remaining columns at the end of the table had better be dropped. */
     for (; table_attno <= tableTupleDesc->natts; table_attno++) {
-        Form_pg_attribute table_attr = tableTupleDesc->attrs[table_attno - 1];
+        Form_pg_attribute table_attr = &tableTupleDesc->attrs[table_attno - 1];
 
         if (!table_attr->attisdropped)
             ereport(ERROR,
@@ -16804,7 +16804,7 @@ static void ATExecReplicaIdentity(Relation rel, ReplicaIdentityStmt* stmt, LOCKM
                 ((errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
                     errmsg("internal column %d in unique index \"%s\"", attno, RelationGetRelationName(indexRel)))));
 
-        attr = rel->rd_att->attrs[attno - 1];
+        attr = &rel->rd_att->attrs[attno - 1];
         if (!attr->attnotnull)
             ereport(ERROR,
                 (errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -17307,7 +17307,7 @@ static bool checkColumnTypeIsBytea(Relation rel)
     TupleDesc tupdesc = RelationGetDescr(rel);
 
     for (tupIndex = 0; tupIndex < tupdesc->natts; tupIndex++) {
-        Form_pg_attribute attr = tupdesc->attrs[tupIndex];
+        Form_pg_attribute attr = &tupdesc->attrs[tupIndex];
         if (BYTEAOID == attr->atttypid) {
             return true;
         }
@@ -18478,7 +18478,7 @@ List* GetPartitionkeyPos(List* partitionkeys, List* schema)
  * Description	:
  * Notes		:
  */
-static void CheckRangePartitionKeyType(Form_pg_attribute* attrs, List* pos)
+static void CheckRangePartitionKeyType(FormData_pg_attribute* attrs, List* pos)
 {
     int location = 0;
     ListCell* cell = NULL;
@@ -18487,7 +18487,7 @@ static void CheckRangePartitionKeyType(Form_pg_attribute* attrs, List* pos)
         bool result = false;
 
         location = lfirst_int(cell);
-        typoid = attrs[location]->atttypid;
+        typoid = attrs[location].atttypid;
         /* check datatype for range partitionkey */
         result = CheckRangePartitionKeyType(typoid);
 
@@ -18496,12 +18496,12 @@ static void CheckRangePartitionKeyType(Form_pg_attribute* attrs, List* pos)
             ereport(ERROR,
                 (errcode(ERRCODE_DATATYPE_MISMATCH),
                     errmsg("column %s cannot serve as a range partitioning column because of its datatype",
-                        NameStr(attrs[location]->attname))));
+                        NameStr(attrs[location].attname))));
         }
     }
 }
 
-static void CheckListPartitionKeyType(Form_pg_attribute* attrs, List* pos)
+static void CheckListPartitionKeyType(FormData_pg_attribute* attrs, List* pos)
 {
     if (pos == NULL || attrs == NULL) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_OPERATION), errmsg("invalid list partiiton table definition")));
@@ -18509,14 +18509,14 @@ static void CheckListPartitionKeyType(Form_pg_attribute* attrs, List* pos)
     Oid typeOid = InvalidOid;
     ListCell* lhead = pos->head;
     int location = lfirst_int(lhead);
-    typeOid = attrs[location]->atttypid;
+    typeOid = attrs[location].atttypid;
 
     /* 1. Check datatype for head of partitionkey list */
     if (!CheckListPartitionKeyType(typeOid)) {
         list_free_ext(pos);
         ereport(ERROR, (errcode(ERRCODE_DATATYPE_MISMATCH),
                         errmsg("column %s cannot serve as a list partitioning column because of its datatype",
-                               NameStr(attrs[location]->attname))));
+                               NameStr(attrs[location].attname))));
     }
 
     /* 2. Check if datatype of partition keys are same */
@@ -18524,16 +18524,16 @@ static void CheckListPartitionKeyType(Form_pg_attribute* attrs, List* pos)
     ListCell* cell = NULL;
     foreach (cell, pos) {
         location = lfirst_int(cell);
-        if (!can_coerce_type(1, &(attrs[location]->atttypid), &typeOid, COERCION_IMPLICIT)) {
+        if (!can_coerce_type(1, &(attrs[location].atttypid), &typeOid, COERCION_IMPLICIT)) {
             list_free_ext(pos);
             ereport(ERROR, (errcode(ERRCODE_DATATYPE_MISMATCH),
                             errmsg("column %s cannot serve as a list partitioning column because of its datatype",
-                                   NameStr(attrs[location]->attname))));
+                                   NameStr(attrs[location].attname))));
         }
     } 
 }
 
-static void CheckHashPartitionKeyType(Form_pg_attribute* attrs, List* pos)
+static void CheckHashPartitionKeyType(FormData_pg_attribute* attrs, List* pos)
 {
     int location = 0;
     ListCell* cell = NULL;
@@ -18541,43 +18541,43 @@ static void CheckHashPartitionKeyType(Form_pg_attribute* attrs, List* pos)
 
     foreach (cell, pos) {
         location = lfirst_int(cell);
-        typeOid = attrs[location]->atttypid;
+        typeOid = attrs[location].atttypid;
         /* Check datatype for hash partitionkey */
         if (!CheckHashPartitionKeyType(typeOid)) {
             list_free_ext(pos);
             ereport(ERROR, (errcode(ERRCODE_DATATYPE_MISMATCH),
                             errmsg("column %s cannot serve as a hash partitioning column because of its datatype",
-                                   NameStr(attrs[location]->attname))));
+                                   NameStr(attrs[location].attname))));
         }
     }
 }
 
-static void CheckIntervalPartitionKeyType(Form_pg_attribute* attrs, List* pos)
+static void CheckIntervalPartitionKeyType(FormData_pg_attribute* attrs, List* pos)
 {
     /* must be one partitionkey for interval partition, have checked before */
     Assert(pos->length == 1);
 
     ListCell* cell = list_head(pos);
     int location = lfirst_int(cell);
-    Oid typoid = attrs[location]->atttypid;
+    Oid typoid = attrs[location].atttypid;
     if (typoid != TIMESTAMPOID && typoid != TIMESTAMPTZOID && typoid != DATEOID) {
         list_free_ext(pos);
         ereport(ERROR,
             (errcode(ERRCODE_DATATYPE_MISMATCH),
                 errmsg("column %s cannot serve as a interval partitioning column because of its datatype",
-                    NameStr(attrs[location]->attname))));
+                    NameStr(attrs[location].attname))));
     }
 }
 
 static void CheckIntervalValue(
-    const Form_pg_attribute* attrs, const List* pos, const IntervalPartitionDefState* intervalPartDef)
+    const FormData_pg_attribute* attrs, const List* pos, const IntervalPartitionDefState* intervalPartDef)
 {
     /* must be one partitionkey for interval partition, have checked before */
     Assert(pos->length == 1);
 
     ListCell* cell = list_head(pos);
     int location = lfirst_int(cell);
-    Oid typoid = attrs[location]->atttypid;
+    Oid typoid = attrs[location].atttypid;
     if (typoid != DATEOID) {
         return;
     }
@@ -18601,7 +18601,7 @@ static void CheckIntervalValue(
  * Description	:
  * Notes		:
  */
-void CheckValuePartitionKeyType(Form_pg_attribute* attrs, List* pos)
+void CheckValuePartitionKeyType(FormData_pg_attribute* attrs, List* pos)
 {
     int location = 0;
     ListCell* cell = NULL;
@@ -18609,7 +18609,7 @@ void CheckValuePartitionKeyType(Form_pg_attribute* attrs, List* pos)
 
     foreach (cell, pos) {
         location = lfirst_int(cell);
-        typoid = attrs[location]->atttypid;
+        typoid = attrs[location].atttypid;
         /*
          * Check datatype for partitionkey NOTE: currently we reuse distribution
          * key's restriction as value-based parition is equal-evaluated we can't
@@ -18625,8 +18625,8 @@ void CheckValuePartitionKeyType(Form_pg_attribute* attrs, List* pos)
             ereport(ERROR,
                 (errcode(ERRCODE_DATATYPE_MISMATCH),
                     errmsg("column \"%s\" cannot be served as a value-partitioning column because of its datatype [%s]",
-                        NameStr(attrs[location]->attname),
-                        format_type_with_typemod(attrs[location]->atttypid, attrs[location]->atttypmod))));
+                        NameStr(attrs[location].attname),
+                        format_type_with_typemod(attrs[location].atttypid, attrs[location].atttypmod))));
         }
     }
 }
@@ -18839,7 +18839,7 @@ static Const* GetListPartitionValue(Form_pg_attribute attrs, List* value)
  * Description	:
  * Notes		: the invoker should free the arry
  */
-Const* GetPartitionValue(List* pos, Form_pg_attribute* attrs, List* value, bool isinterval, bool isPartition)
+Const* GetPartitionValue(List* pos, FormData_pg_attribute* attrs, List* value, bool isinterval, bool isPartition)
 {
     Const* result = NULL;
     Const* cell = NULL;
@@ -18881,7 +18881,7 @@ Const* GetPartitionValue(List* pos, Form_pg_attribute* attrs, List* value, bool 
         }
 
         /* transform the const to target datatype */
-        target_expr = (Const*)GetTargetValue(attrs[valuepos], cell, isinterval);
+        target_expr = (Const*)GetTargetValue(&attrs[valuepos], cell, isinterval);
         if (target_expr == NULL) {
             pfree_ext(result);
             list_free_ext(pos);
@@ -18892,7 +18892,7 @@ Const* GetPartitionValue(List* pos, Form_pg_attribute* attrs, List* value, bool 
         }
 
         result[count] = *target_expr;
-        result[count].constcollid = attrs[valuepos]->attcollation;
+        result[count].constcollid = attrs[valuepos].attcollation;
 
         count++;
     }
@@ -19021,7 +19021,7 @@ static void ReportListPartitionIntersect(const List* partitionList, Const* value
     }
 }
 
-void CompareListValue(const List* pos, Form_pg_attribute* attrs, List *partitionList)
+void CompareListValue(const List* pos, FormData_pg_attribute* attrs, List *partitionList)
 {
     if (pos == NULL || attrs == NULL) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_OPERATION), errmsg("invalid list partiiton table definition")));
@@ -19030,7 +19030,7 @@ void CompareListValue(const List* pos, Form_pg_attribute* attrs, List *partition
     Oid typeOid = InvalidOid;
     ListCell* lhead = pos->head;
     int location = lfirst_int(lhead);
-    typeOid = attrs[location]->atttypid;
+    typeOid = attrs[location].atttypid;
 
     List* partValue = NIL;
     ListCell* valueCell = NULL;
@@ -19063,7 +19063,7 @@ void CompareListValue(const List* pos, Form_pg_attribute* attrs, List *partition
             }
         }
         partValueLen[partListIdx] = partValue->length;
-        valueArray[partListIdx] = GetListPartitionValue(attrs[location], partValue);
+        valueArray[partListIdx] = GetListPartitionValue(&attrs[location], partValue);
         ++partListIdx;
     }
 
@@ -19104,7 +19104,7 @@ void CompareListValue(const List* pos, Form_pg_attribute* attrs, List *partition
  * Description	:
  * Notes		:
  */
-void ComparePartitionValue(List* pos, Form_pg_attribute* attrs, List *partitionList, bool isPartition)
+void ComparePartitionValue(List* pos, FormData_pg_attribute* attrs, List *partitionList, bool isPartition)
 {
     Const* pre_value = NULL;
     Const* cur_value = NULL;
@@ -19738,7 +19738,7 @@ static void ATExecAddListPartition(Relation rel, AddPartitionState *partState)
         int partKeyIdx = 0;
         foreach (subpartKeyCell, subpartKeyPosList) {
             int pos = lfirst_int(subpartKeyCell);
-            if ((RelationGetDescr(rel))->attrs[pos]->atttypid == TIMESTAMPTZOID) {
+            if ((RelationGetDescr(rel))->attrs[pos].atttypid == TIMESTAMPTZOID) {
                 isTimestamptzForSubPartKey[partKeyIdx] = true;
             }
             partKeyIdx++;
@@ -19920,7 +19920,7 @@ static void ATExecAddRangePartition(Relation rel, AddPartitionState *partState)
         int partKeyIdx = 0;
         foreach (subpartKeyCell, subpartKeyPosList) {
             int pos = lfirst_int(subpartKeyCell);
-            if ((RelationGetDescr(rel))->attrs[pos]->atttypid == TIMESTAMPTZOID) {
+            if ((RelationGetDescr(rel))->attrs[pos].atttypid == TIMESTAMPTZOID) {
                 isTimestamptzForSubPartKey[partKeyIdx] = true;
             }
             partKeyIdx++;
@@ -22153,7 +22153,7 @@ static void replaceRepeatChunkId(HTAB* chunkIdHashTable, List* srcPartToastRels)
                     HeapTuple copyTuple = NULL;
 
                     values[0] = mapping->newChunkId;
-                    copyTuple = (HeapTuple)tableam_tops_form_tuple(tupleDesc, values, isNull, tupleDesc->tdTableAmType);
+                    copyTuple = (HeapTuple)tableam_tops_form_tuple(tupleDesc, values, isNull, tupleDesc->td_tam_ops);
 
                     simple_heap_delete(srcPartToastRel, &((HeapTuple)tuple)->t_self);
                     (void)simple_heap_insert(srcPartToastRel, copyTuple);
@@ -22181,7 +22181,7 @@ static void replaceRepeatChunkId(HTAB* chunkIdHashTable, List* srcPartToastRels)
 
                 values[0] = newChunkId;
 
-                copyTuple = (HeapTuple)tableam_tops_form_tuple(tupleDesc, values, isNull, tupleDesc->tdTableAmType);
+                copyTuple = (HeapTuple)tableam_tops_form_tuple(tupleDesc, values, isNull, tupleDesc->td_tam_ops);
 
                 simple_heap_delete(srcPartToastRel, &((HeapTuple)tuple)->t_self);
                 (void)simple_heap_insert(srcPartToastRel, copyTuple);
@@ -23344,7 +23344,7 @@ static void checkValidationForExchangeCStore(Relation partTableRel, Relation ord
     ScalarValue* pVals = NULL;
     Datum* values = NULL;
     bool* nulls = NULL;
-    Form_pg_attribute* attrs = ordTableRel->rd_att->attrs;
+    FormData_pg_attribute* attrs = ordTableRel->rd_att->attrs;
 
     Const consts[RANGE_PARTKEYMAXNUM];
     Const* partKeyValues[RANGE_PARTKEYMAXNUM];
@@ -23368,7 +23368,7 @@ static void checkValidationForExchangeCStore(Relation partTableRel, Relation ord
         scanAttrNumbers = (AttrNumber*)palloc(sizeof(AttrNumber) * scanColNum);
 
         for (int i = 0; i < (scanColNum - 2); i++) {
-            scanAttrNumbers[i] = attrs[i]->attnum;
+            scanAttrNumbers[i] = attrs[i].attnum;
         }
 
         // ctid for delete
@@ -23433,10 +23433,10 @@ static void checkValidationForExchangeCStore(Relation partTableRel, Relation ord
                         if (pVec->m_desc.encoded == false)
                             values[partkeyIdx] = pVals[row];
                         else {
-                            Assert(attrs[col]->attlen < 0 || attrs[col]->attlen > 8);
+                            Assert(attrs[col].attlen < 0 || attrs[col].attlen > 8);
                             Datum v = ScalarVector::Decode(pVals[row]);
                             values[partkeyIdx] =
-                                (attrs[col]->attlen < 0) ? v : PointerGetDatum((char*)v + VARHDRSZ_SHORT);
+                                (attrs[col].attlen < 0) ? v : PointerGetDatum((char*)v + VARHDRSZ_SHORT);
                         }
                     }
 
@@ -25163,7 +25163,7 @@ static void readTuplesAndInsert(Relation tempTableRel, Relation partTableRel)
     }
 }
 
-List* transformIntoTargetType(Form_pg_attribute* attrs, int2 keypos, List* boundary)
+List* transformIntoTargetType(FormData_pg_attribute* attrs, int2 keypos, List* boundary)
 {
     Node* nodeBoundaryItem = NULL;
     Const* constBoundaryItem = NULL;
@@ -25178,15 +25178,15 @@ List* transformIntoTargetType(Form_pg_attribute* attrs, int2 keypos, List* bound
         if (constBoundaryItem->ismaxvalue) {
             targetConstBoundaryItem = constBoundaryItem;
         } else {
-            targetConstBoundaryItem = (Const*)GetTargetValue(attrs[keypos - 1], constBoundaryItem, false);
+            targetConstBoundaryItem = (Const*)GetTargetValue(&attrs[keypos - 1], constBoundaryItem, false);
             if (!PointerIsValid(targetConstBoundaryItem)) {
                 list_free_ext(newBoundaryList);
                 ereport(ERROR,
                     (errcode(ERRCODE_INVALID_OPERATION),
                         errmsg("partition key value must be const or const-evaluable expression")));
             }
-            if (!OidIsValid(targetConstBoundaryItem->constcollid) && OidIsValid(attrs[keypos - 1]->attcollation)) {
-                targetConstBoundaryItem->constcollid = attrs[keypos - 1]->attcollation;
+            if (!OidIsValid(targetConstBoundaryItem->constcollid) && OidIsValid(attrs[keypos - 1].attcollation)) {
+                targetConstBoundaryItem->constcollid = attrs[keypos - 1].attcollation;
             }
         }
         Assert(nodeTag(targetConstBoundaryItem) == T_Const);
@@ -25203,7 +25203,7 @@ List* transformIntoTargetType(Form_pg_attribute* attrs, int2 keypos, List* bound
  * Description	:
  * Notes		:
  */
-List* transformConstIntoTargetType(Form_pg_attribute* attrs, int2vector* partitionKey, List* boundary)
+List* transformConstIntoTargetType(FormData_pg_attribute* attrs, int2vector* partitionKey, List* boundary)
 {
     int counter = 0;
     int2 partKeyPos = 0;
@@ -25230,15 +25230,15 @@ List* transformConstIntoTargetType(Form_pg_attribute* attrs, int2vector* partiti
         if (constBoundaryItem->ismaxvalue) {
             targetConstBoundaryItem = constBoundaryItem;
         } else {
-            targetConstBoundaryItem = (Const*)GetTargetValue(attrs[partKeyPos - 1], constBoundaryItem, false);
+            targetConstBoundaryItem = (Const*)GetTargetValue(&attrs[partKeyPos - 1], constBoundaryItem, false);
             if (!PointerIsValid(targetConstBoundaryItem)) {
                 list_free_ext(newBoundaryList);
                 ereport(ERROR,
                     (errcode(ERRCODE_INVALID_OPERATION),
                         errmsg("partition key value must be const or const-evaluable expression")));
             }
-            if (!OidIsValid(targetConstBoundaryItem->constcollid) && OidIsValid(attrs[partKeyPos - 1]->attcollation)) {
-                targetConstBoundaryItem->constcollid = attrs[partKeyPos - 1]->attcollation;
+            if (!OidIsValid(targetConstBoundaryItem->constcollid) && OidIsValid(attrs[partKeyPos - 1].attcollation)) {
+                targetConstBoundaryItem->constcollid = attrs[partKeyPos - 1].attcollation;
             }
         }
         Assert(nodeTag(targetConstBoundaryItem) == T_Const);
@@ -25753,7 +25753,7 @@ static void ATExecSetCompress(Relation rel, const char* cmprsId)
 /* CStore Rewrite Table Methods */
 #include "access/cstore_rewrite.h"
 
-#define RelAttrName(__tupdesc, __attridx) (NameStr((__tupdesc)->attrs[(__attridx)]->attname))
+#define RelAttrName(__tupdesc, __attridx) (NameStr((__tupdesc)->attrs[(__attridx)].attname))
 
 // get all the attributes to be checked or rewrited.
 //
@@ -25871,7 +25871,7 @@ static void ATCStoreRewriteTable(AlteredTableInfo* tab, Relation oldHeapRel, LOC
     /* set NOT NULL constraint for updated columns. */
     if (tab->rewrite || tab->new_notnull) {
         for (int i = 0; i < maxCols; ++i) {
-            if (rewriteInfo[i] != NULL && !rewriteInfo[i]->isDropped && newTupDesc->attrs[i]->attnotnull) {
+            if (rewriteInfo[i] != NULL && !rewriteInfo[i]->isDropped && newTupDesc->attrs[i].attnotnull) {
                 rewriteInfo[i]->notNull = true;
             }
         }
@@ -25935,7 +25935,7 @@ static void ATCStoreRewriteTable(AlteredTableInfo* tab, Relation oldHeapRel, LOC
             RelationGetRelationName(oldHeapRel));
 
         for (int i = 0; i < maxCols; ++i) {
-            Form_pg_attribute thisattr = newTupDesc->attrs[i];
+            Form_pg_attribute thisattr = &newTupDesc->attrs[i];
 
             /* skip the dropped and rewritted columns */
             if (!thisattr->attisdropped && !rewriteFlags[i]) {
@@ -26352,7 +26352,7 @@ List* make_not_null_attrs(TupleDesc tuple_desc)
 {
     List* not_null_attrs = NIL;
     for (int i = 0; i < tuple_desc->natts; i++) {
-        if (tuple_desc->attrs[i]->attnotnull && !tuple_desc->attrs[i]->attisdropped)
+        if (tuple_desc->attrs[i].attnotnull && !tuple_desc->attrs[i].attisdropped)
             not_null_attrs = lappend_int(not_null_attrs, i);
     }
 
@@ -26387,7 +26387,7 @@ static void exec_only_test_dfs_table(AlteredTableInfo* tab)
         /*
          * Create tuple slot for scanning.
          */
-        scan_tuple_slot = MakeTupleTableSlot(true, tuple_desc->tdTableAmType);
+        scan_tuple_slot = MakeTupleTableSlot(true, tuple_desc->td_tam_ops);
         scan_tuple_slot->tts_tupleDescriptor = tuple_desc;
         scan_tuple_slot->tts_values = values;
         scan_tuple_slot->tts_isnull = nulls;
@@ -26395,7 +26395,7 @@ static void exec_only_test_dfs_table(AlteredTableInfo* tab)
         do {
             dfs::reader::DFSGetNextTuple(scan, scan_tuple_slot);
 
-            if (!scan_tuple_slot->tts_isempty) {
+            if (!TTS_EMPTY(scan_tuple_slot)) {
 
                 tuple = heap_form_tuple(tuple_desc, values, nulls);
                 foreach (lc, not_null_attrs) {
@@ -26409,7 +26409,7 @@ static void exec_only_test_dfs_table(AlteredTableInfo* tab)
                         ereport(ERROR,
                             (errcode(ERRCODE_NOT_NULL_VIOLATION),
                                 errmsg(
-                                    "column \"%s\" contains null values", NameStr(tuple_desc->attrs[attn]->attname))));
+                                    "column \"%s\" contains null values", NameStr(tuple_desc->attrs[attn].attname))));
                     }
                 }
             } else {

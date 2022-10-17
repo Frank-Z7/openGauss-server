@@ -77,14 +77,6 @@ static inline bool IsUnderStartWith(RecursiveUnion *ruplan)
 }
 
 /*
- * To implement UNION (without ALL), we need a hashtable that stores tuples
- * already seen.  The hash key is computed from the grouping columns.
- */
-typedef struct RUHashEntryData {
-    TupleHashEntryData shared; /* common header for hash table entries */
-} RUHashEntryData;
-
-/*
  * Initialize the hash table to empty.
  */
 static void build_hash_table(RecursiveUnionState* rustate)
@@ -99,7 +91,7 @@ static void build_hash_table(RecursiveUnionState* rustate)
         rustate->eqfunctions,
         rustate->hashfunctions,
         node->numGroups,
-        sizeof(RUHashEntryData),
+        0,
         rustate->tableContext,
         rustate->tempContext,
         u_sess->attr.attr_memory.work_mem);
@@ -582,7 +574,7 @@ RecursiveUnionState* ExecInitRecursiveUnion(RecursiveUnion* node, EState* estate
      * set up the result type before initializing child nodes, because
      * nodeWorktablescan.c expects it to be valid.)
      */
-    ExecAssignResultTypeFromTL(&rustate->ps, TAM_HEAP);
+    ExecAssignResultTypeFromTL(&rustate->ps);
     rustate->ps.ps_ProjInfo = NULL;
 
     /*
@@ -2059,13 +2051,13 @@ static void ExecInitRecursiveResultTupleSlot(EState* estate, PlanState* planstat
 {
     TupleTableSlot* slot = makeNode(TupleTableSlot);
 
-    slot->tts_isempty = true;
-    slot->tts_shouldFree = false;
-    slot->tts_shouldFreeMin = false;
+    slot->tts_flags |= TTS_FLAG_EMPTY;
+    slot->tts_flags &= ~TTS_FLAG_SHOULDFREE;
+    slot->tts_flags &= ~TTS_FLAG_SHOULDFREEMIN;
     slot->tts_tuple = NULL;
     slot->tts_tupleDescriptor = NULL;
 #ifdef PGXC
-    slot->tts_shouldFreeRow = false;
+    slot->tts_flags &= ~TTS_FLAG_SHOULDFREE_ROW;
     slot->tts_dataRow = NULL;
     slot->tts_dataLen = -1;
     slot->tts_attinmeta = NULL;

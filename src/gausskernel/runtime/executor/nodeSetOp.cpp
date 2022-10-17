@@ -68,17 +68,6 @@ typedef struct SetOpStatePerGroupData {
     long numRight; /* number of right-input dups in group */
 } SetOpStatePerGroupData;
 
-/*
- * To implement hashed mode, we need a hashtable that stores a
- * representative tuple and the duplicate counts for each distinct set
- * of grouping columns.  We compute the hash key from the grouping columns.
- */
-typedef struct SetOpHashEntryData* SetOpHashEntry;
-
-typedef struct SetOpHashEntryData {
-    TupleHashEntryData shared; /* common header for hash table entries */
-    SetOpStatePerGroupData pergroup;
-} SetOpHashEntryData;
 
 static TupleTableSlot* ExecSetOp(PlanState* state);
 static TupleTableSlot* setop_retrieve_direct(SetOpState* setopstate);
@@ -141,7 +130,7 @@ static void build_hash_table(SetOpState* setopstate)
         setopstate->eqfunctions,
         setopstate->hashfunctions,
         node->numGroups,
-        sizeof(SetOpHashEntryData),
+        0,
         setopstate->tableContext,
         setopstate->tempContext,
         work_mem);
@@ -337,7 +326,7 @@ static void setop_fill_hash_table(SetOpState* setopstate)
     WaitState old_status = pgstat_report_waitstatus(STATE_EXEC_HASHSETOP_BUILD_HASH);
     for (;;) {
         int flag;
-        SetOpHashEntry entry = NULL;
+        TupleHashEntryData* entry = NULL;
         bool is_new = false;
 
         TupleTableSlot* outer_slot = temp_file_control->m_hashAggSource->getTup();
@@ -354,16 +343,18 @@ static void setop_fill_hash_table(SetOpState* setopstate)
 
             if (temp_file_control->spillToDisk == false || temp_file_control->finishwrite == true)
                 /* Find or build hashtable entry for this tuple's group */
-                entry = (SetOpHashEntry)LookupTupleHashEntry(setopstate->hashtable, outer_slot, &is_new, true);
+                entry = LookupTupleHashEntry(setopstate->hashtable, outer_slot, &is_new, true);
             /* this slot need to be inserted into temp file instead of hash table if it is not existed in hash table */
             else
-                entry = (SetOpHashEntry)LookupTupleHashEntry(setopstate->hashtable, outer_slot, &is_new, false);
+                entry = LookupTupleHashEntry(setopstate->hashtable, outer_slot, &is_new, false);
 
             if (is_new) {
                 /* this slot is new and has been inserted to hash table */
                 if (entry != NULL) {
                     /* If new tuple group, initialize counts */
-                    initialize_counts(&entry->pergroup);
+                    entry->additional = (SetOpStatePerGroup)MemoryContextAlloc(setopstate->hashtable->tablecxt,
+                                                                               sizeof(SetOpStatePerGroupData));
+                    initialize_counts((SetOpStatePerGroup) entry->additional);
                     agg_spill_to_disk(temp_file_control,
                         setopstate->hashtable,
                         outer_slot,
@@ -396,17 +387,17 @@ static void setop_fill_hash_table(SetOpState* setopstate)
 
             if (entry != NULL) {
                 /* Advance the counts */
-                advance_counts(&entry->pergroup, flag);
+                advance_counts((SetOpStatePerGroup)entry->additional, flag);
             }
         } else {
             /* reached second relation */
             in_first_rel = false;
 
             /* For tuples not seen previously, do not make hashtable entry */
-            entry = (SetOpHashEntry)LookupTupleHashEntry(setopstate->hashtable, outer_slot, NULL);
+            entry = LookupTupleHashEntry(setopstate->hashtable, outer_slot, NULL);
             /* Advance the counts if entry is already present */
             if (entry != NULL) {
-                advance_counts(&entry->pergroup, flag);
+                advance_counts((SetOpStatePerGroup)entry->additional, flag);
             } else {
                 if (temp_file_control->spillToDisk == true && temp_file_control->finishwrite == false) {
                     uint32 hash_value;
@@ -530,7 +521,7 @@ static TupleTableSlot* setop_retrieve(SetOpState* setopstate)
  */
 static TupleTableSlot* setop_retrieve_hash_table(SetOpState* setopstate)
 {
-    SetOpHashEntry entry = NULL;
+    TupleHashEntryData* entry = NULL;
     TupleTableSlot* result_tuple_slot = NULL;
 
     /*
@@ -545,7 +536,7 @@ static TupleTableSlot* setop_retrieve_hash_table(SetOpState* setopstate)
         /*
          * Find the next entry in the hash table
          */
-        entry = (SetOpHashEntry)ScanTupleHashTable(&setopstate->hashiter);
+        entry = ScanTupleHashTable(setopstate->hashtable, &setopstate->hashiter);
         if (entry == NULL) {
             /* No more entries in hashtable, so done */
             setopstate->setop_done = true;
@@ -556,11 +547,11 @@ static TupleTableSlot* setop_retrieve_hash_table(SetOpState* setopstate)
          * See if we should emit any copies of this tuple, and if so return
          * the first copy.
          */
-        set_output_count(setopstate, &entry->pergroup);
+        set_output_count(setopstate, (SetOpStatePerGroup)entry->additional);
 
         if (setopstate->numOutput > 0) {
             setopstate->numOutput--;
-            return ExecStoreMinimalTuple(entry->shared.firstTuple, result_tuple_slot, false);
+            return ExecStoreMinimalTuple(entry->firstTuple, result_tuple_slot, false);
         }
     }
 
@@ -647,7 +638,7 @@ SetOpState* ExecInitSetOp(SetOp* node, EState* estate, int eflags)
      */
     ExecAssignResultTypeFromTL(
             &setopstate->ps,
-            ExecGetResultType(outerPlanState(setopstate))->tdTableAmType);
+            ExecGetResultType(outerPlanState(setopstate))->td_tam_ops);
 
     setopstate->ps.ps_ProjInfo = NULL;
 

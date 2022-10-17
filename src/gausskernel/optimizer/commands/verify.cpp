@@ -1646,7 +1646,7 @@ static void VerifyColRelFast(Relation rel)
     TupleDesc tupleDesc;
     CStoreScanDesc scan = NULL;
     int16* colIdx = NULL;
-    Form_pg_attribute* attrs = NULL;
+    FormData_pg_attribute* attrs = NULL;
     int attno = rel->rd_rel->relnatts;
     int col = 0;
 
@@ -1668,7 +1668,7 @@ static void VerifyColRelFast(Relation rel)
     colIdx = (int16*)palloc0(sizeof(int16) * tupleDesc->natts);
     attrs = tupleDesc->attrs;
     for (int i = 0; i < tupleDesc->natts; i++) {
-        colIdx[i] = attrs[i]->attnum;
+        colIdx[i] = attrs[i].attnum;
     }
 
     scan = CStoreBeginScan(rel, tupleDesc->natts, colIdx, GetActiveSnapshot(), true);
@@ -1737,7 +1737,7 @@ static void VerifyColRelComplete(Relation rel)
     VerifyColRelFast(rel);
 
     int attrNum = rel->rd_att->natts;
-    Form_pg_attribute* attrs = rel->rd_att->attrs;
+    FormData_pg_attribute* attrs = rel->rd_att->attrs;
     CUDesc cuDesc;
     CU* cuPtr = NULL;
     BlockNumber cuId = FirstCUID + 1;
@@ -1756,7 +1756,7 @@ static void VerifyColRelComplete(Relation rel)
     int slotId = CACHE_BLOCK_INVALID_IDX;
 
     for (int i = 0; i < attrNum; i++) {
-        colIdx[i] = attrs[i]->attnum;
+        colIdx[i] = attrs[i].attnum;
     }
 
     CStoreScanDesc cstoreScanDesc = CStoreBeginScan(rel, attrNum, colIdx, GetActiveSnapshot(), false);
@@ -1767,7 +1767,7 @@ static void VerifyColRelComplete(Relation rel)
     for (cuId = FirstCUID + 1; cuId <= maxCuId; cuId++) {
         for (int col = 0; col < attrNum; col++) {
             /* skip dropped column */
-            if (attrs[col]->attisdropped) {
+            if (attrs[col].attisdropped) {
                 continue;
             }
 
@@ -1775,7 +1775,7 @@ static void VerifyColRelComplete(Relation rel)
             if (found && cuDesc.cu_size != 0) {
                 PG_TRY();
                 {
-                    cuPtr = cstore->GetCUData(&cuDesc, col, attrs[col]->attlen, slotId);
+                    cuPtr = cstore->GetCUData(&cuDesc, col, attrs[col].attlen, slotId);
                     if (IsValidCacheSlotID(slotId)) {
                         CUCache->UnPinDataBlock(slotId);
                     }

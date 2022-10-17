@@ -86,13 +86,8 @@ SetupForCreateTableAs(Query *query, IntoClause *into, const char *queryString,
     * rewriter.  We do not do AcquireRewriteLocks: we assume the query either
     * came straight from the parser, or suitable locks were acquired by
     * plancache.c.
-    *
-    * Because the rewriter and planner tend to scribble on the input, we make
-    * a preliminary copy of the source querytree.  This prevents problems in
-    * the case that CTAS is in a portal or plpgsql function and is executed
-    * repeatedly.  (See also the same hack in EXPLAIN and PREPARE.)
     */
-   rewritten = QueryRewrite((Query *) copyObject(query));
+   rewritten = QueryRewrite(query);
 
    /* SELECT should never rewrite to more or less than one SELECT query */
    if (list_length(rewritten) != 1) {
@@ -338,7 +333,7 @@ static void intorel_startup(DestReceiver* self, int operation, TupleDesc typeinf
      */
     lc = list_head(into->colNames);
     for (attnum = 0; attnum < typeinfo->natts; attnum++) {
-        Form_pg_attribute attribute = typeinfo->attrs[attnum];
+        Form_pg_attribute attribute = &typeinfo->attrs[attnum];
         ColumnDef* col = makeNode(ColumnDef);
         TypeName* coltype = makeNode(TypeName);
 

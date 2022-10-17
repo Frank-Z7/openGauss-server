@@ -681,14 +681,14 @@ void selectColumn(MOT::Table* table, MOT::Row* row, TupleTableSlot* slot, int ta
         table_colid,
         table->GetFieldName(table_colid));
     uint8_t* rowData = const_cast<uint8_t*>(row->GetData());
-    slot->tts_tupleDescriptor->attrs[tuple_colid]->attnum = table_colid;
+    slot->tts_tupleDescriptor->attrs[tuple_colid].attnum = table_colid;
     MOTAdaptor::MOTToDatum(table,
-        slot->tts_tupleDescriptor->attrs[tuple_colid],
+        &slot->tts_tupleDescriptor->attrs[tuple_colid],
         rowData,
         &(slot->tts_values[tuple_colid]),
         &(slot->tts_isnull[tuple_colid]));
     DBG_PRINT_DATUM("Column Datum",
-        slot->tts_tupleDescriptor->attrs[tuple_colid]->atttypid,
+        slot->tts_tupleDescriptor->attrs[tuple_colid].atttypid,
         slot->tts_values[tuple_colid],
         slot->tts_isnull[tuple_colid]);
 }
@@ -1366,7 +1366,7 @@ Datum readTupleDatum(TupleTableSlot* slot, int tuple_colid, int arg_pos)
     MOT_LOG_DEBUG("Reading datum from tuple column %d ", tuple_colid);
     Datum result = slot->tts_values[tuple_colid];
     DBG_PRINT_DATUM("Pre-sum Tuple Datum",
-        slot->tts_tupleDescriptor->attrs[tuple_colid]->atttypid,
+        slot->tts_tupleDescriptor->attrs[tuple_colid].atttypid,
         slot->tts_values[tuple_colid],
         slot->tts_isnull[tuple_colid]);
     bool isnull = (result == PointerGetDatum(NULL));
@@ -1381,7 +1381,7 @@ void writeTupleDatum(TupleTableSlot* slot, int tuple_colid, Datum datum)
     slot->tts_values[tuple_colid] = datum;
     slot->tts_isnull[tuple_colid] = isnull;
     DBG_PRINT_DATUM("Post-sum Tuple Datum",
-        slot->tts_tupleDescriptor->attrs[tuple_colid]->atttypid,
+        slot->tts_tupleDescriptor->attrs[tuple_colid].atttypid,
         slot->tts_values[tuple_colid],
         slot->tts_isnull[tuple_colid]);
 }

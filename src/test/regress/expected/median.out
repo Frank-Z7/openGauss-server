@@ -164,11 +164,11 @@ INSERT INTO MEDTEST2 VALUES(5, INTERVAL '7 YEAR 2 MONTHS 1 DAYS', NULL);
 SELECT ID, MEDIAN(ITVL) FROM MEDTEST2 GROUP BY ID;
  id |             median              
 ----+---------------------------------
-  1 | @ 1 year 2 mons 3 days 12 hours
-  4 | 
-  3 | @ 7 years 2 mons
-  5 | @ 7 years 2 mons 1 day
   2 | @ 11 years 2 mons 4 days
+  5 | @ 7 years 2 mons 1 day
+  3 | @ 7 years 2 mons
+  4 | 
+  1 | @ 1 year 2 mons 3 days 12 hours
 (5 rows)
 
 -- unsupported datatype
