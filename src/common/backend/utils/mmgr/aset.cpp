@@ -190,7 +190,6 @@ typedef struct AllocMagicData {
 static inline int AllocSetFreeIndex(Size size)
 {
     int idx;
-    unsigned int t, tsize;
 
     if (size > (1 << ALLOC_MINBITS)) {
 		/*----------

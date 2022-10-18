@@ -71,8 +71,8 @@ WHERE p1.typtype not in ('c','d','p') AND p1.typname NOT LIKE E'\\_%'
 -----+------------------
   32 | oidvector_extend
  210 | smgr
- 194 | pg_node_tree
  705 | unknown
+ 194 | pg_node_tree
 (4 rows)
 
 -- Make sure typarray points to a varlena array type of our own base

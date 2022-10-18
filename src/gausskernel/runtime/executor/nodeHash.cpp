@@ -45,6 +45,7 @@
 #include "utils/memutils.h"
 #include "utils/selfuncs.h"
 #include "utils/syscache.h"
+#include "utils/hashutils.h"
 #include "vecexecutor/vechashtable.h"
 #include "vectorsonic/vsonicarray.h"
 #include "vectorsonic/vsonichash.h"
@@ -118,8 +119,7 @@ Node* MultiExecHash(HashState* node)
      */
     WaitState oldStatus = pgstat_report_waitstatus(STATE_EXEC_HASHJOIN_BUILD_HASH);
     for (;;) {
-        /* allow this loop to be cancellable */
-        CHECK_FOR_INTERRUPTS();
+
         slot = ExecProcNode(outerNode);
         if (TupIsNull(slot))
             break;
@@ -1402,8 +1402,7 @@ bool ExecHashGetHashValue(HashJoinTable hashtable, ExprContext* econtext, List* 
     }
 
     MemoryContextSwitchTo(oldContext);
-    hashkey = DatumGetUInt32(hash_uint32(hashkey));
-    *hashvalue = hashkey;
+    *hashvalue = murmurhash32(hashkey);
     return true;
 }
 
