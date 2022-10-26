@@ -2408,6 +2408,7 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
 {
     Page dp = (Page)BufferGetPage(buffer);
     TransactionId prev_xmax = InvalidTransactionId;
+    BlockNumber blkno;
     OffsetNumber offnum;
     bool at_chain_start = false;
     bool valid = false;
@@ -2419,16 +2420,15 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
         *all_dead = first_call;
     }
 
-    Assert(TransactionIdIsValid(u_sess->utils_cxt.RecentGlobalXmin));
-
-    oldestXmin = GetOldestXminForHot(relation);
-
-    Assert(ItemPointerGetBlockNumber(tid) == BufferGetBlockNumber(buffer));
+    blkno = ItemPointerGetBlockNumber(tid);
     offnum = ItemPointerGetOffsetNumber(tid);
     at_chain_start = first_call;
     skip = !first_call;
 
-    heap_tuple->t_self = *tid;
+    Assert(TransactionIdIsValid(u_sess->utils_cxt.RecentGlobalXmin));
+    oldestXmin = GetOldestXminForHot(relation);
+
+    Assert(BufferGetBlockNumber(buffer) == blkno);
     HeapTupleCopyBaseFromPage(heap_tuple, dp);
 
     /* Scan through possible multiple members of HOT-chain */
@@ -2454,6 +2454,12 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
             break;
         }
 
+        /*
+         * Update heapTuple to point to the element of the HOT chain we're
+         * currently investigating. Having t_self set correctly is important
+         * because the SSI checks and the *Satisfies routine for historical
+         * MVCC snapshots need the correct tid to decide about the visibility.
+         */
         heap_tuple->t_data = (HeapTupleHeader)PageGetItem(dp, lp);
         heap_tuple->t_len = ItemIdGetLength(lp);
         heap_tuple->t_tableOid = RelationGetRelid(relation);
@@ -2462,7 +2468,7 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
 #ifdef PGXC
         heap_tuple->t_xc_node_id = u_sess->pgxc_cxt.PGXCNodeIdentifier;
 #endif
-        ItemPointerSetOffsetNumber(&heap_tuple->t_self, offnum);
+        ItemPointerSet(&heap_tuple->t_self, blkno, offnum);
 
         /*
          * Shouldn't see a HEAP_ONLY tuple at chain start.
@@ -2487,14 +2493,6 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
          * we skip it and return the next match we find.
          */
         if (!skip) {
-            /*
-             * For the benefit of logical decoding, have t_self point at the
-             * element of the HOT chain we're currently investigating instead
-             * of the root tuple of the HOT chain. This is important because
-             * the *Satisfies routine for historical mvcc snapshots needs the
-             * correct tid to decide about the visibility in some cases.
-             */
-            ItemPointerSet(&(heap_tuple->t_self), BufferGetBlockNumber(buffer), offnum);
             /* If it's visible per the snapshot, we must return it */
             valid = HeapTupleSatisfiesVisibility(heap_tuple, snapshot, buffer);
             /* We unlock buffer if sync xid to finish and xid base may change, so copy base again */
@@ -2514,9 +2512,6 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
                             ItemPointerGetBlockNumber(&heap_tuple->t_data->t_ctid),
                             ItemPointerGetOffsetNumber(&heap_tuple->t_data->t_ctid))));
             }
-
-            /* reset to original, non-redirected, tid */
-            heap_tuple->t_self = *tid;
 
             if (valid) {
                 ItemPointerSetOffsetNumber(tid, offnum);
@@ -2554,7 +2549,7 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
          * the next offnum and loop around.
          */
         if (HeapTupleIsHotUpdated(heap_tuple)) {
-            Assert(ItemPointerGetBlockNumber(&heap_tuple->t_data->t_ctid) == ItemPointerGetBlockNumber(tid));
+            Assert(ItemPointerGetBlockNumber(&heap_tuple->t_data->t_ctid) == blkno);
             offnum = ItemPointerGetOffsetNumber(&heap_tuple->t_data->t_ctid);
             at_chain_start = false;
             prev_xmax = HeapTupleGetUpdateXid(heap_tuple);
