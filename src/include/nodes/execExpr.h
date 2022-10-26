@@ -249,6 +249,9 @@ typedef enum ExprEvalOp
     /* whether to trace the column name while executing projections */
     EEOP_TRACE_COLUMN,
 
+    /*pre-detoast the var*/
+    EEOP_PREDETOAST_OUTER_VAR,
+
 	/* non-existent operation, used e.g. to check array lengths */
 	EEOP_LAST
 } ExprEvalOp;
@@ -645,7 +648,10 @@ typedef struct ExprEvalStep
         {
             char* column_name;
         }  trace_column;
-
+        struct
+        {
+            Bitmapset* var_set;
+        } pre_detoast;
 	}			d;
 } ExprEvalStep;
 

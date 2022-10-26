@@ -29,6 +29,26 @@ typedef struct LastAttnumInfo
 	AttrNumber	last_scan;
 } LastAttnumInfo;
 
+typedef struct PreDetoastInfo
+{
+    Bitmapset* var_info;
+    Bitmapset* var_repeat;
+    int total_count;
+    int repeat_count;
+} PreDetoastInfo;
+
+typedef struct PreDetoastContext
+{
+    PreDetoastInfo inner_var;
+    PreDetoastInfo outer_var;
+    PreDetoastInfo scan_var;
+    bool is_inner_pre;
+    bool is_outer_pre;
+    bool is_scan_var;
+    AggState* aggstate;
+} PreDetoastContext;
+
+
 static void ExecReadyExpr(ExprState *state);
 static void ExecInitExprRec(Expr *node, ExprState *state,
 				Datum *resv, bool *resnull, Expr *parent_node);
@@ -2388,6 +2408,102 @@ if (node == NULL)
 								  (void *) info);
 }
 
+static void check_detoast_helper(Var* var, PreDetoastInfo* info)
+{
+    if (var->varattno < 0) return;
+    
+    /*only support numeric oid now*/
+    if (exprType((Node*)var) != NUMERICOID)
+    {
+        return;
+    }
+    int attnum = var->varattno-1;
+    if(bms_is_member(attnum, info->var_info))
+    {
+        info->var_repeat = bms_add_member(info->var_repeat, attnum);
+        info->repeat_count++;
+    }
+    else
+    {
+        info->var_info = bms_add_member(info->var_info, attnum);
+    }
+    info->total_count++;
+}
+
+/*
+ * check_optimized_detoast_walker
+ */
+static bool
+get_optimized_detoast_walker(Node *node, PreDetoastContext * pre_detoast)
+{
+    if (node == NULL)
+        return false;
+    if (IsA(node, Var))
+    {
+        Var *variable = (Var *) node;
+        switch (variable->varno)
+        {
+            case OUTER_VAR:
+                check_detoast_helper((Var*)node, &pre_detoast->outer_var);
+                break;
+            default:
+                return false;
+        }
+        return false;
+    }
+
+    /*
+     * Don't examine the arguments or filters of Aggrefs or WindowFuncs,
+     * because those do not represent expressions to be evaluated within the
+     * calling expression's econtext.  GroupingFunc arguments are never
+     * evaluated at all.
+     */
+    if (IsA(node, Aggref))
+        return false;
+    if (IsA(node, WindowFunc))
+        return false;
+    if (IsA(node, GroupingFunc))
+        return false;
+    return expression_tree_walker(node, (bool (*)())get_optimized_detoast_walker,  (void *) pre_detoast);
+}
+
+static void pre_detoast_step_helper(ExprState  *state, PreDetoastInfo* info, ExprEvalOp opcode)
+{
+    if (info->total_count == 0
+        || bms_is_empty(info->var_repeat)
+        || info->repeat_count == 0)
+    {
+        return;
+    }
+    double factor = ((double)info->repeat_count) / ((double)info->total_count);
+    if (factor < u_sess->attr.attr_sql.pre_detoast_var_factor)
+    {
+        return;
+    }
+    /*generate step for predetoast*/
+    ExprEvalStep scratch;
+    scratch.opcode = opcode;
+    scratch.d.pre_detoast.var_set = bms_copy(info->var_info);
+    ExprEvalPushStep(state, &scratch);
+}
+
+static void process_detoast_optimezed(ExprState  *state)
+{
+    PreDetoastContext* pre_detoast = (PreDetoastContext*)palloc0(sizeof(PreDetoastContext));
+    AggState* aggstate = (AggState*)state->expr;
+    for (int transno = 0; transno < aggstate->numtrans; transno++)
+    {
+        AggStatePerTrans pertrans = &aggstate->pertrans[transno];
+        get_optimized_detoast_walker((Node *) pertrans->aggref->args, pre_detoast);
+    }
+    /*
+     * check the factor if we need to pre-detoast
+     * only support outer var now
+     */
+    pre_detoast_step_helper(state, &pre_detoast->outer_var, EEOP_PREDETOAST_OUTER_VAR);
+    return;
+}
+
 /*
  * Prepare step for the evaluation of a whole-row variable.
  * The caller still has to push the step.
@@ -2860,6 +2976,12 @@ ExecBuildAggTrans(AggState *aggstate, AggStatePerPhase phase, bool doSort, bool 
         //get_last_attnums_walker((Node *) pertrans->aggref->aggfilter, &deform);
     }
     ExecPushExprSlots(state, &deform);
+
+    /* push pre-detoast step if needed*/
+    if (u_sess->attr.attr_sql.pre_detoast_var_factor > 0.0)
+    {
+        process_detoast_optimezed(state);
+    }
 
     /*
      * Emit instructions for each transition value / grouping set combination.

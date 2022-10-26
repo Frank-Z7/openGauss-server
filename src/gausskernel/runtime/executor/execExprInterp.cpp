@@ -618,6 +618,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_AGG_ORDERED_TRANS_DATUM,
 		&&CASE_EEOP_AGG_ORDERED_TRANS_TUPLE,
 		&&CASE_EEOP_TRACE_COLUMN,
+		&&CASE_EEOP_PREDETOAST_OUTER_VAR,
 		&&CASE_EEOP_LAST
 	};
 
@@ -2061,6 +2062,19 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
         EEO_CASE(EEOP_TRACE_COLUMN)
         {
             ELOG_FIELD_NAME_UPDATE(op->d.trace_column.column_name);
+            EEO_NEXT();
+        }
+
+        EEO_CASE(EEOP_PREDETOAST_OUTER_VAR)
+        {
+            int attnum = -1;
+            while ((attnum = bms_next_member(op->d.pre_detoast.var_set, attnum)) >= 0)
+            {
+                if (!outerslot->tts_isnull[attnum])
+                {
+                    outerslot->tts_values[attnum] = PointerGetDatum(PG_DETOAST_DATUM(outerslot->tts_values[attnum]));
+                }
+            }
             EEO_NEXT();
         }
 
