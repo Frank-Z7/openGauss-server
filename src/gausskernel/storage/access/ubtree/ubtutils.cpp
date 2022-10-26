@@ -213,7 +213,9 @@ IndexTuple UBTreeCheckKeys(IndexScanDesc scan, Page page, OffsetNumber offnum, S
 
         /* row-comparison keys need special processing */
         if (key->sk_flags & SK_ROW_HEADER) {
-            if (_bt_check_rowcompare(key, tuple, tupdesc, dir, continuescan)) {
+            if (_bt_check_rowcompare(key, tuple, 
+                                     IndexRelationGetNumberOfAttributes(scan->indexRelation), 
+                                     tupdesc, dir, continuescan)) {
                 continue;
             }
             return NULL;
