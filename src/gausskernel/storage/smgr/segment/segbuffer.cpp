@@ -52,7 +52,7 @@ static BufferDesc *SegStrategyGetBuffer(uint32 *buf_state);
 static bool SegStartBufferIO(BufferDesc *buf, bool forInput);
 static void SegTerminateBufferIO(BufferDesc *buf, bool clear_dirty, uint32 set_flag_bits);
 
-extern PrivateRefCountEntry *GetPrivateRefCountEntry(Buffer buffer, bool create, bool do_move);
+extern PrivateRefCountEntry *GetPrivateRefCountEntry(Buffer buffer, bool do_move);
 extern void ForgetPrivateRefCountEntry(PrivateRefCountEntry *ref);
 
 void AbortSegBufferIO(void)
@@ -189,7 +189,7 @@ bool SegPinBuffer(BufferDesc *buf)
                      errmsg("[SegPinBuffer] (%u %u %u %d) %d %u ", buf->tag.rnode.spcNode, buf->tag.rnode.dbNode,
                             buf->tag.rnode.relNode, buf->tag.rnode.bucketNode, buf->tag.forkNum, buf->tag.blockNum)));
     bool result;
-    PrivateRefCountEntry * ref = GetPrivateRefCountEntry(BufferDescriptorGetBuffer(buf), true, true);
+    PrivateRefCountEntry * ref = GetPrivateRefCountEntry(BufferDescriptorGetBuffer(buf), true);
     SegmentCheck(ref != NULL);
 
     if (ref->refcount == 0) {
@@ -226,7 +226,7 @@ static bool SegPinBufferLocked(BufferDesc *buf, const BufferTag *tag)
                      errmsg("[SegPinBufferLocked] (%u %u %u %d) %d %u ", tag->rnode.spcNode, tag->rnode.dbNode,
                             tag->rnode.relNode, tag->rnode.bucketNode, tag->forkNum, tag->blockNum)));
     SegmentCheck(BufHdrLocked(buf));
-    PrivateRefCountEntry * ref = GetPrivateRefCountEntry(BufferDescriptorGetBuffer(buf), true, true);
+    PrivateRefCountEntry * ref = GetPrivateRefCountEntry(BufferDescriptorGetBuffer(buf), true);
     SegmentCheck(ref != NULL);
 
     uint32 buf_state = pg_atomic_read_u32(&buf->state);
@@ -249,7 +249,7 @@ void SegUnpinBuffer(BufferDesc *buf)
     ereport(DEBUG5, (errmodule(MOD_SEGMENT_PAGE),
                      errmsg("[SegUnpinBuffer] (%u %u %u %d) %d %u ", buf->tag.rnode.spcNode, buf->tag.rnode.dbNode,
                             buf->tag.rnode.relNode, buf->tag.rnode.bucketNode, buf->tag.forkNum, buf->tag.blockNum)));
-    PrivateRefCountEntry * ref = GetPrivateRefCountEntry(BufferDescriptorGetBuffer(buf), true, true);
+    PrivateRefCountEntry * ref = GetPrivateRefCountEntry(BufferDescriptorGetBuffer(buf), true);
     SegmentCheck(ref != NULL);
 
     ResourceOwnerForgetBuffer(t_thrd.utils_cxt.CurrentResourceOwner, BufferDescriptorGetBuffer(buf));
