@@ -118,8 +118,6 @@ typedef struct CkptTsStatus {
     int index;
 } CkptTsStatus;
 
-static void ReservePrivateRefCountEntry(void);
-static PrivateRefCountEntry* NewPrivateRefCountEntry(Buffer buffer);
 static inline int32 GetPrivateRefCount(Buffer buffer);
 void ForgetPrivateRefCountEntry(PrivateRefCountEntry *ref);
 static void CheckForBufferLeaks(void);
@@ -136,7 +134,7 @@ static Buffer ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumb
  * more entry. This has to be called before using NewPrivateRefCountEntry() to
  * fill a new entry - but it's perfectly fine to not use a reserved entry.
  */
-static void ReservePrivateRefCountEntry(void)
+void ReservePrivateRefCountEntry(void)
 {
     /* Already reserved (or freed), nothing to do */
     if (t_thrd.storage_cxt.ReservedRefCountEntry != NULL)
@@ -199,7 +197,7 @@ static void ReservePrivateRefCountEntry(void)
 /*
  * Fill a previously reserved refcount entry.
  */
-static PrivateRefCountEntry* NewPrivateRefCountEntry(Buffer buffer)
+PrivateRefCountEntry* NewPrivateRefCountEntry(Buffer buffer)
 {
     PrivateRefCountEntry *res;
 
@@ -596,6 +594,7 @@ static volatile BufferDesc *PageListBufferAlloc(SMgrRelation smgr, char relpersi
      * Loop here in case we have to try another victim buffer
      */
     for (;;) {
+        ReservePrivateRefCountEntry();
         /*
          * Select a victim buffer.
          * The buffer is returned with its header spinlock still held!
@@ -1179,6 +1178,7 @@ void PageListBackWrite(uint32 *buf_list, int32 nbufs, uint32 flags = 0, SMgrRela
 
             /* Make sure we will have room to remember the buffer pin */
             ResourceOwnerEnlargeBuffers(t_thrd.utils_cxt.CurrentResourceOwner);
+            ReservePrivateRefCountEntry();
 
             /*
              * Check whether buffer needs writing.
