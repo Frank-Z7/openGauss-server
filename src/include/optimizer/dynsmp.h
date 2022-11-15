@@ -30,7 +30,7 @@
 extern void OptimizePlanDop(PlannedStmt* plannedStmt);
 extern void InitDynamicSmp();
 extern bool IsDynamicSmpEnabled();
-extern void ChooseStartQueryDop(int hashTableCount);
+extern void ChooseStartQueryDop(Query* parse, int hashTableCount);
 extern void CheckQueryDopValue();
 
 typedef struct GMNSDConext {

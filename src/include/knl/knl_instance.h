@@ -1127,7 +1127,7 @@ typedef struct knl_instance_context {
     void* bgw_base;
     pthread_mutex_t bgw_base_lock;
     struct PROC_HDR* proc_base;
-    pthread_mutex_t proc_base_lock;
+    pthread_rwlock_t proc_base_lock;
     struct PGPROC** proc_base_all_procs;
     struct PGXACT* proc_base_all_xacts;
     struct PGPROC** proc_aux_base;

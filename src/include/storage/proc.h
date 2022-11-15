@@ -348,6 +348,8 @@ typedef struct PROC_HDR {
     uint32		allNonPreparedProcCount;
     /* Head of list of free PGPROC structures */
     PGPROC* freeProcs;
+    /* Number of freeProcs */
+    int nFreeProcs;
     /* Head of list of external's free PGPROC structures */
     PGPROC* externalFreeProcs;
     /* Head of list of autovacuum's free PGPROC structures */
@@ -358,6 +360,8 @@ typedef struct PROC_HDR {
     PGPROC* pgjobfreeProcs;
 	/* Head of list of bgworker free PGPROC structures */
     PGPROC* bgworkerFreeProcs;
+    /* Number of above free procs(from externalFreeProcs to bgworkerFreeProcs) */
+    int nFreeUtilProcs;
     /* First pgproc waiting for group XID clear */
     pg_atomic_uint32 procArrayGroupFirst;
     /* First pgproc waiting for group transaction status update */
@@ -457,6 +461,7 @@ extern int GetAuxProcEntryIndex(int baseIdx);
 extern void PublishStartupProcessInformation(void);
 
 extern bool HaveNFreeProcs(int n);
+extern void GetNFreeProcs(int *n_free, int *n_other);
 extern void ProcReleaseLocks(bool isCommit);
 extern int GetUsedConnectionCount(void);
 extern int GetUsedInnerToolConnCount(void);
