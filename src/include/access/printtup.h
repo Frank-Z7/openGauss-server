@@ -67,5 +67,8 @@ typedef struct {
     PrinttupAttrInfo* myinfo; /* Cached info about each attr */
     StreamProducer* arg;
 } streamReceiver;
+#define VALGRIND_CHECK_MEM_IS_DEFINED(addr,size)\
+    do {                                        \
+    } while(0)
 
 #endif /* PRINTTUP_H */

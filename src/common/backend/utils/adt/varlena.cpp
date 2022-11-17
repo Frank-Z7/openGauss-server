@@ -221,7 +221,7 @@ char* text_to_cstring(const text* t)
     char* result = NULL;
 
     result = (char*)palloc(len + 1);
-    MemCpy(result, VARDATA_ANY(tunpacked), len);
+    memcpy(result, VARDATA_ANY(tunpacked), len);
     result[len] = '\0';
 
     if (tunpacked != t)
