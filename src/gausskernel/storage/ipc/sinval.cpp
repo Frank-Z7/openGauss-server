@@ -21,6 +21,7 @@
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
 #include "storage/ipc.h"
+#include "storage/proc.h"
 #include "storage/sinvaladt.h"
 #include "utils/globalplancache.h"
 #include "utils/inval.h"
@@ -182,6 +183,10 @@ void HandleCatchupInterrupt(void)
      * you do here.
      */
     catchupInterruptPending = true;
+    /* make sure the event is processed in due course */
+    if (t_thrd.proc) {
+        SetLatch(&t_thrd.proc->procLatch);
+    }
 }
 
 /*

@@ -730,6 +730,12 @@ retry:
         ereport(WARNING, (errcode(ERRCODE_CONNECTION_TIMED_OUT),
             errmsg("walreceiver could not connect to the remote server,the connection info :%s : %s",
             conninfo, PQerrorMessage(t_thrd.libwalreceiver_cxt.streamConn))));
+        if (t_thrd.libwalreceiver_cxt.streamConn != NULL) {
+            ereport(LOG, (errmsg("walreceiver sock info fd: %d, nonblocked: %d", 
+                         t_thrd.libwalreceiver_cxt.streamConn->sock, (int)t_thrd.libwalreceiver_cxt.streamConn->nonblocking)));
+        } else {
+            ereport(LOG, (errmsg("walreceiver sock is null")));
+        }    
         libpqrcv_disconnect();
         ereport(ERROR, (errcode(ERRCODE_CONNECTION_TIMED_OUT),
                         errmsg("walreceiver could not connect and shutting down")));
