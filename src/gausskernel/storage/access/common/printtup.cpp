@@ -1091,9 +1091,9 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
             pq_sendcountedtext(buf, (char *)attr, strlen((char *)attr), false);
         } else {
             /*
-             * Here we catch undefined bytes in datums that are retruned to the 
-             * client without hitting disk; This test is nost useful for uncompressed,
-             * non-external datums, but we're quite likely to see such here when 
+             * Here we catch undefined bytes in datums that are returned to the
+             * client without hitting disk; This test is most useful for uncompressed,
+             * non-external datums, but we're quite likely to see such here when
              * testing new C functions.
              */
             if (thisState->typisvarlena)

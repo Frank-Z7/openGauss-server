@@ -749,10 +749,11 @@ void InsertOneValue(char* value, int i)
     boot_get_type_io_data(typoid, &typlen, &typbyval, &typalign, &typdelim, &typioparam, &typinput, &typoutput);
 
     values[i] = OidInputFunctionCall(typinput, value, typioparam, -1);
+
     /*
-    * We use ereport not elog here so that parameters aren't evaluated unless
-    * the message is going to be printed, which generally it isn't
-    */
+     * We use ereport not elog here so that parameters aren't evaluated unless
+     * the message is going to be printed, which generally it isn't
+     */
     ereport(DEBUG4, (errmsg_internal("inserted -> %s", OidOutputFunctionCall(typoutput, values[i]))));
 }
 
