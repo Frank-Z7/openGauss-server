@@ -12144,7 +12144,10 @@ int GaussDbThreadMain(knl_thread_arg* arg)
             ledger_hook_init();
 
             /* unique sql hooks */
-            instr_unique_sql_register_hook();
+#ifndef ENABLE_MULTIPLE_NODES
+            if (!u_sess->attr.attr_common.enable_parser_fusion)
+#endif
+                instr_unique_sql_register_hook();
 
             /* hypopg index hooks */
             hypopg_register_hook();
