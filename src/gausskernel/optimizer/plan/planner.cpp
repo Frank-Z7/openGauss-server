@@ -524,7 +524,7 @@ PlannedStmt* standard_planner(Query* parse, int cursorOptions, ParamListInfo bou
             GetHashTableCount(parse, parse->cteList, &hashTableCount);
         }
 
-        ChooseStartQueryDop(hashTableCount);
+        ChooseStartQueryDop(parse, hashTableCount);
     }
 
     if (enable_check_implicit_cast())
@@ -912,6 +912,7 @@ PlannedStmt* standard_planner(Query* parse, int cursorOptions, ParamListInfo bou
 
     result->query_string = NULL;
     result->MaxBloomFilterNum = root->glob->bloomfilter.bloomfilter_index + 1;
+    result->plan_dop = 0;
     /* record which suplan belongs to which thread */
 #ifdef ENABLE_MULTIPLE_NODES
     if (IS_STREAM_PLAN) {

@@ -580,6 +580,14 @@ static void InitStream(StreamFlowCtl* ctl, StreamTransType transType)
     key.queryId = pstmt->queryId;
     key.planNodeId = plan->plan_node_id;
 
+    if (pstmt->plan_dop > 0) {
+        if (streamNode->smpDesc.consumerDop > 1)
+            streamNode->smpDesc.consumerDop = pstmt->plan_dop;
+
+        if (streamNode->smpDesc.producerDop > 1)
+            streamNode->smpDesc.producerDop = pstmt->plan_dop;
+    }
+
     /*
      * MPPDB with-recursive support
      */
@@ -811,6 +819,12 @@ static void InitStreamFlow(StreamFlowCtl* ctl)
     if (ctl->plan) {
         Plan* oldPlan = ctl->plan;
         StreamFlowCheckInfo oldCheckInfo = ctl->checkInfo;
+
+        if (ctl->pstmt->plan_dop > 0 && ctl->plan->dop > 1 &&
+                ctl->pstmt->plan_dop != ctl->plan->dop) {
+            ctl->plan->dop = ctl->pstmt->plan_dop;
+        }
+
         switch (nodeTag(oldPlan)) {
             case T_Append:
             case T_VecAppend: {

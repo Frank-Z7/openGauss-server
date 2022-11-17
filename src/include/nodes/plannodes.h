@@ -187,6 +187,7 @@ typedef struct PlannedStmt {
     bool multi_node_hint;
 
     uint64 uniqueSQLId;
+    int    plan_dop;
 } PlannedStmt;
 
 typedef struct NodeGroupInfoContext {

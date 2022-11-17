@@ -335,6 +335,11 @@ typedef struct knl_u_optimizer_context {
     int query_dop_store; /* Store the dop. */
 
     int query_dop; /* Degree of parallel, 1 means not parallel. */
+    bool auto_dop; /* Automatically degrade the DOP */
+    bool auto_dop_freeprocs; /* Adjust the dop based on the number of free procs */
+    int auto_dop_freeprocs_th; /* min number of free procs to disable DOP */
+    int auto_dop_join_th; /* When joins of the QueryTree exceeds the threshold, the dop is reduced to 2 */
+    int saved_dop; /* original value of query_dop */
 
     double smp_thread_cost;
 
