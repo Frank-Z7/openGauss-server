@@ -291,6 +291,7 @@ static const struct config_enum_entry sql_beta_options[] = {
     {"plpgsql_stream_fetchall", PLPGSQL_STREAM_FETCHALL, false},
     {"predpush_same_level", PREDPUSH_SAME_LEVEL, false},
     {"partition_fdw_on", PARTITION_FDW_ON, false},
+    {"sublink_pullup_enhanced", SUBLINK_PULLUP_ENHANCED},
     {NULL, 0, false}
 };
 

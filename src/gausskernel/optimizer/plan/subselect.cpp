@@ -85,10 +85,38 @@ typedef struct push_qual_context {
     List* qual_list; /* Find qual list. */
 } push_qual_context;
 
+/*
+ * winmagic_context
+ *   context of winmagic optimization.
+ */
+typedef struct winmagic_context {
+    /* winmagic intermediate components */
+    List* pullup_tlist;     /* the targetlist for new query (rewritten query) */
+    List* subquery_tlist;   /* the targetlist for new subquery (from original query) */
+
+    Index resno;            /* resno tracker */
+    Index winresno;         /* resno of winagg */
+
+    List* outer_vars;       /* vars from new query (rewritten query) */
+    List* inner_vars;       /* vars from new subquery (from original query) */
+
+    WindowClause* winclause;    /* winagg clause */
+
+    /* saved components of old sublink */
+    List* orig_target_vars;     /* vars from original sublink's targetlist */
+    List* orig_qual_vars;       /* vars from original sublink's qual */
+    TargetEntry* subtle;        /* subquery's expression targetlist entry */
+
+    /* lambda wrappers */
+    List* (*pull_varlist)(List*, Node*);
+    Node* (*replace_nodes)(Node*, Node*, Node*);
+} winmagic_context;
+
 /* flags bits for pull_expr_walker and pull expr_mutator */
 #define PE_OPEXPR   0x01        /* pull expr of op expr */
 #define PE_NULLTEST 0x02        /* pull expr of null test */
 #define PE_NOTCLAUSE    0x04        /* pull expr of not clause */
+#define PE_AGGREF   0x08        /* pull expr of sort group ref */
 
 
 static Node* build_subplan(PlannerInfo* root, Plan* plan, PlannerInfo* subroot, List* plan_params,
@@ -144,6 +172,29 @@ static bool CanExprHashable(List *pullUpEqualExpr);
 static bool contain_dml_walker(Node *node, void *context);
 static bool recursive_reference_recursive_walker(Node* node);
 static bool contain_outer_selfref_walker(Node *node, Index *depth);
+
+static bool safe_apply_winmagic(PlannerInfo* root,
+                                SubLink* sublink,
+                                Relids* available_rels);
+static Node* convert_expr_sublink_with_winmagic(PlannerInfo* root,
+                                                Node** jtlink1,
+                                                Node* sublink_qual,
+                                                SubLink* sublink,
+                                                Relids* available_rels);
+static List* make_wintarget_with_aggref(Aggref* aggref,
+                                        List* winpart_var,
+                                        winmagic_context* wminfo);
+static void winmagic_build_targetlist(PlannerInfo* root,
+                                      Node* sublink_qual,
+                                      winmagic_context* wminfo);
+static Node* winmagic_get_sublink_qual(PlannerInfo* root,
+                                       SubLink* sublink,
+                                       Node* sublink_expr,
+                                       Node* sublink_qual,
+                                       TargetEntry* winreftle);
+static void winmagic_replace_varlist_varno(Query* dest_qry,
+                                           Query* src_qry,
+                                           winmagic_context* wminfo);
 
 #define PLANNAMELEN 64
 
@@ -3967,6 +4018,42 @@ List* pull_opExpr(Node* node)
     return context.nodeList;
 }
 
+/*
+ * @Description: Get all aggrefs.
+ * @in node - source node
+ * @in context - store aggrefs.
+ */
+static bool pull_aggref_clause_walker(Node* node, pull_node_clause* context)
+{
+    if (node == NULL) {
+        return false;
+    }
+
+    if (IsA(node, Aggref)) {
+        context->nodeList = lappend(context->nodeList, node);
+        return false;
+    }
+
+    return expression_tree_walker(node, (bool (*)())pull_aggref_clause_walker, (void*)context);
+}
+
+/*
+ * @Description: Get all aggrefs.
+ * @in node - source node.
+ * @return - aggrefs list.
+ */
+List* pull_aggref(Node* node)
+{
+    pull_node_clause context;
+
+    context.nodeList = NIL;
+    context.flag = PE_AGGREF;
+
+    (void)pull_aggref_clause_walker(node, &context);
+
+    return context.nodeList;
+}
+
 /* get_equal_operates
  * get equal that one size include all var is level up  other include all var is not level up, when
  * two size all include level up var, return false, this qual can not pull
@@ -4211,7 +4298,9 @@ static bool safe_convert_EXPR(PlannerInfo *root, Node *clause, SubLink* sublink,
     /* Sublink qual must be correlations in the WHERE clause */
     level_up_varnos = pull_varnos(subQuery->jointree->quals, 1, true);
 
-    if (bms_is_empty(level_up_varnos) || !bms_is_subset(level_up_varnos, available_rels)) {
+    if ((bms_is_empty(level_up_varnos) ||
+        !bms_is_subset(level_up_varnos, available_rels)) &&
+        !ENABLE_SQL_BETA_FEATURE(SUBLINK_PULLUP_ENHANCED)) {
         ereport(DEBUG2,
             (errmodule(MOD_OPT_REWRITE),
                 (errmsg(
@@ -5415,10 +5504,24 @@ convert_EXPR_sublink_to_join(PlannerInfo *root,
                                                     available_rels,
                                                     all_quals, refname);
     }
-    else
+    else if (ENABLE_SQL_BETA_FEATURE(SUBLINK_PULLUP_ENHANCED) &&
+             safe_apply_winmagic(root, sublink, available_rels))
     {
+        /*
+         * Situation 2: agg with winmagic
+         * Use windows aggregation to eliminate sublinks.
+         * This method only available when SUBLINK_PULLUP_ENHANCED
+         * is set.
+         */
+        return convert_expr_sublink_with_winmagic(root,
+                                                  jtlink1,
+                                                  inout_quals,
+                                                  sublink,
+                                                  available_rels);
+    }
+    else {
         /* 
-         * Situation 2: agg
+         * Situation 3: agg
          * For example:
          * select * from t1 where t1.a = (select avg(t2.a) from t2 where t2.b = t1.b)
          * select * from t1 where t1.a = (select avg(t2.a) from t2 where t2.b = t1.b limit 1)
@@ -5484,8 +5587,16 @@ convert_expr_sublink_with_limit_clause(PlannerInfo *root,
     RangeTblEntry   *rte = NULL;
     RangeTblRef     *rtr = NULL;
     Index           rtIndex = 0;
+    Relids          levelUpVarnos = NULL;
 
     subQuery = (Query *) sublink->subselect;
+
+    if (ENABLE_SQL_BETA_FEATURE(SUBLINK_PULLUP_ENHANCED)) {
+        levelUpVarnos = pull_varnos(subQuery->jointree->quals, 1, true);
+        if (bms_is_empty(levelUpVarnos) || !bms_is_subset(levelUpVarnos, *available_rels)) {
+            return exprQual;
+        }
+    }
 
     /* 
      * Check whether the conditions of the sublink meet the requirements
@@ -5676,8 +5787,18 @@ convert_expr_subink_with_agg_targetlist(PlannerInfo *root,
     Query       *subQuery = NULL;
     Node        *joinQual = NULL;
     Node        *push_quals = NULL;
+    Relids      levelUpVarnos = NULL;
+    bool        pullupNonCorrelated = false;
     
     subQuery = (Query*)sublink->subselect;
+
+    /* Check if need to pull up non-correlated sublinks */
+    if (ENABLE_SQL_BETA_FEATURE(SUBLINK_PULLUP_ENHANCED)) {
+        levelUpVarnos = pull_varnos(subQuery->jointree->quals, 1, true);
+        if (bms_is_empty(levelUpVarnos) || !bms_is_subset(levelUpVarnos, *available_rels)) {
+            pullupNonCorrelated = true;
+        }
+    }
 
     /*
      * Judge this sublink if all quals is 'equal' and it is connected by 'and', and equal expr
@@ -5685,7 +5806,7 @@ convert_expr_subink_with_agg_targetlist(PlannerInfo *root,
      * append need pull up equal expr in sublink to list. sublink can br pulled up where 
      * get_pullUp_equal_expr return true and pullUpEqualExpr is not null.
      */
-    if (get_pullUp_equal_expr((Node*)subQuery->jointree, &pullUpEqualExpr) && pullUpEqualExpr)
+    if ((get_pullUp_equal_expr((Node*)subQuery->jointree, &pullUpEqualExpr) && pullUpEqualExpr) || pullupNonCorrelated)
     {
         /* Guc rewrite_rule need set to magicset.*/
         if (((u_sess->attr.attr_sql.rewrite_rule & MAGIC_SET) && permit_from_rewrite_hint(root, MAGIC_SET)) && !contain_subplans((Node*)subQuery->jointree))
@@ -6352,3 +6473,658 @@ CanExprHashable(List *pullUpEqualExpr)
     return true;
 }
 
+/*
+ * @brief safe_apply_winmagic
+ *  Is it safe to use windows aggregation to eliminate the sublinks?
+ *  For now, we need to keep the sublink as hassle-free as possible.
+ *
+ * @param root  Planner info with original query
+ */
+static bool safe_apply_winmagic(PlannerInfo* root,
+                                SubLink* sublink,
+                                Relids* available_rels)
+{
+    Query* query = root->parse;
+    Query* subquery = castNode(Query, sublink->subselect);
+    List* aggreflist = NIL;
+    ListCell* lc = NULL;
+    Relids levelUpVarnos = NULL;
+
+    if (query->hasWindowFuncs ||
+        query->hasDistinctOn ||
+        subquery->hasWindowFuncs ||
+        subquery->hasDistinctOn)
+    {
+        return false;
+    }
+
+    if (query->groupClause != NIL ||
+        query->groupingSets != NIL ||
+        subquery->groupClause != NIL ||
+        subquery->groupingSets != NIL) {
+        return false;
+    }
+
+    if (subquery->limitOffset != NULL ||
+        subquery->limitCount != NULL) {
+        return false;
+    }
+
+    if (subquery->havingQual != NULL) {
+        return false;
+    }
+
+    /*
+     * Check if it is correlated.
+     */
+    levelUpVarnos = pull_varnos(subquery->jointree->quals, 1, true);
+    if (bms_num_members(levelUpVarnos) > 1) {
+        return false;
+    }
+
+    /* Check num of correlation operations */
+    if (bms_is_empty(levelUpVarnos) ||
+        !bms_is_subset(levelUpVarnos, *available_rels)) {
+        return false;
+    }
+
+    /* Check number of aggs in subquery targetist */
+    aggreflist = pull_aggref((Node*)subquery->targetList);
+    if (list_length(aggreflist) != 1) {
+        list_free_ext(aggreflist);
+        return false;
+    }
+    list_free_ext(aggreflist);
+
+    /*
+     * Rules:
+     * Only support simple sublink, whose rtable is a subset of
+     * upper query's rtable. (might improve later)
+     */
+    foreach(lc, subquery->rtable) {
+        RangeTblEntry* rte = lfirst_node(RangeTblEntry, lc);
+        ListCell* qlc = NULL;
+        Oid relid = InvalidOid;
+        bool found = false;
+
+        /*
+         * For sublink here, we do not support
+         * explicit join of any type for the sake of convenient.
+         * (might improve later).
+         */
+        if (rte->rtekind != RTE_RELATION) {
+            continue;
+        }
+
+        relid = rte->relid;
+        if (!OidIsValid(relid)) {
+            return false;
+        }
+
+        foreach(qlc, query->rtable) {
+            RangeTblEntry* qrte = lfirst_node(RangeTblEntry, qlc);
+
+            /* Check Join Type */
+            if (rte->rtekind == RTE_JOIN && rte->jointype != JOIN_INNER) {
+                /* Only support INNER JOIN */
+                return false;
+            }
+
+            if (qrte->relid == relid) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+ * winmagic context initializer
+ */
+static void init_winmagic_context(winmagic_context* wminfo)
+{
+    wminfo->pullup_tlist = NIL;
+    wminfo->subquery_tlist = NIL;
+
+    wminfo->resno = 1;
+    wminfo->winresno = 1;
+
+    wminfo->outer_vars = NIL;
+    wminfo->inner_vars = NIL;
+
+    wminfo->winclause = NULL;
+
+    wminfo->orig_target_vars = NIL;
+    wminfo->orig_qual_vars = NIL;
+    wminfo->subtle = NULL;
+
+    /*
+     * pull vars lambda wrapper
+     * @param list  list to append
+     * @param node  get Vars from the node
+     */
+    wminfo->pull_varlist = \
+        [](List* list, Node* node) -> List*
+        {
+            return list_concat(list,
+                pull_var_clause(node,
+                                PVC_RECURSE_AGGREGATES,
+                                PVC_REJECT_PLACEHOLDERS,
+                                PVC_RECURSE_SPECIAL_EXPR,
+                                true, false));
+        };
+
+    /*
+     * replace nodes lamdba wrapper
+     * @param node      the search space clause
+     * @param old       old nodes to be replaced
+     * @param replace   replacement nodes
+     */
+    wminfo->replace_nodes = \
+        [](Node* node, Node* old, Node* replace) -> Node*
+        {
+            return replace_node_clause(node, old, replace,
+                                       RNC_RECURSE_AGGREF);
+        };
+}
+
+/*
+ * Winmagic expr sublink sublink pullup
+ *
+ * Use windows aggregation to eliminate the sublinks.
+ * This method so-called winmagic can be more efficient is
+ * some cases than generic sublink pull up.
+ *
+ * But still, this is so far a very expensive optimization.
+ * Therefore, it is not always optimal especially for queries
+ * that is already fast enough.
+ */
+static Node* convert_expr_sublink_with_winmagic(PlannerInfo* root,
+                                                Node** jtlink1,
+                                                Node* sublink_qual,
+                                                SubLink* sublink,
+                                                Relids* available_rels)
+{
+    Query* subquery = castNode(Query, sublink->subselect);
+    Query* query = NULL;        /* new subquery */
+    TargetEntry* winreftle;     /* targetlist entry referencing the winagg */
+
+    /* Winmagic context */
+    winmagic_context wminfo;
+    init_winmagic_context(&wminfo);
+
+    /* Fill winmagic context values */
+    wminfo.orig_target_vars = \
+        wminfo.pull_varlist(NIL, (Node*)subquery->targetList);
+    wminfo.orig_qual_vars = \
+        wminfo.pull_varlist(NIL, subquery->jointree->quals);
+    wminfo.subtle = linitial_node(TargetEntry, subquery->targetList);
+
+    /* Expand original query targetlist */
+    winmagic_build_targetlist(root, sublink_qual, &wminfo);
+
+    /* Replace the entire operator with the filter with condition "true" */
+    root->parse->jointree->quals = \
+        wminfo.replace_nodes(root->parse->jointree->quals,
+                             sublink_qual,
+                             makeBoolConst(true, false));
+
+    /* Fix subquery vars */
+    winmagic_replace_varlist_varno(root->parse, subquery, &wminfo);
+    IncrementVarSublevelsUp((Node*)wminfo.orig_qual_vars, -1, 1);
+
+    /* Set targetlist */
+    root->parse->targetList = wminfo.subquery_tlist;
+
+    /* Merge query's and sublinks' quals tree */
+    root->parse->jointree->quals = \
+        make_and_qual(root->parse->jointree->quals, subquery->jointree->quals);
+
+    /* Change query structure */
+    push_down_one_query(root, &query);
+
+    /* Keep the sort and limit */
+    pull_up_sort_limit_clause(root->parse, query, false);
+
+    /* Set target list for the modified query */
+    root->parse->targetList = wminfo.pullup_tlist;
+
+    /* Set flags, might improve later */
+    query->hasWindowFuncs = true;
+    if (pull_aggref((Node*)root->parse->targetList) != NIL) {
+        root->parse->hasAggs = true;
+    }
+    query->hasAggs = false;
+    query->hasSubLinks = false;
+
+    /* Add sublink qual */
+    winreftle = get_tle_by_resno(query->targetList, wminfo.winresno);
+    sublink_qual = wminfo.replace_nodes((Node*)sublink_qual,
+                                        (Node*)wminfo.inner_vars,
+                                        (Node*)wminfo.outer_vars);
+    root->parse->jointree->quals = \
+        winmagic_get_sublink_qual(root, sublink,
+                                  (Node*)wminfo.subtle->expr,
+                                  sublink_qual,
+                                  winreftle);
+
+    /* Add winclause */
+    query->windowClause = list_make1(wminfo.winclause);
+
+    /* Redo parameter values hack */
+    bms_free_ext(*available_rels);
+    *available_rels = bms_make_singleton(1);
+
+    *jtlink1 = castNode(Node, root->parse->jointree);
+
+    return NULL;
+}
+
+/*
+ * Winmagic build targetlist for the original query
+ *
+ * For winmagic, the original query is converted into a
+ * subquery. Because the original targetlist need to take
+ * the result of window function as a input, original query's
+ * targetlist is pulled up to the new wrapper query. This
+ * function creates the new expanded targetlist to replace
+ * the original targetlist along with the new window func.
+ */
+static void winmagic_build_targetlist(PlannerInfo* root,
+                                      Node* sublink_qual,
+                                      winmagic_context* wminfo)
+{
+    ListCell* lc = NULL;
+    List* rtable = root->parse->rtable;
+    List* wintarget = NIL;
+    List* winpart_var = NIL;
+    Aggref* aggref = NULL;
+
+    /*
+     * Collect original query's vars
+     * Those vars will be replaced by outer vars after
+     * their host being pulled up.
+     */
+    wminfo->inner_vars = \
+        wminfo->pull_varlist(NIL, (Node*)root->parse->targetList);
+    wminfo->inner_vars = \
+        wminfo->pull_varlist(wminfo->inner_vars, sublink_qual);
+
+    /*
+     * Build outer vars & plain targetlist out of inner vars
+     */
+    foreach(lc, wminfo->inner_vars) {
+        Var* var = lfirst_node(Var, lc);
+        Var* outer_var = NULL;
+        char* resname = NULL;
+        TargetEntry* tle = NULL;
+        RangeTblEntry* rte = rt_fetch(var->varno, rtable);
+
+        /* Get new target list */
+        resname = get_rte_attribute_name(rte, var->varattno);
+        tle = makeTargetEntry((Expr*)var,
+                              wminfo->resno,
+                              resname, false);
+
+        /* Get old target replacement Vars */
+        outer_var = makeVarFromTargetEntry((Index)1, tle);
+
+        wminfo->outer_vars = \
+            lappend(wminfo->outer_vars, outer_var);
+        wminfo->subquery_tlist = \
+            lappend(wminfo->subquery_tlist, tle);
+        wminfo->resno++;
+    }
+
+    /*
+     * Build & append window func target
+     */
+    aggref = linitial_node(Aggref, \
+        pull_aggref((Node*)wminfo->subtle->expr));
+    winpart_var = \
+        pull_vars_of_level((Node*)wminfo->orig_qual_vars, 1);
+
+    wintarget = make_wintarget_with_aggref(aggref,
+                                           winpart_var,
+                                           wminfo);
+
+    wminfo->subquery_tlist = list_concat(wminfo->subquery_tlist,
+                                         wintarget);
+    wminfo->resno++;
+
+    /* Update pull up target list with new vars */
+    wminfo->pullup_tlist = root->parse->targetList;
+    wminfo->pullup_tlist = \
+        (List*)wminfo->replace_nodes((Node*)wminfo->pullup_tlist,
+                                     (Node*)wminfo->inner_vars,
+                                     (Node*)wminfo->outer_vars);
+}
+
+/*
+ * make window func target entries & window clause
+ *
+ * Use the original aggref node along with the one
+ * levels up var to create window func and window
+ * clause.
+ */
+static List* make_wintarget_with_aggref(Aggref* aggref,
+                                        List* winpart_var,
+                                        winmagic_context* wminfo)
+{
+    WindowFunc* winfunc = NULL;
+    TargetEntry* wintle = NULL;
+    List* wintarget = NIL;
+    List* sgclist = NULL;
+    List* varlist = NULL;
+    ListCell* lc = NULL;
+
+    /* Get vars from aggref */
+    varlist = wminfo->pull_varlist(varlist, (Node*)aggref);
+
+    /* Make window func & and the target entry */
+    winfunc = makeNode(WindowFunc);
+    winfunc->winfnoid = aggref->aggfnoid;
+    winfunc->wintype = aggref->aggtype;
+    winfunc->winref = 1; /* this is arbitrary, might improve later */
+    winfunc->winagg = true;
+    winfunc->args = varlist;
+
+    wintle = makeTargetEntry((Expr*)winfunc,
+                             wminfo->resno,
+                             pstrdup(wminfo->subtle->resname),
+                             false);
+    wintarget = lappend(wintarget, wintle);
+    wminfo->winresno = wintle->resno;
+
+    /* Create list of ref targets */
+    foreach(lc, wminfo->orig_qual_vars) {
+        Var* var = lfirst_node(Var, lc);
+        TargetEntry* tle = NULL;
+        SortGroupClause* sgc = NULL;
+        Node* expr = NULL;
+        Oid sortop = InvalidOid;
+        Oid eqop = InvalidOid;
+        bool hashable = false;
+
+        /* Make sort group clause */
+        expr = castNode(Node, var);
+        get_sort_group_operators(exprType(expr),
+                                 true, true, false,
+                                 &sortop, &eqop,
+                                 NULL, &hashable);
+        sgc = makeNode(SortGroupClause);
+        sgc->tleSortGroupRef = wminfo->resno;
+        sgc->sortop = sortop;
+        sgc->eqop = eqop;
+        sgc->hashable = hashable;
+        sgclist = lappend(sgclist, sgc);
+
+        /* Make target entry */
+        tle = makeTargetEntry((Expr*)expr, wminfo->resno, NULL, true);
+        tle->ressortgroupref = wminfo->resno;
+        wintarget = lappend(wintarget, tle);
+        wminfo->resno++;
+    }
+
+    wminfo->winclause = makeNode(WindowClause);
+    wminfo->winclause->partitionClause = sgclist;
+    wminfo->winclause->frameOptions = FRAMEOPTION_DEFAULTS;
+    wminfo->winclause->winref = winfunc->winref;
+
+    return wintarget;
+}
+
+/*
+ * Winmagic, get sublink qual
+ *
+ * Replace the entire sublink operation with proper filter.
+ * Returns the updated qual.
+ */
+static Node* winmagic_get_sublink_qual(PlannerInfo* root,
+                                       SubLink* sublink,
+                                       Node* sublink_expr,
+                                       Node* sublink_qual,
+                                       TargetEntry* winreftle)
+{
+    Query* subquery = castNode(Query, sublink->subselect);
+    Node* sublink_filter = NULL;
+    List* winrefvars = NIL;
+    List* filtervars = NIL;
+
+    sublink_filter = generate_filter_on_opexpr_sublink(root,
+                                                       (Index)1,
+                                                       sublink_expr,
+                                                       subquery);
+    filtervars = pull_var_clause(sublink_filter,
+                                 PVC_RECURSE_AGGREGATES,
+                                 PVC_REJECT_PLACEHOLDERS,
+                                 PVC_RECURSE_SPECIAL_EXPR);
+    winrefvars = list_make1(makeVarFromTargetEntry((Index)1, winreftle));
+
+    /* Replace sublink from sublink qual with proper filter */
+    if (sublink_filter != NULL) {
+        sublink_filter = replace_node_clause(sublink_filter,
+                                             (Node*)filtervars,
+                                             (Node*)winrefvars,
+                                             RNC_RECURSE_AGGREF | \
+                                             RNC_COPY_NON_LEAF_NODES);
+        sublink_qual = replace_node_clause(sublink_qual,
+                                           (Node*)sublink,
+                                           (Node*)sublink_filter,
+                                           RNC_RECURSE_AGGREF | \
+                                           RNC_COPY_NON_LEAF_NODES);
+    }
+
+    return sublink_qual;
+}
+
+/*
+ * Winmagic replace Vars' varno in subquery
+ *
+ * In winmagic, we try to combine the sublink and the upper query.
+ * Therefore, we replaced varno in src var list with pre-calculated
+ * varno map.
+ */
+static void winmagic_replace_varlist_varno(Query* dest_qry,
+                                           Query* src_qry,
+                                           winmagic_context* wminfo)
+{
+    ListCell* lc = NULL;
+    Index src_index = 0;
+    Index* varno_map = NULL;
+    int src_table_num = list_length(src_qry->rtable);
+
+    /* Allocate varno_map with len(rtable)+1 elements */
+    varno_map = (Index*)palloc0((src_table_num + 1) * sizeof(Index));
+
+    /* Fill varno_map */
+    foreach(lc, src_qry->rtable) {
+        RangeTblEntry* rte = lfirst_node(RangeTblEntry, lc);
+        ListCell* qlc = NULL;
+        Oid relid = InvalidOid;
+        Index dest_index = 0;
+
+        Assert(rte->rtekind == RTE_RELATION);
+        Assert(OidIsValid(rte->relid));
+        src_index++;
+        relid = rte->relid;
+
+        foreach(qlc, dest_qry->rtable) {
+            RangeTblEntry* qrte = lfirst_node(RangeTblEntry, qlc);
+
+            dest_index++;
+            if (qrte->relid == relid) {
+                varno_map[src_index] = dest_index;
+                break;
+            }
+        }
+    }
+    lc = NULL;
+
+    /* Create dest var list with mapped src vars */
+    foreach(lc, wminfo->orig_qual_vars) {
+        Var* src_var = lfirst_node(Var, lc);
+        if (src_var->varlevelsup > 0) {
+            continue;
+        }
+        src_var->varno = varno_map[src_var->varno];
+    }
+
+    foreach(lc, wminfo->orig_target_vars) {
+        Var* src_var = lfirst_node(Var, lc);
+        if (src_var->varlevelsup > 0) {
+            continue;
+        }
+        src_var->varno = varno_map[src_var->varno];
+    }
+
+    pfree_ext(varno_map);
+}
+
+/*
+ * push_down_one_query
+ *
+ * Adds a SELECT wrapper query that wraps around the original query.
+ * It works just like a query is being pushed down.
+ *
+ * root: the planner info of the query
+ * subquery: the planner info with the original query
+ */
+void push_down_one_query(PlannerInfo* root, Query** subquery) {
+    Query* parse = root->parse;
+    RangeTblEntry* rte = NULL;
+    RangeTblRef* rtr = NULL;
+    List* targetlist = NIL;
+    ListCell* lc = NULL;
+    AttrNumber attnum = 1;
+    errno_t rc = EOK;
+
+    /* Wrapper only applies on SELECT query */
+    Assert(subquery != NULL);
+    AssertEreport(parse->commandType == CMD_SELECT, MOD_OPT_REWRITE,
+        "Cannot create SELECT wrapper on any queries other than a SELECT query.");
+
+    *subquery = makeNode(Query);
+    rc = memcpy_s((void*)(*subquery), sizeof(Query), parse, sizeof(Query));
+    securec_check_c(rc, "\0", "\0");
+    rc = memset_s((void*)parse, sizeof(Query), 0, sizeof(Query));
+    securec_check_c(rc, "\0", "\0");
+
+    /* Get simple subquery RTE */
+    rte = addRangeTableEntryForSubquery(NULL,
+                                        *subquery,
+                                        makeAlias("inner_subquery", NIL),
+                                        false,
+                                        true);
+
+    /* Get range table reference */
+    rtr = makeNode(RangeTblRef);
+    rtr->rtindex = 1;
+
+    /* Get simple wrapper targetlist */
+    foreach(lc, (*subquery)->targetList) {
+        TargetEntry* tle = lfirst_node(TargetEntry, lc);
+        TargetEntry* tmp_tle = NULL;
+        Var* tmp_var = NULL;
+        char* attname = NULL;
+
+        if (tle->resjunk) {
+            continue;
+        }
+
+        if (tle->resname != NULL) {
+            attname = pstrdup(tle->resname);
+        }
+
+        tmp_var = makeVarFromTargetEntry((Index)1, tle);
+        tmp_tle = makeTargetEntry((Expr*)tmp_var, attnum, attname, false);
+        tmp_tle->resorigtbl = tle->resorigtbl;
+        tmp_tle->resorigcol = tle->resorigcol;
+
+        targetlist = lappend(targetlist, tmp_tle);
+        attnum++;
+    }
+
+    /* Create wrapper body, apply all components */
+    parse->type = T_Query;
+    parse->commandType = CMD_SELECT;
+    parse->targetList = targetlist;
+    parse->rtable = lappend(parse->rtable, rte);
+    parse->jointree = makeFromExpr(list_make1(rtr), NULL);
+    parse->can_push = (*subquery)->can_push;
+    parse->canSetTag = (*subquery)->canSetTag;
+    parse->hasSubLinks = (*subquery)->hasSubLinks;
+
+    /* The query string is remain unchanged, but it need to be copied */
+    if ((*subquery)->sql_statement != NULL) {
+        parse->sql_statement = pstrdup((*subquery)->sql_statement);
+    }
+}
+
+/*
+ * @brief pull_up_sort_limit_clause
+ *  Pull up sort and limit clauses from subquery.
+ * @param query     dest query
+ * @param subquery  src query
+ * @param set_refs  if true, reset sortgrouprefs, otherwise ignore
+ */
+void pull_up_sort_limit_clause(Query* query, Query* subquery, bool set_refs)
+{
+    ListCell* lc = NULL;
+    List* sortreflist = NIL;
+    List* groupreflist = NIL;
+
+    query->sortClause = subquery->sortClause;
+
+    /* Pull up limit & offset */
+    query->limitCount = subquery->limitCount;
+    query->limitOffset = subquery->limitOffset;
+
+    /* Set Sort Group Refs on wrapper */
+    foreach(lc, subquery->sortClause) {
+        SortGroupClause* sgc = lfirst_node(SortGroupClause, lc);
+        TargetEntry* tle_in = NULL;
+        TargetEntry* tle = NULL;
+
+        tle_in = get_sortgroupclause_tle(sgc, subquery->targetList, set_refs);
+        if (tle_in == NULL) {
+            continue;
+        }
+        tle = get_tle_by_resno(query->targetList, tle_in->resno);
+
+        tle->ressortgroupref = tle_in->ressortgroupref;
+        sortreflist = lappend(sortreflist, tle_in);
+    }
+
+    if (set_refs) {
+        /* Unset Sort Group Refs on inner query */
+        foreach(lc, subquery->groupClause) {
+            SortGroupClause* sgc = lfirst_node(SortGroupClause, lc);
+            TargetEntry* tle = get_sortgroupclause_tle(sgc, subquery->targetList);
+            groupreflist = lappend(groupreflist, tle);
+        }
+
+        sortreflist = list_union(sortreflist, groupreflist);
+        sortreflist = list_difference(sortreflist, groupreflist);
+
+        foreach(lc, sortreflist) {
+            TargetEntry* tle = lfirst_node(TargetEntry, lc);
+            tle->ressortgroupref = 0;
+        }
+    }
+
+    /* Clear inner query clauses */
+    subquery->sortClause = NIL;
+    subquery->limitCount = NULL;
+    subquery->limitOffset = NULL;
+
+    /* Free temp lists */
+    list_free_ext(sortreflist);
+    list_free_ext(groupreflist);
+}

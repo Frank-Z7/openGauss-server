@@ -107,6 +107,7 @@ static Node *pull_up_sublinks_targetlist(PlannerInfo *root, Node *node,
                               Node *jtnode, Relids *relids,
                               Node **newTargetList,
                               Node *whereQuals);
+static void pull_up_sublinks_having(PlannerInfo* root);
 
 #ifndef ENABLE_MULTIPLE_NODES
 static bool find_rownum_in_quals(PlannerInfo *root);
@@ -228,6 +229,12 @@ void pull_up_sublinks(PlannerInfo* root)
         return;
     }
 #endif
+    /* Always pull up HAVING before generic pull ups */
+    if (root->parse->groupClause != NULL &&
+        root->parse->havingQual != NULL &&
+        ENABLE_SQL_BETA_FEATURE(SUBLINK_PULLUP_ENHANCED)) {
+        pull_up_sublinks_having(root);
+    }
 
     /* Begin recursion through the jointree */
     jtnode = pull_up_sublinks_jointree_recurse(root, (Node*)root->parse->jointree, &relids);
@@ -3609,3 +3616,137 @@ bool ContainRownumQual(const Query *parse)
     return contain_rownum_walker(((FromExpr *)parse->jointree)->quals, NULL);
 }
 
+/*
+ * @brief pull_up_sublinks_having
+ *  Pull up sublinks from HAVING quals.
+ *
+ * For sublinks in HAVING clause, make the sublink a subquery(outer query) and join with the
+ * original query(inner query). What is left for that specific qual with sublink is
+ * transoformed into a operation between the result from the inner query and the outer query.
+ *
+ * For example:     (Original Query)
+ *      SELECT a, SUM(b) AS value FROM t1
+ *      GROUP BY a HAVING SUM(a) >= (SELECT AVG(b) FROM t1)
+ *      ORDER BY value DESC;
+ * Will turn into:  (Rewritten Query)
+ *      SELECT __inner_query__.a,
+ *          __inner_query__.value
+ *      FROM
+ *          (SELECT a, SUM(b) AS value, SUM(a) AS sum_a FROM t1 GROUP BY a) AS __inner_query__,
+ *          (SELECT avg(b) AS avg_b FROM t1) AS __outer_query__
+ *      WHERE __inner_query__.sum_a >= __outer_query__.avg_b
+ *      ORDER BY value DESC;
+ *
+ * There are some limitations for this:
+ *  (1) Correlated sublink is not handled.
+ *  (2) Sublink must work as a expression(An aggregation sublink rather than LIMIT).
+ *  (3) Only pullup once.
+ *
+ * @param root          Planner info
+ * @return Node*        Rewritten Query
+ */
+static void pull_up_sublinks_having(PlannerInfo* root)
+{
+    Query* inner_query = NULL;
+    List* oldExprList = NIL;
+    List* newExprList = NIL;
+    List* oldVarList = NIL;
+    List* newVarList = NIL;
+    ListCell* lc = NULL;
+
+    Assert(root->parse->havingQual != NULL);
+
+    /*
+     * Step 1: Make the original query an subquery(inner_query).
+     *  Notice that the root->parse has been updated in push_down_one_query.
+     *  Therefore, after push_down_one_query is invoked, root->parse
+     *  is no longer the inner query but the SELECT wrapper.
+     */
+    push_down_one_query(root, &inner_query);
+
+    /*
+     * Step 2: Pull up HAVING clause, turn it into a qual.
+     *  1. move all sortgroup clause in HAVING to targetist
+     *  2. add missing vars in HAVING to targetlist(basically unjunk the target entry)
+     *  3. pull up HAVING as quals, then replace vars with added vars in (2)
+     */
+    oldExprList = pull_aggref(inner_query->havingQual);
+    foreach(lc, oldExprList) {
+        Aggref* agg = lfirst_node(Aggref, lc);
+        RangeTblEntry* rte = linitial_node(RangeTblEntry, root->parse->rtable);
+        TargetEntry* tle = NULL;
+        Var* new_var = NULL;
+
+        tle = makeTargetEntry((Expr*)agg,
+                              list_length(inner_query->targetList) + 1,
+                              "?column?",
+                              false);
+        inner_query->targetList = lappend(inner_query->targetList, tle);
+        new_var = makeVarFromTargetEntry((Index)1, tle);
+        newExprList = lappend(newExprList, new_var);
+
+        /* Update colnames */
+        rte->eref->colnames = lappend(rte->eref->colnames,
+                                      makeString(tle->resname));
+    }
+
+    inner_query->havingQual = replace_node_clause((Node*)inner_query->havingQual,
+                                                  (Node*)oldExprList,
+                                                  (Node*)newExprList,
+                                                  RNC_REPLACE_FIRST_ONLY);
+
+    /* Unjunk missing vars in group clause */
+    foreach(lc, inner_query->targetList) {
+        TargetEntry* tle = lfirst_node(TargetEntry, lc);
+        List* varlist = NIL;
+        Var* new_var = NULL;
+        Var* old_var = NULL;
+
+        /* Skip norm entries */
+        if (!tle->resjunk || tle->ressortgroupref == 0) {
+            continue;
+        }
+
+        tle->resjunk = false;
+
+        /* Get var replacements */
+        new_var = makeVarFromTargetEntry((Index)1, tle);
+        newVarList = lappend(newVarList, new_var);
+
+        varlist = pull_var_clause((Node*)(tle->expr),
+                                  PVC_REJECT_AGGREGATES,
+                                  PVC_REJECT_PLACEHOLDERS);
+
+        AssertEreport(list_length(varlist) != 1, MOD_OPT_REWRITE,
+            "Cannot pull up HAVING from inner query, because inner query is broken.");
+
+        old_var = linitial_node(Var, varlist);
+        oldVarList = lappend(oldVarList, old_var);
+    }
+
+    /* pull up HAVING */
+    root->parse->jointree->quals = \
+        replace_node_clause((Node*)inner_query->havingQual,
+                            (Node*)oldVarList,
+                            (Node*)newVarList,
+                            RNC_NONE);
+
+    inner_query->havingQual = NULL;
+
+    /* Free temp lists */
+    list_free_ext(oldExprList);
+    list_free_ext(newExprList);
+    list_free_ext(oldVarList);
+    list_free_ext(newVarList);
+
+    /*
+     * Step 3: Pull up sort and limit clauses.
+     */
+    pull_up_sort_limit_clause(root->parse, inner_query, true);
+
+    /*
+     * Final Step: Invoke generic sublink pullup out(pull up outer_query).
+     *  This method is invoked before generic sublink pullups.
+     *  The final step is proceed in pull_up_sublinks.
+     */
+}
