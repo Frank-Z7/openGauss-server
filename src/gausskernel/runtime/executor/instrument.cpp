@@ -476,12 +476,20 @@ Instrumentation* InstrAlloc(int n, int instrument_options)
 /* Entry to a plan node */
 void InstrStartNode(Instrumentation* instr)
 {
-    if (!instr->first_time) {
+    if (
+#ifndef ENABLE_MULTIPLE_NODES
+        !u_sess->attr.attr_common.enable_seqscan_fusion &&
+#endif
+        !instr->first_time) {
         instr->enter_time = GetCurrentTimestamp();
         instr->first_time = true;
     }
 
-    CPUUsageGetCurrent(&instr->cpuusage_start);
+#ifndef ENABLE_MULTIPLE_NODES
+    if (!u_sess->attr.attr_common.enable_seqscan_fusion)
+#endif
+        CPUUsageGetCurrent(&instr->cpuusage_start);
+
 
     if (instr->need_timer) {
         if (INSTR_TIME_IS_ZERO(instr->starttime)) {
@@ -546,22 +554,31 @@ void InstrStopNode(Instrumentation* instr, double n_tuples, bool containMemory)
         INSTR_TIME_SET_ZERO(instr->starttime);
     }
     
-    CPUUsageGetCurrent(&cpu_usage);    
+#ifndef ENABLE_MULTIPLE_NODES
+    if (!u_sess->attr.attr_common.enable_seqscan_fusion)
+#endif
+        CPUUsageGetCurrent(&cpu_usage);
 
     /* Add delta of buffer usage since entry to node's totals */
     if (instr->need_bufusage) {
         BufferUsageAccumDiff(&instr->bufusage, u_sess->instr_cxt.pg_buffer_usage, &instr->bufusage_start);
     }
 
-    CPUUsageAccumDiff(&instr->cpuusage, &cpu_usage, &instr->cpuusage_start);
+#ifndef ENABLE_MULTIPLE_NODES
+    if (!u_sess->attr.attr_common.enable_seqscan_fusion)
+#endif
+        CPUUsageAccumDiff(&instr->cpuusage, &cpu_usage, &instr->cpuusage_start);
 
     /* Is this the first tuple of this cycle? */
     if (!instr->running) {
         instr->running = true;
         instr->firsttuple = INSTR_TIME_GET_DOUBLE(instr->counter);
     }
-
-    if (containMemory) {
+        if (
+#ifndef ENABLE_MULTIPLE_NODES
+        !u_sess->attr.attr_common.enable_seqscan_fusion &&
+#endif
+        containMemory) {
         int64 memory_size = 0;
         int64 control_memory_size = 0;
         /* calculate the memory context size of this Node */

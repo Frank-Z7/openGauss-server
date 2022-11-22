@@ -2499,7 +2499,7 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
             HeapTupleCopyBaseFromPage(heap_tuple, dp);
             CheckForSerializableConflictOut(valid, relation, (void*)heap_tuple, buffer, snapshot);
 
-            if (SHOW_DEBUG_MESSAGE()) {
+            if (unlikely(SHOW_DEBUG_MESSAGE())) {
                 ereport(DEBUG1,
                     (errmsg("heap_hot_search_buffer xid %lu self(%u,%hu) ctid(%u,%hu) valid %d "
                             "pointer(%u,%hu)",

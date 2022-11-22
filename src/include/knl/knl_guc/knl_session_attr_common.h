@@ -219,6 +219,8 @@ typedef struct knl_session_attr_common {
     char* node_name;
 #ifndef ENABLE_MULTIPLE_NODES
     bool plsql_show_all_error;
+    bool enable_seqscan_fusion;
+    bool enable_parser_fusion;
 #endif
     uint32 extension_session_vars_array_size;
     void** extension_session_vars_array;

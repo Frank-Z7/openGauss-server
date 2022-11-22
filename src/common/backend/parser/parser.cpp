@@ -49,15 +49,20 @@ List* raw_parser(const char* str, List** query_string_locationlist)
     core_yyscan_t yyscanner;
     base_yy_extra_type yyextra;
     int yyresult;
+#ifndef ENABLE_MULTIPLE_NODES
+    if (!u_sess->attr.attr_common.enable_parser_fusion) {
+#endif
+        /* reset u_sess->parser_cxt.stmt_contains_operator_plus */
+        resetOperatorPlusFlag();
 
-    /* reset u_sess->parser_cxt.stmt_contains_operator_plus */
-    resetOperatorPlusFlag();
+        /* reset u_sess->parser_cxt.isTimeCapsule */
+        resetIsTimeCapsuleFlag();
 
-    /* reset u_sess->parser_cxt.isTimeCapsule */
-    resetIsTimeCapsuleFlag();
-
-    /* reset u_sess->parser_cxt.isCreateFuncOrProc */
-    resetCreateFuncFlag();
+        /* reset u_sess->parser_cxt.isCreateFuncOrProc */
+        resetCreateFuncFlag();
+#ifndef ENABLE_MULTIPLE_NODES
+    }
+#endif
 
     /* initialize the flex scanner */
     yyscanner = scanner_init(str, &yyextra.core_yy_extra, &ScanKeywords, ScanKeywordTokens);

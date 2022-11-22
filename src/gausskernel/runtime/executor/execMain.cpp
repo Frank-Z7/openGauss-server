@@ -619,8 +619,12 @@ void standard_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, long co
     /*
     *  if current plan is working for expression, no need to collect instrumentation.
     */
-    if (estate->es_instrument != INSTRUMENT_NONE && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr &&
-        u_sess->instr_cxt.thread_instr) {
+    if (
+#ifndef ENABLE_MULTIPLE_NODES
+        !u_sess->attr.attr_common.enable_seqscan_fusion &&
+#endif
+        estate->es_instrument != INSTRUMENT_NONE
+        && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr && u_sess->instr_cxt.thread_instr) {
         int node_id = queryDesc->plannedstmt->planTree->plan_node_id - 1;
         int* m_instrArrayMap = u_sess->instr_cxt.thread_instr->m_instrArrayMap;
 
@@ -2260,8 +2264,12 @@ static void ExecutePlan(EState *estate, PlanState *planstate, CmdType operation,
     /*
      * if current plan is working for expression, no need to collect instrumentation.
      */
-    if (estate->es_instrument != INSTRUMENT_NONE && u_sess->instr_cxt.global_instr && StreamTopConsumerAmI() &&
-        u_sess->instr_cxt.thread_instr) {
+    if (
+#ifndef ENABLE_MULTIPLE_NODES
+        !u_sess->attr.attr_common.enable_seqscan_fusion &&
+#endif
+        estate->es_instrument != INSTRUMENT_NONE &&
+        u_sess->instr_cxt.global_instr && StreamTopConsumerAmI() && u_sess->instr_cxt.thread_instr) {
         int64 peak_memory = (uint64)(t_thrd.shemem_ptr_cxt.mySessionMemoryEntry->peakChunksQuery -
             t_thrd.shemem_ptr_cxt.mySessionMemoryEntry->initMemInChunks)
             << (chunkSizeInBits - BITS_IN_MB);

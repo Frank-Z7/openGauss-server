@@ -1422,7 +1422,11 @@ static Query* transformInsertStmt(ParseState* pstate, InsertStmt* stmt)
     }
 
     qry->resultRelation = setTargetTable(pstate, stmt->relation, false, false, targetPerms);
-    if (pstate->p_target_relation != NULL &&
+    if (
+#ifndef ENABLE_MULTIPLE_NODES
+        !u_sess->attr.attr_common.enable_parser_fusion &&
+#endif
+        pstate->p_target_relation != NULL &&
         ((unsigned int)RelationGetInternalMask(pstate->p_target_relation) & INTERNAL_MASK_DINSERT)) {
         ereport(ERROR,
             (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1432,7 +1436,7 @@ static Query* transformInsertStmt(ParseState* pstate, InsertStmt* stmt)
 #ifdef ENABLE_MULTIPLE_NODES
     if (IS_PGXC_COORDINATOR && !IsConnFromCoord()) {
 #endif
-        if (pstate->p_target_relation != NULL
+        if (!u_sess->attr.attr_common.enable_parser_fusion && pstate->p_target_relation != NULL
                 && RelationIsMatview(pstate->p_target_relation) && !stmt->isRewritten) {
             ereport(ERROR,
                     (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1443,7 +1447,11 @@ static Query* transformInsertStmt(ParseState* pstate, InsertStmt* stmt)
     }
 #endif
 
-    if (pstate->p_target_relation != NULL && stmt->upsertClause != NULL) {
+    if (
+#ifndef ENABLE_MULTIPLE_NODES
+        !u_sess->attr.attr_common.enable_parser_fusion &&
+#endif
+        pstate->p_target_relation != NULL && stmt->upsertClause != NULL) {
         /* non-supported upsert cases */
         if (!u_sess->attr.attr_sql.enable_upsert_to_merge && RelationIsColumnFormat(pstate->p_target_relation)) {
             ereport(ERROR, ((errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1475,7 +1483,11 @@ static Query* transformInsertStmt(ParseState* pstate, InsertStmt* stmt)
      * We reply on gs_redis to ganurantee DFS table to be read only during online expansion
      * so we don't need to double check if target table is DFS table here anymore.
      */
-    if (!u_sess->attr.attr_sql.enable_cluster_resize && pstate->p_target_relation != NULL &&
+    if (
+#ifndef ENABLE_MULTIPLE_NODES
+        !u_sess->attr.attr_common.enable_parser_fusion &&
+#endif
+        !u_sess->attr.attr_sql.enable_cluster_resize && pstate->p_target_relation != NULL &&
         RelationInClusterResizingWriteErrorMode(pstate->p_target_relation)) {
         ereport(ERROR,
             (errcode(ERRCODE_READ_ONLY_SQL_TRANSACTION),
