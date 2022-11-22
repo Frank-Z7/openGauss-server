@@ -452,6 +452,21 @@ void pq_init(void)
     pq_disk_reset_tempfile_contextinfo();
 
     on_proc_exit(pq_close, 0);
+
+    /*
+     * In backends we operate the underlying socket in
+     * nonblocking mode and use latches to implement blocking semantics if
+     * needed. That allows us to provide safely interruptible reads.
+     * 
+     * Use COMMERROR on failure, because ERROR would try to send the error to
+     * the client, which might require changing the mode again, leading to
+     * infinite recursion.
+     */
+#ifndef WIN32
+    if (u_sess->proc_cxt.MyProcPort->sock != PGINVALID_SOCKET && !pg_set_noblock(u_sess->proc_cxt.MyProcPort->sock)){
+        ereport(COMMERROR, (errmsg("could not set socket to nonblocking mode: %m")));
+    }
+#endif
 }
 
 /* --------------------------------
@@ -1125,29 +1140,6 @@ void TouchSocketFile(void)
  */
 void pq_set_nonblocking(bool nonblocking)
 {
-    if (u_sess->proc_cxt.MyProcPort->noblock == nonblocking) {
-        return;
-    }
-
-#ifdef WIN32
-    pgwin32_noblock = nonblocking ? 1 : 0;
-#else
-
-    /*
-     * Use COMMERROR on failure, because ERROR would try to send the error to
-     * the client, which might require changing the mode again, leading to
-     * infinite recursion.
-     */
-    if (nonblocking) {
-        if (!pg_set_noblock(u_sess->proc_cxt.MyProcPort->sock)) {
-            ereport(COMMERROR, (errmsg("fd:[%d] could not set socket to non-blocking mode: %m", u_sess->proc_cxt.MyProcPort->sock)));
-        }
-    } else {
-        if (!pg_set_block(u_sess->proc_cxt.MyProcPort->sock)) {
-            ereport(COMMERROR, (errmsg("fd:[%d] could not set socket to blocking mode: %m", u_sess->proc_cxt.MyProcPort->sock)));
-        }
-    }
-#endif
     u_sess->proc_cxt.MyProcPort->noblock = nonblocking;
 }
 

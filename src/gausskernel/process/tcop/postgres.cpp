@@ -477,16 +477,24 @@ static int InteractiveBackend(StringInfo inBuf)
  * interactive_getc -- collect one character from stdin
  *
  * Even though we are not reading from a "client" process, we still want to
- * respond to signals, particularly SIGTERM/SIGQUIT.  Hence we must use
- * prepare_for_client_read and client_read_ended.
+ * respond to signals, particularly SIGTERM/SIGQUIT.
  */
 static int interactive_getc(void)
 {
     int c;
 
-    prepare_for_client_read();
+    /*
+     * This will not process catchup interrupts or notifications while
+     * reading. But those can't really be relevant for a standalone backend
+     * anyway. To properly handle SIGTERM there's a hack in die() that
+     * directly processes interrupts at this stage...
+     */
+    CHECK_FOR_INTERRUPTS();
+
     c = getc(stdin);
-    client_read_ended();
+
+    ProcessClientReadInterrupt(true);
+
     return c;
 }
 
@@ -739,6 +747,76 @@ static int ReadCommand(StringInfo inBuf)
 
     u_sess->proc_cxt.firstChar = (char)result;
     return result;
+}
+
+/*
+ * ProcessClientReadInterrupt - Process interrupts specific to client reads
+ *
+ * This is called just after low-level reads. That might be after the read
+ * finished successfully, or it was interrupted via interrupt.
+ *
+ * Must preserve errno!
+ */
+void ProcessClientReadInterrupt(bool blocked)
+{
+    int save_errno = errno;
+
+    if (t_thrd.postgres_cxt.DoingCommandRead) {
+        /* Check for general interrupts that arrived while reading */
+        CHECK_FOR_INTERRUPTS();
+
+        /* Process sinval catchup interrupts that happened while reading */
+        if(catchupInterruptPending) {
+            ProcessCatchupInterrupt();
+        }
+
+        /* Process sinval catchup interrupts that happened while reading */
+        if(notifyInterruptPending) {
+            ProcessNotifyInterrupt();
+        }
+    } else if (t_thrd.int_cxt.ProcDiePending && blocked) {
+        /*
+         * We're dying It's safe (and sane) to handle that now.
+         */
+        CHECK_FOR_INTERRUPTS();
+    }
+    errno = save_errno;
+}
+
+/*
+ * ProcessClientWriteInterrupt - Process interrupts specific to client writes
+ *
+ * This is called just after low-level writes. That might be after the read
+ * finished successfully, or it was interrupted via interrupt. 'blocked' tells
+ * us whether the socket is blocked or not.
+ *
+ * Must preserve errno!
+ */
+void ProcessClientWriteInterrupt(bool blocked)
+{
+    int save_errno = errno;
+
+     /*
+      * We only want to process the interrupt here if socket writes are
+      * blocking to increase the chance to get an error message to the 
+      * client. If we're not blocked there'll soon be a
+      * CHECK_FOR_INTERRUPTS(). But if we're blocked we'll never get out of
+      * that situation if the client has died.
+      */
+    if (t_thrd.int_cxt.ProcDiePending && blocked) {
+        /*
+         * We're dying. It'safe (and sane) to handle that now. But we don't
+         * want to send the client the error message as that a) would possibly
+         * block again b) would possibly lead to sending an error message to
+         * the client, while we already started to send something else.
+         */
+         if (t_thrd.postgres_cxt.whereToSendOutput == DestRemote) {
+             t_thrd.postgres_cxt.whereToSendOutput = DestNone;
+         }
+         CHECK_FOR_INTERRUPTS();
+    }
+    
+    errno = save_errno;
 }
 
 /*
@@ -5858,7 +5936,16 @@ void PoolValidateCancelHandler(SIGNAL_ARGS)
     /* If we're still here, waken anything waiting on the process latch */
     if (t_thrd.proc)
         SetLatch(&t_thrd.proc->procLatch);
-
+    /* 
+     * If we're in single user mode, we want to quit immediately - we can't
+     * rely on latches as they wouldn't work when stdin/stdout is a
+     * file. Rather ugly, but it's unlikely to be worthwhile to invest much
+     * more effort just for the benefit of single user mode.
+     */
+    if (t_thrd.postgres_cxt.DoingCommandRead && t_thrd.postgres_cxt.whereToSendOutput != DestRemote) {
+        ProcessInterrupts();
+    }
+    
     errno = save_errno;
 }
 

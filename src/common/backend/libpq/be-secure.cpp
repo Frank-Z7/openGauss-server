@@ -75,8 +75,11 @@
 #endif /* USE_SSL */
 
 #include "libpq/libpq.h"
+#include "miscadmin.h"
+#include "storage/latch.h"
 #include "tcop/tcopprot.h"
 #include "utils/memutils.h"
+#include "storage/proc.h"
 #include "libcomm/libcomm.h"
 #include "miscadmin.h"
 #include "cipher.h"
@@ -223,18 +226,66 @@ void secure_close(Port* port)
 #endif
 }
 
+ssize_t logic_read(Port *port, void *ptr, size_t len)
+{
+    ssize_t n;
+    prepare_for_logic_conn_read();
+
+    int producer;
+retry:
+    NetWorkTimePollStart(t_thrd.pgxc_cxt.GlobalNetInstr);
+    n = gs_wait_poll(&(port->gs_sock), 1, &producer, -1, false);
+    NetWorkTimePollEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
+    /* no data but wake up, retry */
+    if (n == 0) {
+        logic_conn_read_check_ended();
+        goto retry;
+    }
+
+    if (n > 0) {
+        n = gs_recv(&(port->gs_sock), ptr, len);
+        LIBCOMM_DEBUG_LOG("secure_read to node %s[nid:%d,sid:%d] with msg:%c, len:%d.", port->remote_hostname, 
+            port->gs_sock.idx, port->gs_sock.sid, ((char *)ptr)[0], (int)len);
+    }
+    logic_conn_read_check_ended();
+    return n;
+}
+
+ssize_t secure_read_ord(Port *port, void *ptr, size_t len)
+{
+    ssize_t n;
+
+    /*
+     * Try to read from the socket without blocking. If it succeeds we're
+     * done, otherwise we'll wait for the socket using the latch mechanism.
+     */
+
+    PGSTAT_INIT_TIME_RECORD();
+    PGSTAT_START_TIME_RECORD();
+
+#ifdef WIN32
+    pgwin32_noblock = true;
+#endif
+    n = recv(port->sock, ptr, len, 0);
+#ifdef WIN32
+    pgwin32_noblock = false;
+#endif
+
+    END_NET_RECV_INFO(n);
+    return n;
+}
+
 /*
  *  Read data from a secure connection.
  */
 ssize_t secure_read(Port* port, void* ptr, size_t len)
 {
     ssize_t n;
-
+    int waitfor = 0;
+readloop:
 #ifdef USE_SSL
     if (port->ssl != NULL) {
         int err;
-
-    rloop:
         errno = 0;
         ERR_clear_error();
         n = SSL_read(port->ssl, ptr, len);
@@ -244,18 +295,15 @@ ssize_t secure_read(Port* port, void* ptr, size_t len)
                 port->count += n;
                 break;
             case SSL_ERROR_WANT_READ:
+                waitfor = WL_SOCKET_READABLE;
+                errno = EWOULDBLOCK;
+                n = -1;
+                break;
             case SSL_ERROR_WANT_WRITE:
-                if (port->noblock) {
-                    errno = EWOULDBLOCK;
-                    n = -1;
-                    break;
-                }
-#ifdef WIN32
-                pgwin32_waitforsinglesocket(SSL_get_fd(port->ssl),
-                    (err == SSL_ERROR_WANT_READ) ? (FD_READ | FD_CLOSE) : (FD_WRITE | FD_CLOSE),
-                    INFINITE);
-#endif
-                goto rloop;
+                waitfor = WL_SOCKET_WRITEABLE;
+                errno = EWOULDBLOCK;
+                n = -1;
+                break;
             case SSL_ERROR_SYSCALL:
                 /* leave it to caller to ereport the value of errno */
                 if (n != -1) {
@@ -280,47 +328,112 @@ ssize_t secure_read(Port* port, void* ptr, size_t len)
                 n = -1;
                 break;
         }
+        ereport(COMMERROR, (errmsg("SSL read")));
     } else
 #endif
     {
         if (port->is_logic_conn) {
-            prepare_for_logic_conn_read();
-
-            int producer;
-        retry:
-            NetWorkTimePollStart(t_thrd.pgxc_cxt.GlobalNetInstr);
-            n = gs_wait_poll(&(port->gs_sock), 1, &producer, -1, false);
-            NetWorkTimePollEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
-            /* no data but wake up, retry */
-            if (n == 0) {
-                logic_conn_read_check_ended();
-                goto retry;
-            }
-
-            if (n > 0) {
-                n = gs_recv(&(port->gs_sock), ptr, len);
-                LIBCOMM_DEBUG_LOG("secure_read to node %s[nid:%d,sid:%d] with msg:%c, len:%d.",
-                                  port->remote_hostname,
-                                  port->gs_sock.idx,
-                                  port->gs_sock.sid,
-                                  ((char*)ptr)[0],
-                                  (int)len);
-            }
-            logic_conn_read_check_ended();
+            n = logic_read(port, ptr, len);
         } else {
-            prepare_for_client_read();
-            PGSTAT_INIT_TIME_RECORD();
-            PGSTAT_START_TIME_RECORD();
-
-            /* CommProxy Interface Support */
-            n = comm_recv(port->sock, ptr, len, 0);
-            END_NET_RECV_INFO(n);
-            client_read_ended();
+            n = secure_read_ord(port, ptr, len);
+            waitfor = WL_SOCKET_READABLE;
         }
     }
 
+    /* In blocking mode, wait until the socket is ready */
+    if (!port->is_logic_conn && n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN) && t_thrd.proc) {
+        int w;
+        if (!waitfor)
+        {
+            ereport(COMMERROR, (errmsg("wait event should not be zero")));
+            /* for log printing, dn receive message */
+            IPC_PERFORMANCE_LOG_COLLECT(port->msgLog, ptr, n, port->remote_hostname, &port->gs_sock, SECURE_READ);
+            return n;
+        }
+
+        w = WaitLatchOrSocket(&t_thrd.proc->procLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH | waitfor, port->sock, 0);
+        /*
+         * If the postmaster has died, it's not safe to continue running,
+         * because it is the postmaster's job to kill us if some other backend
+         * exists uncleanly.  Moreover, we won't run very well in this state;
+         * helper processes like walwriter and the bgwriter will exit, so
+         * performance may be poor.  Finally, if we don't exit, pg_ctl will
+         * be unable to restart the postmaster without manual intervention,
+         * so no new connections can be accepted.  Exiting clears the deck
+         * for a postmaster restart.
+         *
+         * (Note that we only make this check when we would otherwise sleep
+         * on our latch.  We might still continue running for a while if the
+         * postmaster is killed in mid-query, or even through multiple queries
+         * if we never have to wait for read. We don't want to burn too many
+         * cycles checking for this very rare condition, and this should cause
+         * us to exit quickly in most cases.)
+         */
+        if (w & WL_POSTMASTER_DEATH)
+            ereport(FATAL,
+                (errcode(ERRCODE_ADMIN_SHUTDOWN), errmsg("terminating connection due to unexpected postmaster exit")));
+        if (w & WL_LATCH_SET) {
+            /* Handle interrupt */
+            ResetLatch(&t_thrd.proc->procLatch);
+            ProcessClientReadInterrupt(true);
+
+            /*
+             * We'll retry the read. Most likely it will return immediately
+             * because there's still no data available, and we'll wait
+             * for the socket to become ready again.
+             */
+        }
+        goto readloop;
+    }
+#ifdef USE_SSL
+    if (!port->is_logic_conn && n < 0 && !port->noblock && (errno == EWOULDBLOCK || errno == EAGAIN) && !t_thrd.proc) {
+        goto readloop;
+    }
+#endif
+
+    /*  
+     * Process interrupts that happened while (or before) receiving. Note that
+     * we signal that we're not blocking, which will prevent some types of
+     * interrupts from being processed.
+     */
+    ProcessClientReadInterrupt(false);
     /* for log printing, dn receive message */
     IPC_PERFORMANCE_LOG_COLLECT(port->msgLog, ptr, n, port->remote_hostname, &port->gs_sock, SECURE_READ);
+    return n;
+}
+
+ssize_t logic_write(Port *port, void *ptr, size_t len)
+{
+    ssize_t n;
+    n = gs_send(&(port->gs_sock), (char *)ptr, len, -1, TRUE);
+    LIBCOMM_DEBUG_LOG("secure_write to node[nid:%d,sid:%d] with msg:%c, len:%d.", port->gs_sock.idx, port->gs_sock.sid,
+        ((char *)ptr)[0], (int)len);
+
+    /* for log printing, send message */
+    IPC_PERFORMANCE_LOG_COLLECT(port->msgLog, ptr, n, port->remote_hostname, &port->gs_sock, SECURE_WRITE);
+    return n;
+}
+
+ssize_t secure_write_ord(Port *port, void *ptr, size_t len)
+{
+    PGSTAT_INIT_TIME_RECORD();
+    PGSTAT_START_TIME_RECORD();
+
+    ssize_t n;
+
+#ifdef WIN32
+    pgwin32_noblock = true;
+#endif
+    /* CommProxy Interface Support */
+    n = comm_send(port->sock, ptr, len, 0);
+#ifdef WIN32
+    pgwin32_noblock = false;
+#endif
+
+    PGSTAT_END_TIME_RECORD(NET_SEND_TIME);
+    END_NET_SEND_INFO(n);
+    /* for log printing, send message */
+    IPC_PERFORMANCE_LOG_COLLECT(port->msgLog, ptr, n, port->remote_hostname, NULL, SECURE_WRITE);
     return n;
 }
 
@@ -330,11 +443,12 @@ ssize_t secure_read(Port* port, void* ptr, size_t len)
 ssize_t secure_write(Port* port, void* ptr, size_t len)
 {
     ssize_t n;
+    int waitfor = 0;
     StreamTimeSendStart(t_thrd.pgxc_cxt.GlobalNetInstr);
+retry:
 #ifdef USE_SSL
     if (port->ssl != NULL) {
         int err;
-    wloop:
         errno = 0;
         ERR_clear_error();
         n = SSL_write(port->ssl, ptr, len);
@@ -345,18 +459,15 @@ ssize_t secure_write(Port* port, void* ptr, size_t len)
                 port->count += n;
                 break;
             case SSL_ERROR_WANT_READ:
+                waitfor = WL_SOCKET_READABLE;
+                errno = EWOULDBLOCK;
+                n = -1;
+                break;
             case SSL_ERROR_WANT_WRITE:
-                if (port->noblock) {
-                    errno = EWOULDBLOCK;
-                    n = -1;
-                    break;
-                }
-#ifdef WIN32
-                pgwin32_waitforsinglesocket(SSL_get_fd(port->ssl),
-                    (err == SSL_ERROR_WANT_READ) ? (FD_READ | FD_CLOSE) : (FD_WRITE | FD_CLOSE),
-                    INFINITE);
-#endif
-                goto wloop;
+                waitfor = WL_SOCKET_WRITEABLE;
+                errno = EWOULDBLOCK;
+                n = -1;
+                break;
             case SSL_ERROR_SYSCALL:
                 /* leave it to caller to ereport the value of errno */
                 if (n != -1) {
@@ -377,6 +488,7 @@ ssize_t secure_write(Port* port, void* ptr, size_t len)
                 n = -1;
                 break;
         }
+        ereport(COMMERROR, (errmsg("SSL write")));
     } else
 #endif
         /*
@@ -401,28 +513,52 @@ ssize_t secure_write(Port* port, void* ptr, size_t len)
      * as only one connection needed to send.
      */
     else if (port->is_logic_conn) {
-        n = gs_send(&(port->gs_sock), (char*)ptr, len, -1, TRUE);
-        LIBCOMM_DEBUG_LOG("secure_write to node[nid:%d,sid:%d] with msg:%c, len:%d.",
-            port->gs_sock.idx,
-            port->gs_sock.sid,
-            ((char*)ptr)[0],
-            (int)len);
-
-        /* for log printing, send message */
-        IPC_PERFORMANCE_LOG_COLLECT(port->msgLog, ptr, n, port->remote_hostname, &port->gs_sock, SECURE_WRITE);
+        n = logic_write(port, ptr, len);
     } else {
-        PGSTAT_INIT_TIME_RECORD();
-        PGSTAT_START_TIME_RECORD();
-
-        /* CommProxy Interface Support */
-        n = comm_send(port->sock, ptr, len, 0);
-        PGSTAT_END_TIME_RECORD(NET_SEND_TIME);
-        END_NET_SEND_INFO(n);
-        
-        /* for log printing, send message */
-        IPC_PERFORMANCE_LOG_COLLECT(port->msgLog, ptr, n, port->remote_hostname, NULL, SECURE_WRITE);
+        n = secure_write_ord(port, ptr, len);
+        waitfor = WL_SOCKET_WRITEABLE;
     }
 
+    if (!StreamThreadAmI() && !port->is_logic_conn && n < 0 && !port->noblock &&
+        (errno == EWOULDBLOCK || errno == EAGAIN) && t_thrd.proc) {
+        int w;
+        if (!waitfor) {   
+            StreamTimeSendEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
+            ereport(COMMERROR, (errmsg("wait event should not be zero")));
+            return n;
+        }
+
+        w = WaitLatchOrSocket(&t_thrd.proc->procLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH | waitfor, port->sock, 0);
+        /* See comments in secure_read. */
+        if (w & WL_POSTMASTER_DEATH)
+            ereport(FATAL,
+                (errcode(ERRCODE_ADMIN_SHUTDOWN), errmsg("terminating connection due to unexpected postmaster exit")));
+        if (w & WL_LATCH_SET) {
+            /* Handle interrupt. */
+            ResetLatch(&t_thrd.proc->procLatch);
+            ProcessClientWriteInterrupt(true);
+
+            /*
+             * We'll retry the write. Most likely it will return immediately
+             * because there's still no data available, and we'll wait
+             * for the socket to become ready again.
+             */
+        }
+        goto retry;
+    }
+#ifdef USE_SSL
+    if (!StreamThreadAmI() && !port->is_logic_conn && n <0 && !port->noblock && 
+        (errno == EWOULDBLOCK || errno == EAGAIN) && !t_thrd.proc) {
+        goto retry;
+    }
+#endif
+
+    /*  
+     * Process interrupts that happened while (or before) sending. Note that
+     * we signal that we're not blocking, which will prevent some types of
+     * interrupts from being processed.
+     */
+    ProcessClientWriteInterrupt(false);
     StreamTimeSendEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
 
     return n;
