@@ -56,4 +56,8 @@ extern void convert_multi_count_distinct(PlannerInfo* root);
 #endif
 extern List* pull_sublink(Node* node, int flag, bool is_name, bool recurse = false);
 extern List* pull_opExpr(Node* node);
+extern List* pull_aggref(Node* node);
+
+extern void push_down_one_query(PlannerInfo* root, Query** subquery);
+extern void pull_up_sort_limit_clause(Query* query, Query* subquery, bool set_refs);
 #endif /* SUBSELECT_H */

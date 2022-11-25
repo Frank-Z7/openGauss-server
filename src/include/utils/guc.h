@@ -375,7 +375,9 @@ typedef enum {
     A_STYLE_COERCE = 2048,
     PLPGSQL_STREAM_FETCHALL = 4096, /* fetch all tuple when has stream sql under plpgsql's for-loop */
     PREDPUSH_SAME_LEVEL = 8192, /* predpush same level */
-    PARTITION_FDW_ON = 16384 /* support create foreign table on partitioned table */
+    PARTITION_FDW_ON = 16384, /* support create foreign table on partitioned table */
+    DISABLE_BITMAP_COST_WITH_LOSSY_PAGES = 65536, /* stop computing bitmap path cost with lossy pages */
+    SUBLINK_PULLUP_ENHANCED = 131072
 } sql_beta_param;
 
 typedef enum {
