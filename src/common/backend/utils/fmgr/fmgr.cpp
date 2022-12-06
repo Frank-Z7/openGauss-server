@@ -171,11 +171,21 @@ extern char* get_language_name(Oid languageOid);
 
 const FmgrBuiltin* fmgr_isbuiltin(Oid id)
 {
-    const Builtin_func*  func = SearchBuiltinFuncByOid(id);
-    if (func == NULL)
+    uint16      index;
+
+    /* fast lookup only possible if original oid still assigned */
+    if (id > fmgr_last_builtin_oid)
         return NULL;
-    else
-        return (func->prolang != INTERNALlanguageId) ? NULL : (const FmgrBuiltin*)func;
+
+    /*
+     * Lookup function data. If there's a miss in that range it's likely a
+     * nonexistent function, returning NULL here will trigger an ERROR later.
+     */
+    index = fmgr_builtin_oid_index[id];
+    if (index == InvalidOidBuiltinMapping)
+        return NULL;
+
+    return &fmgr_builtins[index];
 }
 
 /*

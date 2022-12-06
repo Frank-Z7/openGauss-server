@@ -86,7 +86,7 @@ my $prorettype; #[6]
 		
 foreach my $row (@{ $catalog{builtindata} })
 {
-	if ($row =~ /_0\(([0-9A-Z]+)\),\s+_1\(\"(\S+)\"\),\s+_2\((\d+)\),\s+_3\((\w+)\),\s+_4\((\w+)\),\s+.+?_6\((\d+)\),.+?_25\(\"(\w+)\"\),/)
+	if ($row =~ /_0\(([0-9A-Z_]+)\),\s+_1\(\"(\S+)\"\),\s+_2\((\d+)\),\s+_3\((\w+)\),\s+_4\((\w+)\),\s+.+?_6\((\w+)\),.+?_9\(INTERNALlanguageId\),.+?_25\(\"(.+?)\"\),/)
 	{
 		$foid = $1;
 		$funcName = $2;
@@ -218,12 +218,58 @@ foreach my $s (sort { $a->{proname} cmp $b->{proname} } @fmgr)
 
 # Create the fmgr_builtins table
 print T "\nconst FmgrBuiltin fmgr_builtins[] = {\n";
+my @fmgr_builtin_oid_index;
+my $last_builtin_oid = 0;
 foreach my $s (sort { $a->{prosrc} cmp $b->{prosrc} } @fmgr)
 {
 	print T
-"  { $s->{oid}, \"$s->{prosrc}\", $s->{nargs}, $s->{strict}, $s->{retset}, $s->{prosrc}, $s->{prorettype} },\n";
-	$nfmgrfuncs = $nfmgrfuncs + 1;
+"  { $s->{oid}, \"$s->{prosrc}\", $s->{nargs}, $s->{strict}, $s->{retset}, $s->{prosrc}, $s->{prorettype} }";
+
+	$fmgr_builtin_oid_index[$s->{oid}] = $nfmgrfuncs++;
+	if ($nfmgrfuncs <= $#fmgr)
+	{
+		print T ",\n";
+	}
+	else
+	{
+		print T "\n";
+	}
+	$last_builtin_oid = $s->{oid};
 }
+print T "};\n";
+
+printf T qq|
+const int fmgr_nbuiltins = (sizeof(fmgr_builtins) / sizeof(FmgrBuiltin));
+
+const Oid fmgr_last_builtin_oid = %u;
+|, $last_builtin_oid;
+
+# Create fmgr_builtin_oid_index table.
+printf T qq|
+const uint16 fmgr_builtin_oid_index[%u] = {
+|, $last_builtin_oid + 1;
+
+for (my $i = 0; $i <= $last_builtin_oid; $i++)
+{
+	my $oid = $fmgr_builtin_oid_index[$i];
+
+	# fmgr_builtin_oid_index is sparse, map nonexistent functions to
+	# InvalidOidBuiltinMapping
+	if (not defined $oid)
+	{
+		$oid = 'InvalidOidBuiltinMapping';
+	}
+
+	if ($i == $last_builtin_oid)
+	{
+		print T "  $oid\n";
+	}
+	else
+	{
+		print T "  $oid,\n";
+	}
+}
+print T "};\n";
 
 print H "\n#define nBuiltinFuncs  $nfuncs\n";
 print H "\n#define NFMGRFUNCS  $nfmgrfuncs\n";
@@ -231,17 +277,6 @@ print H "\n#define NFMGRFUNCS  $nfmgrfuncs\n";
 
 # And add the file footers.
 print H "\n#endif /* FMGROIDS_H */\n";
-
-print T
-qq|  /* dummy entry is easier than getting rid of comma after last real one */
-  /* (not that there has ever been anything wrong with *having* a
-     comma after the last field in an array initializer) */
-  { 0, NULL, 0, false, false, NULL, InvalidOid}
-};
-
-/* Note fmgr_nbuiltins excludes the dummy entry */
-const int fmgr_nbuiltins = (sizeof(fmgr_builtins) / sizeof(FmgrBuiltin)) - 1;
-|;
 
 close(H);
 close(T);

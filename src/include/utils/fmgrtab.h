@@ -226,8 +226,18 @@ extern FuncGroup g_func_groups[];
 
 extern const int g_nfuncgroups; /* number of function groups */
 
+extern const Oid fmgr_last_builtin_oid; /* highest function OID in table */
+
 void initBuiltinFuncs();
 
 const FuncGroup* SearchBuiltinFuncByName(const char* funcname);
 const Builtin_func* SearchBuiltinFuncByOid(Oid id);
+
+/*
+ * Mapping from a builtin function's oid to the index in the fmgr_builtins
+ * array.
+ */
+#define InvalidOidBuiltinMapping UINT16_MAX
+extern const uint16 fmgr_builtin_oid_index[];
+
 #endif /* FMGRTAB_H */
