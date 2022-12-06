@@ -1058,6 +1058,11 @@ bool IsPlpgsqlLanguageOid(Oid langoid)
     bool isNull = true;
     char* langName = NULL;
 
+    if (langoid == INTERNALlanguageId || langoid == ClanguageId
+        || langoid == SQLlanguageId || langoid == JavalanguageId) {
+        return false;
+    }
+
     Relation relation = heap_open(LanguageRelationId, NoLock);
     tp = SearchSysCache1(LANGOID, ObjectIdGetDatum(langoid));
     if (!HeapTupleIsValid(tp)) {

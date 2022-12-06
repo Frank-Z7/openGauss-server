@@ -820,7 +820,9 @@ void standard_ExecutorEnd(QueryDesc *queryDesc)
     }
 
     /* reset global values of perm space */
-    perm_space_value_reset();
+    if (g_instance.attr.attr_resource.enable_perm_space) {
+        perm_space_value_reset();
+    }
 }
 
 /* ----------------------------------------------------------------
