@@ -533,7 +533,9 @@ VectorBatch* ExecVecModifyTable(VecModifyTableState* node)
     sub_plan_stat = node->mt_plans[node->mt_whichplan];
 #ifdef PGXC
     /* Initialize remote plan state */
-    remote_rel_stat = node->mt_remoterels[node->mt_whichplan];
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+        remote_rel_stat = node->mt_remoterels[node->mt_whichplan];
+    }
 #endif
     junk_filter = result_rel_info->ri_junkFilter;
 

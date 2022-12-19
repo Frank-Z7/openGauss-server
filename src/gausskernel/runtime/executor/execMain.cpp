@@ -252,7 +252,9 @@ void standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
     t_thrd.utils_cxt.mctx_sequent_count = 0;
 
     /* Initialize the memory tracking information */
-    MemoryTrackingInit();
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_MEMORY_CONTEXT_TRACK_REMOVE)) {
+        MemoryTrackingInit();
+    }
 
     /*
      * Build EState, switch into per-query memory context for startup.
@@ -268,33 +270,38 @@ void standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 #endif
 
 #ifndef ENABLE_MULTIPLE_NODES
-    (void)InitStreamObject(queryDesc->plannedstmt);
+    if (queryDesc->plannedstmt->num_streams > 0) {
+        (void)InitStreamObject(queryDesc->plannedstmt);
+    }
 #endif
 
-    if (StreamTopConsumerAmI() && queryDesc->instrument_options != 0 && IS_PGXC_DATANODE) {
-        int dop = queryDesc->plannedstmt->query_dop;
-        if (queryDesc->plannedstmt->in_compute_pool) {
-            dop = 1;
+    if (StreamTopConsumerAmI() && queryDesc->instrument_options != 0) {
+        if (IS_PGXC_DATANODE) {
+            int dop = queryDesc->plannedstmt->query_dop;
+            if (queryDesc->plannedstmt->in_compute_pool) {
+                dop = 1;
+            }
+            AutoContextSwitch streamCxtGuard(u_sess->stream_cxt.stream_runtime_mem_cxt);
+            u_sess->instr_cxt.global_instr = StreamInstrumentation::InitOnDn(queryDesc, dop);
+
+            // u_sess->instr_cxt.thread_instr in DN
+            u_sess->instr_cxt.thread_instr =
+                u_sess->instr_cxt.global_instr->allocThreadInstrumentation(
+                    queryDesc->plannedstmt->planTree->plan_node_id);
         }
-        AutoContextSwitch streamCxtGuard(u_sess->stream_cxt.stream_runtime_mem_cxt);
-        u_sess->instr_cxt.global_instr = StreamInstrumentation::InitOnDn(queryDesc, dop);
 
-        // u_sess->instr_cxt.thread_instr in DN
-        u_sess->instr_cxt.thread_instr =
-            u_sess->instr_cxt.global_instr->allocThreadInstrumentation(queryDesc->plannedstmt->planTree->plan_node_id);
-    }
+        /* CN of the compute pool. */
+        if (IS_PGXC_COORDINATOR && queryDesc->plannedstmt->in_compute_pool) {
+            const int dop = 1;
 
-    /* CN of the compute pool. */
-    if (StreamTopConsumerAmI() && queryDesc->instrument_options != 0 && IS_PGXC_COORDINATOR &&
-        queryDesc->plannedstmt->in_compute_pool) {
-        const int dop = 1;
+            /* m_instrDataContext in CN of compute pool is under t_thrd.mem_cxt.stream_runtime_mem_cxt */
+            AutoContextSwitch streamCxtGuard(u_sess->stream_cxt.stream_runtime_mem_cxt);
+            u_sess->instr_cxt.global_instr = StreamInstrumentation::InitOnCP(queryDesc, dop);
 
-        /* m_instrDataContext in CN of compute pool is under t_thrd.mem_cxt.stream_runtime_mem_cxt */
-        AutoContextSwitch streamCxtGuard(u_sess->stream_cxt.stream_runtime_mem_cxt);
-        u_sess->instr_cxt.global_instr = StreamInstrumentation::InitOnCP(queryDesc, dop);
-
-        u_sess->instr_cxt.thread_instr =
-            u_sess->instr_cxt.global_instr->allocThreadInstrumentation(queryDesc->plannedstmt->planTree->plan_node_id);
+            u_sess->instr_cxt.thread_instr =
+                u_sess->instr_cxt.global_instr->allocThreadInstrumentation(
+                    queryDesc->plannedstmt->planTree->plan_node_id);
+        }
     }
 
     old_context = MemoryContextSwitchTo(estate->es_query_cxt);
@@ -369,7 +376,7 @@ void standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
     if (IS_PGXC_COORDINATOR || IsConnFromApp()) {
 #else
     /* statement always start in non-stream thread */
-    if (!StreamThreadAmI()) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE) && !StreamThreadAmI()) {
 #endif
         SetCurrentStmtTimestamp();
     } /* else stmtSystemTimestamp synchronize from CN */
@@ -377,23 +384,26 @@ void standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
     /*
      * Initialize the plan state tree
      */
-    (void)INSTR_TIME_SET_CURRENT(starttime);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        (void)INSTR_TIME_SET_CURRENT(starttime);
+        IPC_PERFORMANCE_LOG_OUTPUT("standard_ExecutorStart InitPlan start.");
+        InitPlan(queryDesc, eflags);
+        IPC_PERFORMANCE_LOG_OUTPUT("standard_ExecutorStart InitPlan end.");
+        totaltime += elapsed_time(&starttime);
 
-    IPC_PERFORMANCE_LOG_OUTPUT("standard_ExecutorStart InitPlan start.");
-    InitPlan(queryDesc, eflags);
-    IPC_PERFORMANCE_LOG_OUTPUT("standard_ExecutorStart InitPlan end.");
-    totaltime += elapsed_time(&starttime);
+        /*
+        * if current plan is working for expression, no need to collect instrumentation.
+        */
+        if (estate->es_instrument != INSTRUMENT_NONE && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr &&
+            u_sess->instr_cxt.thread_instr) {
+            int node_id = queryDesc->plannedstmt->planTree->plan_node_id - 1;
+            int *m_instrArrayMap = u_sess->instr_cxt.thread_instr->m_instrArrayMap;
 
-    /*
-     * if current plan is working for expression, no need to collect instrumentation.
-     */
-    if (estate->es_instrument != INSTRUMENT_NONE && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr &&
-        u_sess->instr_cxt.thread_instr) {
-        int node_id = queryDesc->plannedstmt->planTree->plan_node_id - 1;
-        int *m_instrArrayMap = u_sess->instr_cxt.thread_instr->m_instrArrayMap;
-
-        u_sess->instr_cxt.thread_instr->m_instrArray[m_instrArrayMap[node_id]].instr.instruPlanData.init_time =
-            totaltime;
+            u_sess->instr_cxt.thread_instr->m_instrArray[m_instrArrayMap[node_id]].instr.instruPlanData.init_time =
+                totaltime;
+        }
+    } else {
+        InitPlan(queryDesc, eflags);
     }
 
     /*
@@ -506,7 +516,9 @@ void ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, long count)
         }
     }
     print_duration(queryDesc);
-    instr_stmt_report_query_plan(queryDesc);
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+        instr_stmt_report_query_plan(queryDesc);
+    }
 
     /* sql active feature, opeartor history statistics */
     if (can_operator_history_statistics) {
@@ -596,7 +608,10 @@ void standard_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, long co
         u_sess->exec_cxt.global_bucket_cnt = 0;
     }
 
-    (void)INSTR_TIME_SET_CURRENT(starttime);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        (void)INSTR_TIME_SET_CURRENT(starttime);
+    }
+
     /*
      * run plan
      */
@@ -612,25 +627,26 @@ void standard_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, long co
 #endif
         }
     }
-    totaltime += elapsed_time(&starttime);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        totaltime += elapsed_time(&starttime);
+        /*
+        *  if current plan is working for expression, no need to collect instrumentation.
+        */
+        if (
+#ifndef ENABLE_MULTIPLE_NODES
+            !u_sess->attr.attr_common.enable_seqscan_fusion &&
+#endif
+            estate->es_instrument != INSTRUMENT_NONE
+            && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr && u_sess->instr_cxt.thread_instr) {
+            int node_id = queryDesc->plannedstmt->planTree->plan_node_id - 1;
+            int* m_instrArrayMap = u_sess->instr_cxt.thread_instr->m_instrArrayMap;
+
+            u_sess->instr_cxt.thread_instr->m_instrArray[m_instrArrayMap[node_id]].instr.instruPlanData.run_time =
+                totaltime;
+        }
+    }
 
     queryDesc->executed = true;
-
-    /*
-    *  if current plan is working for expression, no need to collect instrumentation.
-    */
-    if (
-#ifndef ENABLE_MULTIPLE_NODES
-        !u_sess->attr.attr_common.enable_seqscan_fusion &&
-#endif
-        estate->es_instrument != INSTRUMENT_NONE
-        && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr && u_sess->instr_cxt.thread_instr) {
-        int node_id = queryDesc->plannedstmt->planTree->plan_node_id - 1;
-        int* m_instrArrayMap = u_sess->instr_cxt.thread_instr->m_instrArrayMap;
-
-        u_sess->instr_cxt.thread_instr->m_instrArray[m_instrArrayMap[node_id]].instr.instruPlanData.run_time =
-            totaltime;
-    }
 
     /*
      * shutdown tuple receiver, if we started it
@@ -745,7 +761,9 @@ void standard_ExecutorEnd(QueryDesc *queryDesc)
     instr_time starttime;
     double totaltime = 0;
 
-    (void)INSTR_TIME_SET_CURRENT(starttime);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        (void)INSTR_TIME_SET_CURRENT(starttime);
+    }
 
     /* sanity checks */
     Assert(queryDesc != NULL);
@@ -805,18 +823,20 @@ void standard_ExecutorEnd(QueryDesc *queryDesc)
 
     /* output the memory tracking information into file */
     MemoryTrackingOutputFile();
-    totaltime += elapsed_time(&starttime);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        totaltime += elapsed_time(&starttime);
 
-    /*
-     * if current plan is working for expression, no need to collect instrumentation.
-     */
-    if (queryDesc->instrument_options != 0 && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr &&
-        u_sess->instr_cxt.thread_instr) {
-        int node_id = queryDesc->plannedstmt->planTree->plan_node_id - 1;
-        int *m_instrArrayMap = u_sess->instr_cxt.thread_instr->m_instrArrayMap;
+        /*
+        * if current plan is working for expression, no need to collect instrumentation.
+        */
+        if (queryDesc->instrument_options != 0 && StreamTopConsumerAmI() && u_sess->instr_cxt.global_instr &&
+            u_sess->instr_cxt.thread_instr) {
+            int node_id = queryDesc->plannedstmt->planTree->plan_node_id - 1;
+            int *m_instrArrayMap = u_sess->instr_cxt.thread_instr->m_instrArrayMap;
 
-        u_sess->instr_cxt.thread_instr->m_instrArray[m_instrArrayMap[node_id]].instr.instruPlanData.end_time =
-            totaltime;
+            u_sess->instr_cxt.thread_instr->m_instrArray[m_instrArrayMap[node_id]].instr.instruPlanData.end_time =
+                totaltime;
+        }
     }
 
     /* reset global values of perm space */
@@ -952,7 +972,8 @@ static bool ExecCheckRTEPerms(RangeTblEntry *rte)
     /*
      * If relation is in ledger schema, avoid procedure or function on it.
      */
-    if (u_sess->SPI_cxt._connected > -1 && is_ledger_usertable(rte->relid)) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_BLOCK_CHAIN_REMOVE)
+        && (u_sess->SPI_cxt._connected > -1) && is_ledger_usertable(rte->relid)) {
         gstrace_exit(GS_TRC_ID_ExecCheckRTEPerms);
         return false;
     }
@@ -973,10 +994,12 @@ static bool ExecCheckRTEPerms(RangeTblEntry *rte)
      * so we should do special handling: for query involving pg_statistic/pg_statistic_ext from
      * other CNs, ignore the authorization check.
      */
+#ifdef ENABLE_MULTIPLE_NODES
     if ((StatisticRelationId == rte->relid || StatisticExtRelationId == rte->relid) && IsConnFromCoord()) {
         gstrace_exit(GS_TRC_ID_ExecCheckRTEPerms);
         return true;
     }
+#endif
 
     rel_oid = rte->relid;
 
@@ -1159,29 +1182,15 @@ void InitPlan(QueryDesc *queryDesc, int eflags)
     TupleDesc tupType = NULL;
     ListCell *l = NULL;
     int i;
-    bool check = false;
 
     gstrace_entry(GS_TRC_ID_InitPlan);
     /*
      * Do permissions checks
      */
-    if (!(IS_PGXC_DATANODE && (IsConnFromCoord() || IsConnFromDatanode()))) {
-        check = true;
-    }
-
-    if (u_sess->exec_cxt.is_exec_trigger_func) {
-        check = true;
-    }
-
-    if (plannedstmt->in_compute_pool) {
-        check = true;
-    }
-
-    if (u_sess->pgxc_cxt.is_gc_fdw && u_sess->pgxc_cxt.is_gc_fdw_analyze) {
-        check = true;
-    }
-
-    if (check) {
+    if (!(IS_PGXC_DATANODE && (IsConnFromCoord() || IsConnFromDatanode()))
+        || u_sess->exec_cxt.is_exec_trigger_func
+        || plannedstmt->in_compute_pool
+        || (u_sess->pgxc_cxt.is_gc_fdw && u_sess->pgxc_cxt.is_gc_fdw_analyze)) {
         (void)ExecCheckRTPerms(rangeTable, true);
     }
 
@@ -1320,11 +1329,13 @@ void InitPlan(QueryDesc *queryDesc, int eflags)
         ItemPointerSetInvalid(&(erm->curCtid));
         estate->es_rowMarks = lappend(estate->es_rowMarks, erm);
     }
-    uint64 plan_end_time = time(NULL);
-    if ((plan_end_time - plan_start_time) > THREAD_INTSERVAL_60S) {
-        ereport(WARNING,
-            (errmsg("InitPlan foreach plannedstmt->rowMarks takes %lus, plan_start_time:%lus, plan_end_time:%lus.",
-            plan_end_time - plan_start_time, plan_start_time, plan_end_time)));
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE) && !StreamThreadAmI()) {
+        uint64 plan_end_time = time(NULL);
+        if ((plan_end_time - plan_start_time) > THREAD_INTSERVAL_60S) {
+            ereport(WARNING,
+                (errmsg("InitPlan foreach plannedstmt->rowMarks takes %lus, plan_start_time:%lus, plan_end_time:%lus.",
+                plan_end_time - plan_start_time, plan_start_time, plan_end_time)));
+        }
     }
 
     /*
@@ -2130,7 +2141,13 @@ static void ExecutePlan(EState *estate, PlanState *planstate, CmdType operation,
     }
 
     /* Change DestReceiver's tmpContext to PerTupleMemoryContext to avoid memory leak. */
-    dest->tmpContext = GetPerTupleMemoryContext(estate);
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+        if (sendTuples) {
+            dest->tmpContext = GetPerTupleMemoryContext(estate);
+        }
+    } else {
+        dest->tmpContext = GetPerTupleMemoryContext(estate);
+    }
 
     // planstate->plan will be release if rollback excuted
     bool is_saved_recursive_union_plan_nodeid = EXEC_IN_RECURSIVE_MODE(planstate->plan);

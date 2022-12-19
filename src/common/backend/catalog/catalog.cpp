@@ -645,6 +645,10 @@ bool IsSystemClass(Form_pg_class reltuple)
 {
     Oid relnamespace = reltuple->relnamespace;
 
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_IS_SYSTEM_CLASS_REMOVE_PACKAGE)) {
+        return IsSystemNamespace(relnamespace) || IsToastNamespace(relnamespace);
+    }
+
     return IsSystemNamespace(relnamespace) || IsToastNamespace(relnamespace) || IsPackageSchemaOid(relnamespace);
 }
 
@@ -682,6 +686,13 @@ bool IsCatalogClass(Oid relid, Form_pg_class reltuple)
 {
     Oid relnamespace = reltuple->relnamespace;
 
+    /* Optimize if judgment */
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+        if ((relid < FirstNormalObjectId) && (IsSystemNamespace(relnamespace) || IsToastNamespace(relnamespace))) {
+            return true;
+        }
+        return false;
+    }
     /*
      * Never consider relations outside pg_catalog/pg_toast to be catalog
      * relations.

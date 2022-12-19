@@ -179,7 +179,9 @@ void ExecVecMerge(VecModifyTableState* mtstate)
     sub_plan_state = mtstate->mt_plans[mtstate->mt_whichplan];
 
     /* Initialize remote plan state */
-    remote_rel_state = mtstate->mt_remoterels[mtstate->mt_whichplan];
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+        remote_rel_state = mtstate->mt_remoterels[mtstate->mt_whichplan];
+    }
 
     junkfilter = result_rel_info->ri_junkFilter;
     result_relation_desc = result_rel_info->ri_RelationDesc;

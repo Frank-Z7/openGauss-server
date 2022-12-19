@@ -446,10 +446,9 @@ void ExecInitNodeSubPlan(Plan* node, EState* estate, PlanState* result)
 PlanState* ExecInitNode(Plan* node, EState* estate, int e_flags)
 {
     PlanState* result = NULL;
-    MemoryContext old_context;
-    MemoryContext node_context;
-    MemoryContext query_context;
-    char context_name[NODENAMELEN];
+    MemoryContext old_context = estate->es_query_cxt;
+    MemoryContext node_context = estate->es_query_cxt;
+    MemoryContext query_context = estate->es_query_cxt;
     int rc = 0;
 
     /*
@@ -468,24 +467,25 @@ PlanState* ExecInitNode(Plan* node, EState* estate, int e_flags)
 
     gstrace_entry(GS_TRC_ID_ExecInitNode);
 
-    if (!StreamTopConsumerAmI())
-        rc = snprintf_s(context_name,
-            NODENAMELEN,
-            NODENAMELEN - 1,
-            "%s_%lu",
-            nodeTagToString(nodeTag(node)),
-            t_thrd.proc_cxt.MyProcPid);
-    else
-        rc = snprintf_s(context_name,
-            NODENAMELEN,
-            NODENAMELEN - 1,
-            "%s_%lu_%d",
-            nodeTagToString(nodeTag(node)),
-            estate->es_plannedstmt->queryId,
-            node->plan_node_id);
-    securec_check_ss(rc, "", "");
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_NODE_CONTEXT_REMOVE)) {
+        char context_name[NODENAMELEN];
+        if (!StreamTopConsumerAmI())
+            rc = snprintf_s(context_name,
+                NODENAMELEN,
+                NODENAMELEN - 1,
+                "%s_%lu",
+                nodeTagToString(nodeTag(node)),
+                t_thrd.proc_cxt.MyProcPid);
+        else
+            rc = snprintf_s(context_name,
+                NODENAMELEN,
+                NODENAMELEN - 1,
+                "%s_%lu_%d",
+                nodeTagToString(nodeTag(node)),
+                estate->es_plannedstmt->queryId,
+                node->plan_node_id);
+        securec_check_ss(rc, "", "");
 
-    if (g_instance.attr.attr_memory.enable_memory_limit) {
         /*
         * Create working memory for expression evaluation in this context.
         */
@@ -494,17 +494,15 @@ PlanState* ExecInitNode(Plan* node, EState* estate, int e_flags)
             ALLOCSET_DEFAULT_MINSIZE,
             ALLOCSET_DEFAULT_INITSIZE,
             ALLOCSET_DEFAULT_MAXSIZE);
-    } else {
-        node_context = estate->es_query_cxt;
+
+        query_context = estate->es_query_cxt;
+
+        // reassign the node context as we must run under this context.
+        estate->es_query_cxt = node_context;
+
+        /* Switch to Node Level Memory Context */
+        old_context = MemoryContextSwitchTo(node_context);
     }
-
-    query_context = estate->es_query_cxt;
-
-    // reassign the node context as we must run under this context.
-    estate->es_query_cxt = node_context;
-
-    /* Switch to Node Level Memory Context */
-    old_context = MemoryContextSwitchTo(node_context);
 
     /*
      * Check whether this 'plan node' needs be processed in current DN exec_nodes,
@@ -611,18 +609,19 @@ PlanState* ExecInitNode(Plan* node, EState* estate, int e_flags)
         }
     }
 
-    /* Switch to OldContext */
-    MemoryContextSwitchTo(old_context);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_NODE_CONTEXT_REMOVE)) {
+        /* Switch to OldContext */
+        MemoryContextSwitchTo(old_context);
 
-    if (g_instance.attr.attr_memory.enable_memory_limit) {
         /* Set the nodeContext */
         result->nodeContext = node_context;
+
+        /* restore the per query context */
+        estate->es_query_cxt = query_context;
     } else {
+        /* Set the nodeContext */
         result->nodeContext = NULL;
     }
-
-    /* restore the per query context */
-    estate->es_query_cxt = query_context;
     result->ps_rownum = 0;
 
     gstrace_exit(GS_TRC_ID_ExecInitNode);

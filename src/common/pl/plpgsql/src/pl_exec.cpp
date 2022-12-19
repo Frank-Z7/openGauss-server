@@ -3922,12 +3922,16 @@ static int exec_stmt_fori(PLpgSQL_execstate* estate, PLpgSQL_stmt_fori* stmt)
              * execution of the loop body. Release if successed; save exception
              * information and rollback if failed.
              */
-            SPI_savepoint_create(SE_SAVEPOINT_NAME);
+            if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+                SPI_savepoint_create(SE_SAVEPOINT_NAME);
+            }
 
             PG_TRY();
             {
                 rc = exec_stmts(estate, stmt->body);
-                SPI_savepoint_release(SE_SAVEPOINT_NAME);
+                if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+                    SPI_savepoint_release(SE_SAVEPOINT_NAME);
+                }
                 plpgsql_create_econtext(estate);
                 stp_cleanup_subxact_resowner(stackId);
                 t_thrd.utils_cxt.CurrentResourceOwner = oldowner;
@@ -3949,7 +3953,9 @@ static int exec_stmt_fori(PLpgSQL_execstate* estate, PLpgSQL_stmt_fori* stmt)
                 be_var->isnull = false;
 
                 FlushErrorState();
-                SPI_savepoint_rollbackAndRelease(SE_SAVEPOINT_NAME, InvalidTransactionId);
+                if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+                    SPI_savepoint_rollbackAndRelease(SE_SAVEPOINT_NAME, InvalidTransactionId);
+                }
                 stp_cleanup_subxact_resowner(stackId);
                 t_thrd.utils_cxt.CurrentResourceOwner = oldowner;
                 exception_saved = true;

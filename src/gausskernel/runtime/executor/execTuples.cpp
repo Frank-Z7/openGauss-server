@@ -829,7 +829,8 @@ static TupleDesc ExecTypeFromTLInternal(List* target_list, bool has_oid, bool sk
         TupleDescInitEntryCollation(type_info, cur_resno, exprCollation((Node*)tle->expr));
 
         /* mark dropped column, maybe we can find another way some day */
-        if (mark_dropped && strstr(tle->resname, "........pg.dropped.")) {
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_MARKDROP_REMOVE) && mark_dropped
+            && strstr(tle->resname, "........pg.dropped.")) {
             type_info->attrs[cur_resno - 1].attisdropped = true;
         }
 

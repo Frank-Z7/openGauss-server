@@ -363,6 +363,7 @@ enable_kill_query = off			# optional: [on, off], default: off
 #cpu_index_tuple_cost = 0.005		# same scale as above
 #cpu_operator_cost = 0.0025		# same scale as above
 #effective_cache_size = 128MB
+#sql_fusion_engine = none
 
 # - Genetic Query Optimizer -
 

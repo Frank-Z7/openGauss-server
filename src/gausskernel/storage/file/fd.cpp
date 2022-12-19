@@ -2023,14 +2023,20 @@ int FilePRead(File file, char* buffer, int amount, off_t offset, uint32 wait_eve
 
 retry:
 
-    PROFILING_MDIO_START();
-    pgstat_report_waitevent(wait_event_info);
-    PGSTAT_INIT_TIME_RECORD();
-    PGSTAT_START_TIME_RECORD();
-    returnCode = pread(vfdcache[file].fd, buffer, (size_t)amount, offset);
-    PGSTAT_END_TIME_RECORD(DATA_IO_TIME);
-    pgstat_report_waitevent(WAIT_EVENT_END);
-    PROFILING_MDIO_END_READ((uint32)amount, returnCode);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        PROFILING_MDIO_START();
+        pgstat_report_waitevent(wait_event_info);
+        PGSTAT_INIT_TIME_RECORD();
+        PGSTAT_START_TIME_RECORD();
+        returnCode = pread(vfdcache[file].fd, buffer, (size_t)amount, offset);
+        pgstat_report_waitevent(WAIT_EVENT_END);
+        PGSTAT_END_TIME_RECORD(DATA_IO_TIME);
+        PROFILING_MDIO_END_READ((uint32)amount, returnCode);
+    } else {
+        pgstat_report_waitevent(wait_event_info);
+        returnCode = pread(vfdcache[file].fd, buffer, (size_t)amount, offset);
+        pgstat_report_waitevent(WAIT_EVENT_END);
+    }
 
     if (returnCode >= 0)
         vfdcache[file].seekPos += returnCode;
@@ -2117,12 +2123,16 @@ int FileWrite(File file, const char* buffer, int amount, off_t offset, int fastE
         /* assign returnCode with buffer size */
         returnCode = amount;
     } else {
-        PROFILING_MDIO_START();
-        PGSTAT_INIT_TIME_RECORD();
-        PGSTAT_START_TIME_RECORD();
-        returnCode = pwrite(vfdcache[file].fd, buffer, (size_t)amount, offset);
-        PGSTAT_END_TIME_RECORD(DATA_IO_TIME);
-        PROFILING_MDIO_END_WRITE((uint32)amount, returnCode);
+        if (ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+            returnCode = pwrite(vfdcache[file].fd, buffer, (size_t)amount, offset);
+        } else {
+            PROFILING_MDIO_START();
+            PGSTAT_INIT_TIME_RECORD();
+            PGSTAT_START_TIME_RECORD();
+            returnCode = pwrite(vfdcache[file].fd, buffer, (size_t)amount, offset);
+            PGSTAT_END_TIME_RECORD(DATA_IO_TIME);
+            PROFILING_MDIO_END_WRITE((uint32)amount, returnCode);
+        }
     }
     return returnCode;
 }
@@ -2533,12 +2543,18 @@ int FileSync(File file, uint32 wait_event_info)
     if (returnCode < 0)
         return returnCode;
 
-    pgstat_report_waitevent(wait_event_info);
-    PGSTAT_INIT_TIME_RECORD();
-    PGSTAT_START_TIME_RECORD();
-    returnCode = pg_fsync(vfdcache[file].fd);
-    PGSTAT_END_TIME_RECORD(DATA_IO_TIME);
-    pgstat_report_waitevent(WAIT_EVENT_END);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        pgstat_report_waitevent(wait_event_info);
+        PGSTAT_INIT_TIME_RECORD();
+        PGSTAT_START_TIME_RECORD();
+        returnCode = pg_fsync(vfdcache[file].fd);
+        PGSTAT_END_TIME_RECORD(DATA_IO_TIME);
+        pgstat_report_waitevent(WAIT_EVENT_END);
+    } else {
+        pgstat_report_waitevent(wait_event_info);
+        returnCode = pg_fsync(vfdcache[file].fd);
+        pgstat_report_waitevent(WAIT_EVENT_END);
+    }
 
     return returnCode;
 }

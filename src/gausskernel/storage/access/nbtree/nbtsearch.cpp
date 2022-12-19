@@ -392,7 +392,9 @@ int32 _bt_compare(Relation rel, int keysz, ScanKey scankey, Page page, OffsetNum
     /*
      * Check tuple has correct number of attributes.
      */
-    Assert(_bt_check_natts(rel, page, offnum));
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_CHECKSUM_REMOVE)) {
+        Assert(_bt_check_natts(rel, page, offnum));
+    }
 
     /*
      * Force result ">" if target item is first data item on an internal page

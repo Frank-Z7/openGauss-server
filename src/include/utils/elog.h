@@ -401,6 +401,7 @@ typedef struct FormatCallStack {
  * PG_exception_stack first.
  * ----------
  */
+#ifdef ENABLE_GSTRACE
 #define PG_TRY()                                                                       \
     do {                                                                               \
         sigjmp_buf* save_exception_stack = t_thrd.log_cxt.PG_exception_stack;          \
@@ -426,6 +427,29 @@ typedef struct FormatCallStack {
     gstrace_tryblock_exit(false, oldTryCounter);              \
     }                                                         \
     while (0)
+#else /* !ENABLE_GSTRACE */
+#define PG_TRY()                                                                       \
+    do {                                                                               \
+        sigjmp_buf* save_exception_stack = t_thrd.log_cxt.PG_exception_stack;          \
+        ErrorContextCallback* save_context_stack = t_thrd.log_cxt.error_context_stack; \
+        sigjmp_buf local_sigjmp_buf;                                                   \
+        if (sigsetjmp(local_sigjmp_buf, 0) == 0) {                                     \
+            t_thrd.log_cxt.PG_exception_stack = &local_sigjmp_buf
+
+#define PG_CATCH()                                                \
+    }                                                             \
+    else                                                          \
+    {                                                             \
+        t_thrd.log_cxt.PG_exception_stack = save_exception_stack; \
+        t_thrd.log_cxt.error_context_stack = save_context_stack
+
+#define PG_END_TRY()                                          \
+    }                                                         \
+    t_thrd.log_cxt.PG_exception_stack = save_exception_stack; \
+    t_thrd.log_cxt.error_context_stack = save_context_stack;  \
+    }                                                         \
+    while (0)
+#endif
 
 // ADIO means async direct io
 #ifndef ENABLE_LITE_MODE
