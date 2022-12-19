@@ -216,6 +216,10 @@ void MemoryContextReset(MemoryContext context)
 {
     AssertArg(MemoryContextIsValid(context));
 
+    if (IsOptAllocSetContext(context)) {
+        return opt_MemoryContextReset(context);
+    }
+
     PreventActionOnSealedContext(context);
 
     if (MemoryContextIsShared(context))
@@ -299,6 +303,11 @@ void MemoryContextDeleteInternal(MemoryContext context, bool parent_locked,
     Assert(context != t_thrd.top_mem_cxt);
     /* And not CurrentMemoryContext, either */
     Assert(context != CurrentMemoryContext);
+
+    if (IsOptAllocSetContext(context)) {
+		opt_MemoryContextDeleteInternal(context, context_list);
+        return;
+    }
 
     MemoryContextDeleteChildren(context, context_list);
 
@@ -991,6 +1000,11 @@ void MemoryContextCheckSessionMemory(MemoryContext context, Size size, const cha
 void* MemoryAllocFromContext(MemoryContext context, Size size, const char* file, int line)
 {
     void* ret = NULL;
+
+    if (IsOptAllocSetContext(context)) {
+        return opt_MemoryAllocFromContext(context, size);
+    }
+
     if (!AllocSizeIsValid(size)) {
         ereport(ERROR,
             (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1049,6 +1063,10 @@ void* MemoryContextAllocZeroDebug(MemoryContext context, Size size, const char* 
 {
     void* ret = NULL;
 
+    if (IsOptAllocSetContext(context)) {
+        return opt_MemoryContextAllocZeroDebug(context, size, file, line);
+    }
+
     AssertArg(MemoryContextIsValid(context));
 #ifdef MEMORY_CONTEXT_CHECKING
     PreventActionOnSealedContext(context);
@@ -1098,6 +1116,10 @@ void* MemoryContextAllocZeroDebug(MemoryContext context, Size size, const char* 
 void* MemoryContextAllocZeroAlignedDebug(MemoryContext context, Size size, const char* file, int line)
 {
     void* ret = NULL;
+
+    if (IsOptAllocSetContext(context)) {
+        return opt_MemoryContextAllocZeroAlignedDebug(context, size, file, line);
+    }
 
     AssertArg(MemoryContextIsValid(context));
 
@@ -1214,6 +1236,11 @@ void pfree(void* pointer)
     context = &(block->aset->header);
 #endif
 
+    if (IsOptAllocSetContext(context)) {
+        opt_pfree(pointer);
+        return;
+    }
+
     AssertArg(MemoryContextIsValid(context));
 #ifdef MEMORY_CONTEXT_CHECKING
     if (!IsTopMemCxt(context)) {
@@ -1231,6 +1258,20 @@ void* repalloc_noexcept_Debug(void* pointer, Size size, const char* file, int li
     MemoryContext context;
     void* ret = NULL;
 
+#ifndef ENABLE_MEMORY_CHECK
+    /*
+     * OK, it's probably safe to look at the chunk header.
+     */
+    context = ((StandardChunkHeader*)((char*)pointer - STANDARDCHUNKHEADERSIZE))->context;
+#else
+    AsanBlock block = ((AsanBlock)(((char*)(pointer)) - ASAN_BLOCKHDRSZ));
+    context = &(block->aset->header);
+#endif
+
+    if (IsOptAllocSetContext(context)) {
+        return opt_repalloc_noexcept_Debug(pointer, size, file, line);
+    }
+
     if (!AllocSizeIsValid(size)) {
         ereport(ERROR,
             (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1244,16 +1285,6 @@ void* repalloc_noexcept_Debug(void* pointer, Size size, const char* file, int li
      */
     Assert(pointer != NULL);
     Assert(pointer == (void*)MAXALIGN(pointer));
-
-#ifndef ENABLE_MEMORY_CHECK
-    /*
-     * OK, it's probably safe to look at the chunk header.
-     */
-    context = ((StandardChunkHeader*)((char*)pointer - STANDARDCHUNKHEADERSIZE))->context;
-#else
-    AsanBlock block = ((AsanBlock)(((char*)(pointer)) - ASAN_BLOCKHDRSZ));
-    context = &(block->aset->header);
-#endif
 
     AssertArg(MemoryContextIsValid(context));
 
@@ -1285,6 +1316,20 @@ void* repallocDebug(void* pointer, Size size, const char* file, int line)
     MemoryContext context;
     void* ret = NULL;
 
+#ifndef ENABLE_MEMORY_CHECK
+    /*
+     * OK, it's probably safe to look at the chunk header.
+     */
+    context = ((StandardChunkHeader*)((char*)pointer - STANDARDCHUNKHEADERSIZE))->context;
+#else
+    AsanBlock block = ((AsanBlock)(((char*)(pointer)) - ASAN_BLOCKHDRSZ));
+    context = &(block->aset->header);
+#endif
+
+    if (IsOptAllocSetContext(context)) {
+        return opt_repallocDebug(pointer, size, file, line);
+    }
+
     if (!AllocSizeIsValid(size)) {
         ereport(ERROR,
             (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1298,15 +1343,7 @@ void* repallocDebug(void* pointer, Size size, const char* file, int line)
      */
     Assert(pointer != NULL);
     Assert(pointer == (void*)MAXALIGN(pointer));
-#ifndef ENABLE_MEMORY_CHECK
-    /*
-     * OK, it's probably safe to look at the chunk header.
-     */
-    context = ((StandardChunkHeader*)((char*)pointer - STANDARDCHUNKHEADERSIZE))->context;
-#else
-    AsanBlock block = ((AsanBlock)(((char*)(pointer)) - ASAN_BLOCKHDRSZ));
-    context = &(block->aset->header);
-#endif
+
     AssertArg(MemoryContextIsValid(context));
     PreventActionOnSealedContext(context);
     /* isReset must be false already */
@@ -1393,6 +1430,10 @@ void* MemoryContextMemalignAllocDebug(MemoryContext context, Size align, Size si
 void* MemoryContextAllocHugeDebug(MemoryContext context, Size size, const char* file, int line)
 {
     void* ret = NULL;
+
+    if (IsOptAllocSetContext(context)) {
+        return opt_MemoryAllocFromContext(context, size);
+    }
 
     AssertArg(MemoryContextIsValid(context));
 
@@ -1491,6 +1532,20 @@ void* repallocHugeDebug(void* pointer, Size size, const char* file, int line)
     MemoryContext context;
     void* ret = NULL;
 
+#ifndef ENABLE_MEMORY_CHECK
+    /*
+     * OK, it's probably safe to look at the chunk header.
+     */
+    context = ((StandardChunkHeader*)((char*)pointer - STANDARDCHUNKHEADERSIZE))->context;
+#else
+    AsanBlock block = ((AsanBlock)(((char*)(pointer)) - ASAN_BLOCKHDRSZ));
+    context = &(block->aset->header);
+#endif
+
+    if (IsOptAllocSetContext(context)) {
+        return opt_repallocDebug(pointer, size, file, line);
+    }
+
     if (!AllocHugeSizeIsValid(size)) {
         ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                 errmsg("invalid memory alloc request size %lu in %s:%d", size, file, line)));
@@ -1503,15 +1558,7 @@ void* repallocHugeDebug(void* pointer, Size size, const char* file, int line)
      */
     Assert(pointer != NULL);
     Assert(pointer == (void*)MAXALIGN(pointer));
-#ifndef ENABLE_MEMORY_CHECK
-    /*
-     * OK, it's probably safe to look at the chunk header.
-     */
-    context = ((StandardChunkHeader*)((char*)pointer - STANDARDCHUNKHEADERSIZE))->context;
-#else
-    AsanBlock block = ((AsanBlock)(((char*)(pointer)) - ASAN_BLOCKHDRSZ));
-    context = &(block->aset->header);
-#endif
+
     AssertArg(MemoryContextIsValid(context));
 
     /* isReset must be false already */
