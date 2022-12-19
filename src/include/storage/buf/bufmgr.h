@@ -261,6 +261,8 @@ extern void MarkBufferDirty(Buffer buffer);
 extern void IncrBufferRefCount(Buffer buffer);
 extern Buffer ReleaseAndReadBuffer(Buffer buffer, Relation relation, BlockNumber blockNum);
 void InvalidateBuffer(BufferDesc *buf);
+extern void ReservePrivateRefCountEntry(void);
+extern PrivateRefCountEntry* NewPrivateRefCountEntry(Buffer buffer);
 
 extern void InitBufferPool(void);
 extern void InitBufferPoolAccess(void);
