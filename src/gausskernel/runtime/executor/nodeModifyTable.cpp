@@ -1360,7 +1360,7 @@ TupleTableSlot* ExecDelete(ItemPointer tupleid, Oid deletePartitionOid, int2 buc
     fake_relation = result_relation_desc;
 
 ldelete:
-#ifdef PGXC
+#ifdef ENABLE_MULTIPLE_NODES
         if (IS_PGXC_COORDINATOR && result_remote_rel) {
             /* for merge into we have to provide the slot */
             slot = ExecProcNodeDMLInXC(estate, planSlot, NULL);
@@ -1422,7 +1422,7 @@ ldelete:
                         (void)MemoryContextSwitchTo(old_context);
                     }
                     /* Record deleted tupleid when target table is under cluster resizing */
-                    if (RelationInClusterResizing(result_relation_desc) &&
+                    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING) && RelationInClusterResizing(result_relation_desc) &&
                         !RelationInClusterResizingReadOnly(result_relation_desc)) {
                         ItemPointerData start_ctid;
                         ItemPointerData end_ctid;
@@ -1432,17 +1432,21 @@ ldelete:
                         }
                     }
 
-                    Bitmapset *modifiedIdxAttrs = NULL;
-                    ExecIndexTuplesState exec_index_tuples_state;
-                    exec_index_tuples_state.estate = estate;
-                    exec_index_tuples_state.targetPartRel =
-                        isPartitionedRelation(result_relation_desc->rd_rel) ? part_relation : NULL;
-                    exec_index_tuples_state.p = isPartitionedRelation(result_relation_desc->rd_rel) ? partition : NULL;
-                    exec_index_tuples_state.conflict = NULL;
-                    tableam_tops_exec_delete_index_tuples(oldslot, fake_relation, node,
-                        tupleid, exec_index_tuples_state, modifiedIdxAttrs);
-                    if (oldslot) {
-                        ExecDropSingleTupleTableSlot(oldslot);
+                    if (ENABLE_SQL_FUSION_ENGINE(IUD_PENDING) && !RelationIsUstoreFormat(result_relation_desc)) {
+                        break;
+                    } else {
+                        Bitmapset *modifiedIdxAttrs = NULL;
+                        ExecIndexTuplesState exec_index_tuples_state;
+                        exec_index_tuples_state.estate = estate;
+                        exec_index_tuples_state.targetPartRel =
+                            isPartitionedRelation(result_relation_desc->rd_rel) ? part_relation : NULL;
+                        exec_index_tuples_state.p = isPartitionedRelation(result_relation_desc->rd_rel) ? partition : NULL;
+                        exec_index_tuples_state.conflict = NULL;
+                        tableam_tops_exec_delete_index_tuples(oldslot, fake_relation, node,
+                            tupleid, exec_index_tuples_state, modifiedIdxAttrs);
+                        if (oldslot) {
+                            ExecDropSingleTupleTableSlot(oldslot);
+                        }
                     }
                 } break;
 
@@ -1519,13 +1523,13 @@ ldelete:
                  * take care of it later.  We can't delete index tuples immediately
                  * anyway, since the tuple is still visible to other transactions.
                  */
-#ifdef PGXC
+#ifdef ENABLE_MULTIPLE_NODES
         }
 #endif
     }
 end:;
     if (canSetTag) {
-#ifdef PGXC
+#ifdef ENABLE_MULTIPLE_NODES
         if (IS_PGXC_COORDINATOR && result_remote_rel) {
             estate->es_processed += result_remote_rel->rqs_processed;
         } else {
@@ -1534,7 +1538,7 @@ end:;
                 estate->es_modifiedRowHash = lappend(estate->es_modifiedRowHash, (void *)UInt64GetDatum(res_hash));
             }
             (estate->es_processed)++;
-#ifdef PGXC
+#ifdef ENABLE_MULTIPLE_NODES
         }
 #endif
     }
@@ -1554,7 +1558,7 @@ end:;
     }
 
     /* Process RETURNING if present */
-#ifdef PGXC
+#ifdef ENABLE_MULTIPLE_NODES
     if (IS_PGXC_COORDINATOR && result_remote_rel != NULL && result_rel_info->ri_projectReturning != NULL) {
         if (TupIsNull(slot))
             return NULL;
@@ -2787,10 +2791,12 @@ static TupleTableSlot* ExecModifyTable(PlanState* state)
     subPlanState = node->mt_plans[node->mt_whichplan];
 #ifdef PGXC
     /* Initialize remote plan state */
-    remote_rel_state = node->mt_remoterels[node->mt_whichplan];
-    insert_remote_rel_state = node->mt_insert_remoterels[node->mt_whichplan];
-    update_remote_rel_state = node->mt_update_remoterels[node->mt_whichplan];
-    delete_remote_rel_state = node->mt_delete_remoterels[node->mt_whichplan];
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+        remote_rel_state = node->mt_remoterels[node->mt_whichplan];
+        insert_remote_rel_state = node->mt_insert_remoterels[node->mt_whichplan];
+        update_remote_rel_state = node->mt_update_remoterels[node->mt_whichplan];
+        delete_remote_rel_state = node->mt_delete_remoterels[node->mt_whichplan];
+    }
 #endif
     junk_filter = result_rel_info->ri_junkFilter;
 
@@ -2882,11 +2888,13 @@ static TupleTableSlot* ExecModifyTable(PlanState* state)
                 subPlanState = node->mt_plans[node->mt_whichplan];
 #ifdef PGXC
                 /* Move to next remote plan */
-                estate->es_result_remoterel = node->mt_remoterels[node->mt_whichplan];
-                remote_rel_state = node->mt_remoterels[node->mt_whichplan];
-                insert_remote_rel_state = node->mt_insert_remoterels[node->mt_whichplan];
-                update_remote_rel_state = node->mt_update_remoterels[node->mt_whichplan];
-                delete_remote_rel_state = node->mt_delete_remoterels[node->mt_whichplan];
+                if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+                    estate->es_result_remoterel = node->mt_remoterels[node->mt_whichplan];
+                    remote_rel_state = node->mt_remoterels[node->mt_whichplan];
+                    insert_remote_rel_state = node->mt_insert_remoterels[node->mt_whichplan];
+                    update_remote_rel_state = node->mt_update_remoterels[node->mt_whichplan];
+                    delete_remote_rel_state = node->mt_delete_remoterels[node->mt_whichplan];
+                }
 #endif
                 junk_filter = result_rel_info->ri_junkFilter;
                 estate->es_result_relation_info = result_rel_info;
@@ -3142,7 +3150,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
 
     estate->deleteLimitCount = 0;
 
-    if (node->cacheEnt != NULL) {
+    if (node->cacheEnt != NULL && !ENABLE_SQL_FUSION_ENGINE(IUD_ERRORREL_REMOVE)) {
         ErrorCacheEntry* entry = node->cacheEnt;
 
         /* fetch query dop from this way but not query_dop */
@@ -3179,10 +3187,12 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
 
     mt_state->mt_plans = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
 #ifdef PGXC
-    mt_state->mt_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
-    mt_state->mt_insert_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
-    mt_state->mt_update_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
-    mt_state->mt_delete_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+        mt_state->mt_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
+        mt_state->mt_insert_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
+        mt_state->mt_update_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
+        mt_state->mt_delete_remoterels = (PlanState**)palloc0(sizeof(PlanState*) * nplans);
+    }
 #endif
     mt_state->resultRelInfo = estate->es_result_relations + node->resultRelIndex;
     mt_state->mt_arowmarks = (List**)palloc0(sizeof(List*) * nplans);
@@ -3244,19 +3254,27 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
          * query.
          */
 
-        if (result_rel_info->ri_RelationDesc->rd_rel->relhasindex &&
+        if ((operation != CMD_DELETE || RelationIsUstoreFormat(result_rel_info->ri_RelationDesc)) &&
+            result_rel_info->ri_RelationDesc->rd_rel->relhasindex &&
             result_rel_info->ri_IndexRelationDescs == NULL) {
 #ifdef ENABLE_MOT
             if (result_rel_info->ri_FdwRoutine == NULL || result_rel_info->ri_FdwRoutine->GetFdwType == NULL ||
                 result_rel_info->ri_FdwRoutine->GetFdwType() != MOT_ORC) {
 #endif
+                /*
+                 * Two cases of executing ExecOpenIndices:
+                 * non-delete operation
+                 * delete operation in ustore format
+                 */
                 ExecOpenIndices(result_rel_info, node->upsertAction != UPSERT_NONE);
 #ifdef ENABLE_MOT
             }
 #endif
         }
 
-        init_gtt_storage(operation, result_rel_info);
+        if (RELATION_IS_GLOBAL_TEMP(result_rel_info->ri_RelationDesc)) {
+            init_gtt_storage(operation, result_rel_info);
+        }
         /* Now init the plan for this result rel */
         estate->es_result_relation_info = result_rel_info;
         if (sub_plan->type == T_Limit && operation == CMD_DELETE && IsLimitDML((Limit*)sub_plan)) {
@@ -3282,7 +3300,8 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
          * For update/delete/upsert case, we need further check if it is in cluster resizing, then
          * we need open delete_delta rel for this target relation.
          */
-        if (operation == CMD_UPDATE || operation == CMD_DELETE || node->upsertAction == UPSERT_UPDATE) {
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING) &&
+            (operation == CMD_UPDATE || operation == CMD_DELETE || node->upsertAction == UPSERT_UPDATE)) {
             Relation target_rel = estate->es_result_relation_info->ri_RelationDesc;
             Assert(target_rel != NULL && mt_state->delete_delta_rel == NULL);
             if (RelationInClusterResizing(target_rel) && !RelationInClusterResizingReadOnly(target_rel)) {
@@ -3308,30 +3327,32 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
     }
 
 #ifdef PGXC
-    i = 0;
-    foreach (l, node->plans) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+        i = 0;
+        foreach (l, node->plans) {
 
-        Plan* remoteplan = NULL;
-        if (node->remote_plans) {
-            remoteplan = (Plan*)list_nth(node->remote_plans, i);
-            mt_state->mt_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
-        }
+            Plan* remoteplan = NULL;
+            if (node->remote_plans) {
+                remoteplan = (Plan*)list_nth(node->remote_plans, i);
+                mt_state->mt_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
+            }
 
-        if (node->remote_insert_plans) {
-            remoteplan = (Plan*)list_nth(node->remote_insert_plans, i);
-            mt_state->mt_insert_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
-        }
+            if (node->remote_insert_plans) {
+                remoteplan = (Plan*)list_nth(node->remote_insert_plans, i);
+                mt_state->mt_insert_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
+            }
 
-        if (node->remote_update_plans) {
-            remoteplan = (Plan*)list_nth(node->remote_update_plans, i);
-            mt_state->mt_update_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
-        }
+            if (node->remote_update_plans) {
+                remoteplan = (Plan*)list_nth(node->remote_update_plans, i);
+                mt_state->mt_update_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
+            }
 
-        if (node->remote_delete_plans) {
-            remoteplan = (Plan*)list_nth(node->remote_delete_plans, i);
-            mt_state->mt_delete_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
+            if (node->remote_delete_plans) {
+                remoteplan = (Plan*)list_nth(node->remote_delete_plans, i);
+                mt_state->mt_delete_remoterels[i] = ExecInitNode(remoteplan, estate, eflags);
+            }
+            i++;
         }
-        i++;
     }
 #endif
 
@@ -3381,7 +3402,11 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
          */
         tup_desc = ExecTypeFromTL(NIL, false);
         ExecInitResultTupleSlot(estate, &mt_state->ps);
-        ExecAssignResultType(&mt_state->ps, tup_desc);
+        if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+            mt_state->ps.ps_ResultTupleSlot->tts_tupleDescriptor = tup_desc;
+        } else {
+            ExecAssignResultType(&mt_state->ps, tup_desc);
+        }
 
         mt_state->ps.ps_ExprContext = NULL;
     }
@@ -3630,7 +3655,7 @@ ModifyTableState* ExecInitModifyTable(ModifyTable* node, EState* estate, int efl
      * containing multiple ModifyTable nodes, all can share one such slot, so
      * we keep it in the estate.
      */
-    if (estate->es_trig_tuple_slot == NULL) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_TRIGGER_REMOVE) && estate->es_trig_tuple_slot == NULL) {
         result_rel_info = mt_state->resultRelInfo;
         estate->es_trig_tuple_slot = ExecInitExtraTupleSlot(estate, result_rel_info->ri_RelationDesc->rd_tam_ops);
     }
@@ -3735,7 +3760,9 @@ void ExecEndModifyTable(ModifyTableState* node)
     for (i = 0; i < node->mt_nplans; i++) {
         ExecEndNode(node->mt_plans[i]);
 #ifdef PGXC
-        ExecEndNode(node->mt_remoterels[i]);
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+            ExecEndNode(node->mt_remoterels[i]);
+        }
 #endif
     }
 }

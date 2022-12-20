@@ -295,6 +295,23 @@ static const struct config_enum_entry sql_beta_options[] = {
     {NULL, 0, false}
 };
 
+static const struct config_enum_entry sql_fusion_engine_options[] = {
+    {"none", NO_SQL_FUSION_FEATURE, false},
+    {"iud_checksum_remove", IUD_CHECKSUM_REMOVE, false},
+    {"iud_node_context_remove", IUD_NODE_CONTEXT_REMOVE, false},
+    {"iud_is_system_class_remove_package", IUD_IS_SYSTEM_CLASS_REMOVE_PACKAGE, false},
+    {"iud_errorrel_remove", IUD_ERRORREL_REMOVE, false},
+    {"iud_block_chain_remove", IUD_BLOCK_CHAIN_REMOVE, false},
+    {"iud_trigger_remove", IUD_TRIGGER_REMOVE, false},
+    {"iud_memory_context_track_remove", IUD_MEMORY_CONTEXT_TRACK_REMOVE, false},
+    {"iud_instr_time_remove", IUD_INSTR_TIME_REMOVE, false},
+    {"iud_markdrop_remove", IUD_MARKDROP_REMOVE, false},
+    {"iud_code_optimize", IUD_CODE_OPTIMIZE, false},
+    {"iud_report_remove", IUD_REPORT_REMOVE, false},
+    {"iud_pending", IUD_PENDING, false},
+    {NULL, 0, false}
+};
+
 static const struct config_enum_entry vector_engine_strategy[] = {
     {"off", OFF_VECTOR_ENGINE, false},
     {"force", FORCE_VECTOR_ENGINE, false},
@@ -2906,6 +2923,17 @@ static void InitSqlConfigureNamesEnum()
             &u_sess->attr.attr_sql.sql_beta_feature,
             NO_BETA_FEATURE,
             sql_beta_options,
+            NULL,
+            NULL,
+            NULL},
+        {{"sql_fusion_engine",
+            PGC_USERSET,
+            NODE_SINGLENODE,
+            QUERY_TUNING,
+            gettext_noop("Sets the beta feature for SQL fusion engine."), NULL, GUC_LIST_INPUT},
+            &u_sess->attr.attr_sql.sql_fusion_engine,
+            NO_SQL_FUSION_FEATURE,
+            sql_fusion_engine_options,
             NULL,
             NULL,
             NULL},

@@ -214,6 +214,7 @@ typedef struct knl_session_attr_sql {
     double default_limit_rows;
 
     int sql_beta_feature;
+    int sql_fusion_engine;
     /* hypo index */
     bool enable_hypo_index;
     bool hypopg_is_explain;

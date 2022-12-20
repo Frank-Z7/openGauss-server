@@ -892,9 +892,12 @@ static void AssignTransactionId(TransactionState s)
         ProcXactHashTableAdd(s->transactionId, t_thrd.proc->pgprocno);
     }
 
+#ifdef ENABLE_MULTIPLE_NODES
     /* send my top transaction id to exec CN */
     if (!isSubXact && IsConnFromCoord() && u_sess->need_report_top_xid)
         ReportTopXid(s->transactionId);
+#endif
+
     if (!isSubXact)
         instr_stmt_report_txid(s->transactionId);
 
@@ -1270,7 +1273,9 @@ bool TransactionIdIsCurrentTransactionId(TransactionId xid)
      */
     if (!TransactionIdIsNormal(xid))
         return false;
-
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE) && TransactionIdEquals(xid, GetTopTransactionIdIfAny())) {
+        return true;
+    }
     /*
      * We will return true for the Xid of the current subtransaction, any of
      * its subcommitted children, any of its parents, or any of their

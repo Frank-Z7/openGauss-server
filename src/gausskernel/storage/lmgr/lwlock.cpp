@@ -1316,8 +1316,10 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
             break; /* got the lock */
         }
 
-        instr_stmt_report_lock(LWLOCK_WAIT_START, mode, NULL, lock->tranche);
-        pgstat_report_waitevent(PG_WAIT_LWLOCK | lock->tranche);
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+            instr_stmt_report_lock(LWLOCK_WAIT_START, mode, NULL, lock->tranche);
+            pgstat_report_waitevent(PG_WAIT_LWLOCK | lock->tranche);
+        }
         /*
          * Ok, at this point we couldn't grab the lock on the first try. We
          * cannot simply queue ourselves to the end of the list and wait to be
@@ -1337,8 +1339,10 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
             LOG_LWDEBUG("LWLockAcquire", lock, "acquired, undoing queue");
 
             LWLockDequeueSelf(lock, mode);
-            pgstat_report_waitevent(WAIT_EVENT_END);
-            instr_stmt_report_lock(LWLOCK_WAIT_END);
+            if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+                pgstat_report_waitevent(WAIT_EVENT_END);
+                instr_stmt_report_lock(LWLOCK_WAIT_END);
+            }
             break;
         }
 
@@ -1363,7 +1367,9 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
 #ifdef LWLOCK_STATS
         lwstats->block_count++;
 #endif
-        TRACE_POSTGRESQL_LWLOCK_WAIT_START(T_NAME(lock), mode);
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+            TRACE_POSTGRESQL_LWLOCK_WAIT_START(T_NAME(lock), mode);
+        }
         for (;;) {
             /* "false" means cannot accept cancel/die interrupt here. */
             PGSemaphoreLock(&proc->sem, false);
@@ -1388,9 +1394,11 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
             Assert(nwaiters < MAX_BACKENDS);
         }
 #endif
-        TRACE_POSTGRESQL_LWLOCK_WAIT_DONE(T_NAME(lock), mode);
-        pgstat_report_waitevent(WAIT_EVENT_END);
-        instr_stmt_report_lock(LWLOCK_WAIT_END);
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+            TRACE_POSTGRESQL_LWLOCK_WAIT_DONE(T_NAME(lock), mode);
+            pgstat_report_waitevent(WAIT_EVENT_END);
+            instr_stmt_report_lock(LWLOCK_WAIT_END);
+        }
 
         LOG_LWDEBUG("LWLockAcquire", lock, "awakened");
 
@@ -1398,7 +1406,9 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
         result = false;
     }
 
-    TRACE_POSTGRESQL_LWLOCK_ACQUIRE(T_NAME(lock), mode);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+        TRACE_POSTGRESQL_LWLOCK_ACQUIRE(T_NAME(lock), mode);
+    }
 
     forget_lwlock_acquire();
 

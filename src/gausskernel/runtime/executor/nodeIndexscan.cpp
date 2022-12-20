@@ -689,7 +689,11 @@ IndexScanState* ExecInitIndexScan(IndexScan* node, EState* estate, int eflags)
     /*
      * get the scan type from the relation descriptor.
      */
-    ExecAssignScanType(&index_state->ss, CreateTupleDescCopy(RelationGetDescr(current_relation)));
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+        ExecAssignScanType(&index_state->ss, RelationGetDescr(current_relation));
+    } else {
+        ExecAssignScanType(&index_state->ss, CreateTupleDescCopy(RelationGetDescr(current_relation)));
+    }
     index_state->ss.ss_ScanTupleSlot->tts_tupleDescriptor->td_tam_ops = current_relation->rd_tam_ops;
 
     /*

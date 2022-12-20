@@ -5087,6 +5087,7 @@ AclMode pg_class_aclmask(Oid table_oid, Oid roleid, AclMode mask, AclMaskHow how
                 errcause("System error."), erraction("Contact engineer to support.")));
     classForm = (Form_pg_class)GETSTRUCT(tuple);
 
+#ifdef ENABLE_MULTIPLE_NODES
     /* Check current user has privilige to this group */
     if (IS_PGXC_COORDINATOR && !IsInitdb && check_nodegroup && is_pgxc_class_table(table_oid) &&
         roleid != classForm->relowner) {
@@ -5103,6 +5104,7 @@ AclMode pg_class_aclmask(Oid table_oid, Oid roleid, AclMode mask, AclMaskHow how
             }
         }
     }
+#endif
 
     /*
      * Deny anyone permission to update a system catalog unless
@@ -5126,13 +5128,14 @@ AclMode pg_class_aclmask(Oid table_oid, Oid roleid, AclMode mask, AclMaskHow how
      * initial user and monitorsdmin bypass all permission-checking.
      */
     Oid namespaceId = classForm->relnamespace;
-    if (IsMonitorSpace(namespaceId) && (roleid == INITIAL_USER_ID || isMonitoradmin(roleid))) {
+    bool isMonitorNs = IsMonitorSpace(namespaceId);
+    if (isMonitorNs && (roleid == INITIAL_USER_ID || isMonitoradmin(roleid))) {
         ReleaseSysCache(tuple);
         return mask;
     }
 
     /* Blockchain hist table cannot be modified */
-    if (table_oid == GsGlobalChainRelationId || classForm->relnamespace == PG_BLOCKCHAIN_NAMESPACE) {
+    if (table_oid == GsGlobalChainRelationId || namespaceId == PG_BLOCKCHAIN_NAMESPACE) {
         if (isRelSuperuser() || isAuditadmin(roleid)) {
             mask &= ~(ACL_INSERT | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE | ACL_USAGE | ACL_REFERENCES);
         } else {
@@ -5144,7 +5147,7 @@ AclMode pg_class_aclmask(Oid table_oid, Oid roleid, AclMode mask, AclMaskHow how
 
     /* Otherwise, superusers bypass all permission-checking, except access independent role's objects. */
     /* Database Security:  Support separation of privilege. */
-    if (!is_ddl_privileges && !IsMonitorSpace(namespaceId) && (superuser_arg(roleid) || systemDBA_arg(roleid)) &&
+    if (!is_ddl_privileges && !isMonitorNs && (superuser_arg(roleid) || systemDBA_arg(roleid)) &&
         ((classForm->relowner == roleid) || !is_role_independent(classForm->relowner) ||
             independent_priv_aclcheck(mask, classForm->relkind))) {
 #ifdef ACLDEBUG

@@ -947,6 +947,23 @@ void ExtendCLOG(TransactionId newestXact, bool allowXlog)
 {
     int64 pageno = 0;
 
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+        /*
+         * No work except at first XID of a page.
+         */
+        if (TransactionIdToPgIndex(newestXact) != 0 && !TransactionIdEquals(newestXact, FirstNormalTransactionId))
+            return;
+
+        pageno = (int64)TransactionIdToPage(newestXact);
+
+        (void)LWLockAcquire(ClogCtl(pageno)->shared->control_lock, LW_EXCLUSIVE);
+
+        /* Zero the page and make an XLOG entry about it */
+        (void)ZeroCLOGPage(pageno, !t_thrd.xlog_cxt.InRecovery);
+
+        LWLockRelease(ClogCtl(pageno)->shared->control_lock);
+        return;
+    }
 #ifdef PGXC
     int64 maxPageNoInSeg = 0;
     /*

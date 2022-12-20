@@ -1120,7 +1120,9 @@ Relation parserOpenTable(ParseState *pstate, const RangeVar *relation, int lockm
     cancel_parser_errposition_callback(&pcbstate);
 
     /* Forbit DQL/DML on recyclebin object */
-    TrForbidAccessRbObject(RelationRelationId, RelationGetRelid(rel), relation->relname);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+        TrForbidAccessRbObject(RelationRelationId, RelationGetRelid(rel), relation->relname);
+    }
 
     /* check wlm session info whether is valid in this database */
     if (!CheckWLMSessionInfoTableValid(relation->relname) && !u_sess->attr.attr_common.IsInplaceUpgrade) {

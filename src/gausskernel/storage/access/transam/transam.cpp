@@ -159,11 +159,13 @@ RETRY:
         }
         PG_END_TRY();
     }
-    ereport(DEBUG1,
-            (errmsg("Get CSN xid %lu cur_xid %lu xid %lu result %lu iscommit %d, recentLocalXmin %lu, isMvcc :%d, "
-                    "RecentXmin: %lu",
-                    transactionId, GetCurrentTransactionIdIfAny(), xid, result, isCommit,
-                    t_thrd.xact_cxt.ShmemVariableCache->recentLocalXmin, isMvcc, u_sess->utils_cxt.RecentXmin)));
+    if (SHOW_DEBUG_MESSAGE()) {
+        ereport(DEBUG1,
+                (errmsg("Get CSN xid %lu cur_xid %lu xid %lu result %lu iscommit %d, recentLocalXmin %lu, isMvcc :%d, "
+                        "RecentXmin: %lu",
+                        transactionId, GetCurrentTransactionIdIfAny(), xid, result, isCommit,
+                        t_thrd.xact_cxt.ShmemVariableCache->recentLocalXmin, isMvcc, u_sess->utils_cxt.RecentXmin)));
+    }
 
     /*
      * Cache it, but DO NOT cache status for unfinished transactions!

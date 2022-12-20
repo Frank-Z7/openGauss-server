@@ -381,6 +381,22 @@ typedef enum {
 } sql_beta_param;
 
 typedef enum {
+    NO_SQL_FUSION_FEATURE = 0,
+    IUD_CHECKSUM_REMOVE = 8, /* do not use pg_checksum_page related functions */
+    IUD_NODE_CONTEXT_REMOVE = 16, /* do not create context for each node individually */
+    IUD_IS_SYSTEM_CLASS_REMOVE_PACKAGE = 32, /* remove IsPackageSchemaOid judgment in IsSystemClass */
+    IUD_ERRORREL_REMOVE = 64, /* do not use errorRel related functions */
+    IUD_BLOCK_CHAIN_REMOVE = 128, /* do not use blockchain related functions */
+    IUD_TRIGGER_REMOVE = 256, /* do not use trigger related functions */
+    IUD_MEMORY_CONTEXT_TRACK_REMOVE = 512, /* MemoryContext do not track and protect */
+    IUD_INSTR_TIME_REMOVE = 1024, /* remove INSTR_TIME related functions */
+    IUD_MARKDROP_REMOVE = 2048, /* remove some judgments */
+    IUD_CODE_OPTIMIZE = 4096, /* code optimization */
+    IUD_REPORT_REMOVE = 8192, /* remove some report-related statements */
+    IUD_PENDING = 16384 /* remove pending items */
+} sql_fusion_engine;
+
+typedef enum {
     OFF_VECTOR_ENGINE,
     FORCE_VECTOR_ENGINE,
     OPT_VECTOR_ENGINE
@@ -400,6 +416,9 @@ typedef enum {
 
 #define ENABLE_SQL_BETA_FEATURE(feature) \
     ((bool)((uint)u_sess->attr.attr_sql.sql_beta_feature & feature))
+
+#define ENABLE_SQL_FUSION_ENGINE(feature) \
+    ((bool)((uint)u_sess->attr.attr_sql.sql_fusion_engine & feature))
 
 #define PARTITION_OPFUSION_MAX_NUMA_NODE 4
 #define PARTITION_ENABLE_CACHE_OPFUSION             \

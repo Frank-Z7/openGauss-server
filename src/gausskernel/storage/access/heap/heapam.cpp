@@ -4510,7 +4510,7 @@ TM_Result heap_delete(Relation relation, ItemPointer tid, CommandId cid,
     HeapTupleCopyBaseFromPage(&tp, page);
     tmfd->xmin = HeapTupleHeaderGetXmin(page, tp.t_data);
 
-    if (RELATION_HAS_UIDS(relation) && HeapTupleHeaderHasUid(tp.t_data)) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING) && RELATION_HAS_UIDS(relation) && HeapTupleHeaderHasUid(tp.t_data)) {
         uint64 tupleUid = HeapTupleGetUid(&tp);
         LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
         LockTupleUid(relation, tupleUid, ExclusiveLock,
@@ -4686,7 +4686,9 @@ l1:
      * Compute replica identity tuple before entering the critical section so
      * we don't PANIC upon a memory allocation failure.
      */
-    old_key_tuple = ExtractReplicaIdentity(relation, &tp, true, &old_key_copied, &identity);
+    if (XLogLogicalInfoActive()) {
+        old_key_tuple = ExtractReplicaIdentity(relation, &tp, true, &old_key_copied, &identity);
+    }
 
     /*
      * If this is the first possibly-multixact-able operation in the
