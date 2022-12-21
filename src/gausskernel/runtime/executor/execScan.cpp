@@ -31,7 +31,7 @@
  * inside an EvalPlanQual recheck.	If we aren't, just execute
  * the access method's next-tuple routine.
  */
-static TupleTableSlot* ExecScanFetch(ScanState* node, ExecScanAccessMtd access_mtd, ExecScanRecheckMtd recheck_mtd)
+static inline TupleTableSlot* ExecScanFetch(ScanState* node, ExecScanAccessMtd access_mtd, ExecScanRecheckMtd recheck_mtd)
 {
     EState* estate = node->ps.state;
 

@@ -119,7 +119,6 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
     TupleTableSlot* slot = NULL;
     TupleTableSlot* tmpslot = NULL;
     ItemPointer tid;
-    bool isVersionScan = TvIsVersionScan(&node->ss);
     bool isUHeap = false;
 
     /*
@@ -138,8 +137,11 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
     econtext = node->ss.ps.ps_ExprContext;
     slot = node->ss.ss_ScanTupleSlot;
     isUHeap = RelationIsUstoreFormat(node->ss.ss_currentRelation);
-    tmpslot = MakeSingleTupleTableSlot(RelationGetDescr(scandesc->heapRelation),
+    if (isUHeap) {
+        tmpslot = MakeSingleTupleTableSlot(RelationGetDescr(scandesc->heapRelation),
         false, scandesc->heapRelation->rd_tam_ops);
+    }
+    
 
     /*
      * OK, now that we have what we need, fetch the next tuple.
@@ -168,11 +170,13 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
          * reading the TID; and (2) is satisfied by the acquisition of the
          * buffer content lock in order to insert the TID.
          */
-        if (!ExecGPIGetNextPartRelation(node, indexScan)) {
-            continue;
-        }
-        if (!ExecCBIFixHBktRel(scandesc, &node->ioss_VMBuffer)) {
-            continue;
+        if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+            if (!ExecGPIGetNextPartRelation(node, indexScan)) {
+                continue;
+            }
+            if (!ExecCBIFixHBktRel(scandesc, &node->ioss_VMBuffer)) {
+                continue;
+            }
         }
 
         if (isUHeap) {
@@ -186,14 +190,13 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
                     continue; /* the visible version not match the IndexTuple */
                 }
             }
-        } else if (isVersionScan ||
-            !visibilitymap_test(indexScan->heapRelation, ItemPointerGetBlockNumber(tid), &node->ioss_VMBuffer)) {
+        } else if (!visibilitymap_test(indexScan->heapRelation, ItemPointerGetBlockNumber(tid), &node->ioss_VMBuffer)) {
             /* IMPORTANT: We ALWAYS visit the heap to check visibility in VERSION SCAN. */
             /*
              * Rats, we have to visit the heap to check visibility.
              */
             node->ioss_HeapFetches++;
-            if (!IndexFetchSlot(indexScan, slot, isUHeap)) {
+            if (IndexFetchTuple(indexScan) == NULL) {
 #ifdef DEBUG_INPLACE
                 /* Now ustore does not support hash bucket table */
                 Assert(indexScan == scandesc);
@@ -205,6 +208,7 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
 #endif
                 continue; /* no visible tuple, try next index entry */
             }
+            
 
 #ifdef DEBUG_INPLACE
             Assert(indexScan == scandesc);
@@ -262,7 +266,9 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
          */
         if (tuple == NULL)
             PredicateLockPage(indexScan->heapRelation, ItemPointerGetBlockNumber(tid), estate->es_snapshot);
-        ExecDropSingleTupleTableSlot(tmpslot);
+        if (isUHeap) {
+            ExecDropSingleTupleTableSlot(tmpslot);
+        }
         return slot;
     }
 
@@ -270,7 +276,9 @@ static TupleTableSlot* IndexOnlyNext(IndexOnlyScanState* node)
      * if we get here it means the index scan failed so we are at the end of
      * the scan..
      */
-    ExecDropSingleTupleTableSlot(tmpslot);
+    if (isUHeap) {
+        ExecDropSingleTupleTableSlot(tmpslot);
+    }
     return ExecClearTuple(slot);
 }
 

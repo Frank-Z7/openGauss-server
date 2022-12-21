@@ -794,7 +794,9 @@ static void LWThreadSuicide(PGPROC *proc, int extraWaits, LWLock *lock, LWLockMo
     while (extraWaits-- > 0) {
         PGSemaphoreUnlock(&proc->sem);
     }
-    instr_stmt_report_lock(LWLOCK_WAIT_END);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+        instr_stmt_report_lock(LWLOCK_WAIT_END);
+
     LWLockReportWaitFailed(lock);
     ereport(FATAL, (errmsg("force thread %lu to exit because of lwlock deadlock", proc->pid),
                     errdetail("Lock Info: (%s), mode %d", T_NAME(lock), mode)));
@@ -1277,7 +1279,8 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
         ereport(ERROR, (errcode(ERRCODE_LOCK_NOT_AVAILABLE), errmsg("too many LWLocks taken")));
     }
 
-    remember_lwlock_acquire(lock);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+        remember_lwlock_acquire(lock);
 
     /*
      * Lock out cancel/die interrupts until we exit the code section protected
@@ -1345,8 +1348,7 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
             }
             break;
         }
-
-        if (need_update_lockid &&
+        if (!u_sess->attr.attr_common.enable_indexscan_optimization && need_update_lockid &&
             get_dirty_page_num() >= g_instance.ckpt_cxt_ctl->dirty_page_queue_size * NEED_UPDATE_LOCKID_QUEUE_SLOT) {
             update_wait_lockid(lock);
         }
@@ -1410,7 +1412,8 @@ bool LWLockAcquire(LWLock *lock, LWLockMode mode, bool need_update_lockid)
         TRACE_POSTGRESQL_LWLOCK_ACQUIRE(T_NAME(lock), mode);
     }
 
-    forget_lwlock_acquire();
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+        forget_lwlock_acquire();
 
     /* Add lock to list of locks held by this backend */
     t_thrd.storage_cxt.held_lwlocks[t_thrd.storage_cxt.num_held_lwlocks].lock = lock;
@@ -1527,7 +1530,8 @@ bool LWLockAcquireOrWait(LWLock *lock, LWLockMode mode)
 #ifdef LWLOCK_STATS
             lwstats->block_count++;
 #endif
-            remember_lwlock_acquire(lock);
+            if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+                remember_lwlock_acquire(lock);
 
             for (;;) {
                 /* "false" means cannot accept cancel/die interrupt here. */
@@ -1540,8 +1544,8 @@ bool LWLockAcquireOrWait(LWLock *lock, LWLockMode mode)
                 }
                 extraWaits++;
             }
-
-            forget_lwlock_acquire();
+            if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+                forget_lwlock_acquire();
 
 #ifdef LOCK_DEBUG
             {

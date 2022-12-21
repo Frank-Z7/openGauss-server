@@ -89,8 +89,10 @@ uint32 BufTableHashCode(BufferTag *tagPtr)
 int BufTableLookup(BufferTag *tag, uint32 hashcode)
 {
     BufferLookupEnt *result = NULL;
-
-    result = (BufferLookupEnt *)buf_hash_operate<HASH_FIND>(t_thrd.storage_cxt.SharedBufHash, tag, hashcode, NULL);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) 
+        result = (BufferLookupEnt *)buf_hash_operate<HASH_FIND>(t_thrd.storage_cxt.SharedBufHash, tag, hashcode, NULL);
+    else
+        result = (BufferLookupEnt *)hash_search_with_hash_value(t_thrd.storage_cxt.SharedBufHash, (void*) tag, hashcode, HASH_FIND, NULL);
 
     if (SECUREC_UNLIKELY(result == NULL)) {
         return -1;

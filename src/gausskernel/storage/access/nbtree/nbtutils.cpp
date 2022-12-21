@@ -1335,8 +1335,43 @@ bool _bt_checkkeys(IndexScanDesc scan, IndexTuple tuple, int tupnatts,
              */
             return false;
         }
+        if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+            test = FunctionCall2Coll(&key->sk_func, key->sk_collation, datum, key->sk_argument);
+        else {
+            switch (key->sk_func.fn_oid) {
+            case 474:               // F_INT84EQ
+                if ((int64)datum != (int64)key->sk_argument) {
+                    test = 0;
+                    break;
+                } else {
+                    continue;
+                }
+            case 65:                // F_INT4EQ
+                if ((int32)datum != (int32)key->sk_argument) {
+                    test = 0;
+                    break;
+                } else {
+                    continue;
+                }
+            case 147:                // F_INT4GT
+                if ((int32)datum <= (int32)key->sk_argument) {
+                    test = 0;
+                    break;
+                } else {
+                    continue;
+                }
+            case 66:                // F_INT4LT
+                if ((int32)datum >= (int32)key->sk_argument) {
+                    test = 0;
+                    break;
+                } else {
+                    continue;
+                } 
+            default:
+                test = FunctionCall2Coll(&key->sk_func, key->sk_collation, datum, key->sk_argument);
+            }
+        }
 
-        test = FunctionCall2Coll(&key->sk_func, key->sk_collation, datum, key->sk_argument);
         if (!DatumGetBool(test)) {
             /*
              * Tuple fails this qual.  If it's a required qual for the current

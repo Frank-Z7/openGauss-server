@@ -212,6 +212,7 @@ typedef struct knl_session_attr_common {
     char* router_att;
     bool enable_router;
     int backend_version;
+    bool enable_indexscan_optimization;
 #ifdef ENABLE_MULTIPLE_NODES
     bool enable_gpc_grayrelease_mode;
 #endif

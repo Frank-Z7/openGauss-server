@@ -1040,7 +1040,7 @@ static bool HeapTupleSatisfiesMVCC(HeapTuple htup, Snapshot snapshot, Buffer buf
      * Show any tuples including dirty ones when u_sess->attr.attr_storage.enable_show_any_tuples is true.
      * GUC param u_sess->attr.attr_storage.enable_show_any_tuples is just for analyse or maintenance
      */
-    if (u_sess->attr.attr_common.XactReadOnly && u_sess->attr.attr_storage.enable_show_any_tuples)
+    if (u_sess->attr.attr_storage.enable_show_any_tuples && u_sess->attr.attr_common.XactReadOnly)
         return true;
 
     if (!HeapTupleHeaderXminCommitted(tuple)) {
@@ -1851,7 +1851,7 @@ static bool HeapTupleSatisfiesDecodeMVCC(HeapTuple htup, Snapshot snapshot, Buff
      * Show any tuples including dirty ones when u_sess->attr.attr_storage.enable_show_any_tuples is true.
      * GUC param u_sess->attr.attr_storage.enable_show_any_tuples is just for analyse or maintenance
      */
-    if (u_sess->attr.attr_common.XactReadOnly && u_sess->attr.attr_storage.enable_show_any_tuples)
+    if (u_sess->attr.attr_storage.enable_show_any_tuples && u_sess->attr.attr_common.XactReadOnly)
         return true;
 
     bool getVisibility = false;

@@ -2413,7 +2413,8 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
     bool at_chain_start = false;
     bool valid = false;
     bool skip = false;
-    TransactionId oldestXmin;
+    TransactionId oldestXmin = InvalidOid;
+    bool needOldestXmin = true;
 
     /* If this is not the first call, previous call returned a (live!) tuple */
     if (all_dead != NULL) {
@@ -2426,8 +2427,6 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
     skip = !first_call;
 
     Assert(TransactionIdIsValid(u_sess->utils_cxt.RecentGlobalXmin));
-    oldestXmin = GetOldestXminForHot(relation);
-
     Assert(BufferGetBlockNumber(buffer) == blkno);
     HeapTupleCopyBaseFromPage(heap_tuple, dp);
 
@@ -2540,8 +2539,14 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
          * request, check whether all chain members are dead to all
          * transactions.
          */
-        if (all_dead && *all_dead && !HeapTupleIsSurelyDead(heap_tuple, oldestXmin)) {
-            *all_dead = false;
+        if (all_dead && *all_dead) {
+            if (needOldestXmin) {
+                oldestXmin = GetOldestXminForHot(relation);
+                needOldestXmin = false;
+            }
+            if (!HeapTupleIsSurelyDead(heap_tuple, oldestXmin)) {
+                *all_dead = false;
+            }
         }
 
         /*
