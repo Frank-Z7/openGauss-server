@@ -373,11 +373,13 @@ TupleTableSlot* ExecStoreTuple(Tuple tuple, TupleTableSlot* slot, Buffer buffer,
     Assert(slot != NULL);
     Assert(slot->tts_tupleDescriptor != NULL);
 
-    HeapTuple htup = (HeapTuple)tuple;
-    if (TTS_TABLEAM_IS_USTORE(slot) && htup->tupTableType == HEAP_TUPLE) {
-        tuple = (Tuple)HeapToUHeap(slot->tts_tupleDescriptor, (HeapTuple)tuple);
-    } else if (TTS_TABLEAM_IS_HEAP(slot) && htup->tupTableType == UHEAP_TUPLE) {
-        tuple = (Tuple)UHeapToHeap(slot->tts_tupleDescriptor, (UHeapTuple)tuple);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        HeapTuple htup = (HeapTuple)tuple;
+        if (TTS_TABLEAM_IS_USTORE(slot) && htup->tupTableType == HEAP_TUPLE) {
+            tuple = (Tuple)HeapToUHeap(slot->tts_tupleDescriptor, (HeapTuple)tuple);
+        } else if (TTS_TABLEAM_IS_HEAP(slot) && htup->tupTableType == UHEAP_TUPLE) {
+            tuple = (Tuple)UHeapToHeap(slot->tts_tupleDescriptor, (UHeapTuple)tuple);
+        }
     }
 
     tableam_tslot_store_tuple(tuple, slot, buffer, should_free, false);

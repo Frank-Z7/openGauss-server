@@ -81,7 +81,9 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
     econtext = node->ss.ps.ps_ExprContext;
     slot = node->ss.ss_ScanTupleSlot;
 
-    isUstore = RelationIsUstoreFormat(node->ss.ss_currentRelation);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        isUstore = RelationIsUstoreFormat(node->ss.ss_currentRelation);
+    }
 
     /*
      * ok, now that we have what we need, fetch the next tuple.
@@ -108,10 +110,14 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
              * Note: we pass 'false' because tuples returned by amgetnext are
              * pointers onto disk pages and must not be pfree_ext()'d.
              */
-            (void)ExecStoreTuple(tuple, /* tuple to store */
-                slot,                   /* slot to store in */
-                indexScan->xs_cbuf,     /* buffer containing tuple */
-                false);                 /* don't pfree */
+            if (!u_sess->attr.attr_common.enable_indexscan_optimization) 
+                (void)ExecStoreTuple(tuple, /* tuple to store */
+                    slot,                   /* slot to store in */
+                    indexScan->xs_cbuf,     /* buffer containing tuple */
+                    false);                 /* don't pfree */
+            else {
+                heap_slot_store_heap_tuple(tuple, slot, indexScan->xs_cbuf, false, false);
+            }
         }
 
         /*

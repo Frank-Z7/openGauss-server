@@ -107,8 +107,6 @@ typedef struct IndexScanDescData {
 
     Relation indexRelation; /* index relation descriptor */
     bool isUpsert;
-    GPIScanDesc xs_gpi_scan; /* global partition index scan use information */
-    CBIScanDesc xs_cbi_scan; /* global bucket index scan use information */
     Snapshot xs_snapshot;   /* snapshot to see */
     int numberOfKeys;       /* number of index qualifier conditions */
     int numberOfOrderBys;   /* number of ordering operators */
@@ -147,6 +145,8 @@ typedef struct IndexScanDescData {
     /* put decompressed heap tuple data into xs_ctbuf_hdr be careful! when malloc memory  should give extra mem for
      *xs_ctbuf_hdr. t_bits which is varlength arr
      */
+    GPIScanDesc xs_gpi_scan; /* global partition index scan use information */
+    CBIScanDesc xs_cbi_scan; /* global bucket index scan use information */
     HeapTupleHeaderData xs_ctbuf_hdr;
     /* DO NOT add any other members here. xs_ctbuf_hdr must be the last one. */
 } IndexScanDescData;
