@@ -4582,7 +4582,7 @@ static char* get_str_from_var(NumericVar* var)
  *      CAUTION: var's contents may be modified by rounding!
  *      Returns a palloc'd string.
  */ 
-static char output_buffer_str_from_var[64] = {0};
+char output_buffer_str_from_var[64] = {0};
 static char* output_get_str_from_var(NumericVar* var)
 {
     int dscale;
@@ -4613,7 +4613,11 @@ static char* output_get_str_from_var(NumericVar* var)
         i = 1;
 
     len = i + dscale + DEC_DIGITS + 2;
-    str = (char*)palloc(len);
+    if (len > 64) {
+        str = (char*)palloc(len);
+    } else {
+        str = (char*)output_buffer_str_from_var;
+    }
     cp = str;
 
     /*
