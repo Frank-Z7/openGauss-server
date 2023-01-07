@@ -137,10 +137,12 @@ void pq_sendbytes(StringInfo buf, const char* data, int datalen)
 void pq_sendcountedtext(StringInfo buf, const char* str, int slen, bool countincludesself)
 {
     int extra = countincludesself ? 4 : 0;
-    char* p = NULL;
+    char* p = (char*)str;
 
-    p = pg_server_to_client(str, slen);
-    if (p != str) { /* actual conversion has been done? */
+    if (unlikely(u_sess->mb_cxt.DatabaseEncoding->encoding != u_sess->mb_cxt.ClientEncoding->encoding)) {
+        p = pg_server_to_client(str, slen);
+    }
+    if (unlikely(p != str)) { /* actual conversion has been done? */
         slen = strlen(p);
         pq_sendint32(buf, slen + extra);
         appendBinaryStringInfo(buf, p, slen);
@@ -151,6 +153,32 @@ void pq_sendcountedtext(StringInfo buf, const char* str, int slen, bool countinc
         appendBinaryStringInfo(buf, str, slen);
     }
 }
+
+void pq_sendcountedtext_printtup(StringInfo buf, const char* str, int slen)
+{
+    char* p = (char*)str;
+
+    if (unlikely(u_sess->mb_cxt.DatabaseEncoding->encoding != u_sess->mb_cxt.ClientEncoding->encoding)) {
+        p = pg_server_to_client(str, slen);
+    }
+    if (unlikely(p != str)) { /* actual conversion has been done? */
+        slen = strlen(p);
+        enlargeStringInfo(buf, slen + sizeof(uint32));
+        pq_writeint32(buf, (uint32)slen);
+        memcpy(buf->data + buf->len, p, (size_t)slen);
+        buf->len += slen;
+        buf->data[buf->len] = '\0';
+        pfree(p);
+        p = NULL;
+    } else {
+        enlargeStringInfo(buf, slen + sizeof(uint32));
+        pq_writeint32(buf, (uint32)slen);
+        memcpy(buf->data + buf->len, str, (size_t)slen);
+        buf->len += slen;
+        buf->data[buf->len] = '\0';
+    }
+}
+
 
 /* --------------------------------
  *		pq_sendtext		- append a text string (with conversion)

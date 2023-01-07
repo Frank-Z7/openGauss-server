@@ -21,6 +21,7 @@ extern void pq_beginmessage(StringInfo buf, char msgtype);
 extern void pq_beginmessage_reuse(StringInfo buf, char msgtype);
 extern void pq_sendbytes(StringInfo buf, const char* data, int datalen);
 extern void pq_sendcountedtext(StringInfo buf, const char* str, int slen, bool countincludesself);
+extern void pq_sendcountedtext_printtup(StringInfo buf, const char* str, int slen);
 extern void pq_sendtext(StringInfo buf, const char* str, int slen);
 extern void pq_sendstring(StringInfo buf, const char* str);
 extern void pq_send_ascii_string(StringInfo buf, const char* str);
@@ -108,10 +109,8 @@ static inline void pq_writeint8(StringInfoData* pg_restrict buf, uint8 i)
 static inline void pq_writeint16(StringInfoData* pg_restrict buf, uint16 i)
 {
     uint16 ni = htons(i);
-    errno_t rc = EOK;
 
-    rc = memcpy_s((char* pg_restrict)(buf->data + buf->len), sizeof(uint16), &ni, sizeof(uint16));
-    securec_check(rc, "\0", "\0");
+    memcpy((char* pg_restrict)(buf->data + buf->len),  &ni, sizeof(uint16));
     buf->len += sizeof(uint16);
 }
 
@@ -122,10 +121,8 @@ static inline void pq_writeint16(StringInfoData* pg_restrict buf, uint16 i)
 static inline void pq_writeint32(StringInfoData* pg_restrict buf, uint32 i)
 {
     uint32 ni = htonl(i);
-    errno_t rc = EOK;
 
-    rc = memcpy_s((char* pg_restrict)(buf->data + buf->len), sizeof(uint32), &ni, sizeof(uint32));
-    securec_check(rc, "\0", "\0");
+    memcpy((char* pg_restrict)(buf->data + buf->len), &ni, sizeof(uint32));
     buf->len += sizeof(uint32);
 }
 

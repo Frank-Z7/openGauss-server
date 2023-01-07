@@ -228,8 +228,7 @@ void appendBinaryStringInfo(StringInfo str, const char* data, int datalen)
     enlargeStringInfo(str, datalen);
 
     /* OK, append the data */
-    errno_t rc = memcpy_s(str->data + str->len, (size_t)(str->maxlen - str->len), data, (size_t)datalen);
-    securec_check(rc, "\0", "\0");
+    memcpy(str->data + str->len, data, (size_t)datalen);
     str->len += datalen;
 
     /*
@@ -276,24 +275,24 @@ void enlargeBuffer(int needed,  // needed more bytes
      * an overflow or infinite loop in the following.
      */
     /* should not happen */
-    if (needed < 0) {
+    if (unlikely(needed < 0)) {
         ereport(ERROR,
             (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("invalid string enlargement request size: %d", needed)));
-    }
-    if (((Size)len > MaxAllocSize) || ((Size)needed) >= (MaxAllocSize - (Size)len)) {
-        ereport(ERROR,
-            (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-                errmsg("out of memory"),
-                errdetail("Cannot enlarge buffer containing %d bytes by %d more bytes.", len, needed)));
     }
 
     needed += len + 1; /* total space required now */
 
     /* Because of the above test, we now have needed <= MaxAllocSize */
-    if (needed <= (int)*maxlen) {
+    if (likely(needed <= (int)*maxlen)) {
         return; /* got enough space already */
     }
 
+    if (unlikely(((Size)len > MaxAllocSize) || ((Size)(needed - 1)) >= MaxAllocSize)) {
+        ereport(ERROR,
+            (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+                errmsg("out of memory"),
+                errdetail("Cannot enlarge buffer containing %d bytes by %d more bytes.", len, needed)));
+    }
     /*
      * We don't want to allocate just a little more space with each append;
      * for efficiency, double the buffer size each time it overflows.

@@ -230,6 +230,38 @@ char* text_to_cstring(const text* t)
     return result;
 }
 
+static char output_buffer[256] {0};
+char*  output_text_to_cstring(const text* t)
+{
+    if (unlikely(t == NULL)) {
+        ereport(ERROR,
+            (errcode(ERRCODE_UNEXPECTED_NULL_VALUE), errmsg("invalid null pointer input for text_to_cstring()")));
+    }
+    FUNC_CHECK_HUGE_POINTER(false, t, "text_to_cstring()");
+
+    /* must cast away the const, unfortunately */
+    text* tunpacked = pg_detoast_datum_packed((struct varlena*)t);
+    int len = VARSIZE_ANY_EXHDR(tunpacked);
+    char* result = NULL;
+
+    result = (char*)palloc(len + 1);
+    memcpy(result, VARDATA_ANY(tunpacked), len);
+    result[len] = '\0';
+
+    if (tunpacked != t)
+        pfree_ext(tunpacked);
+
+    return result;
+}
+
+static char output_int32_buffer[32] = {0};
+char* output_int32_to_cstring(int32 value)
+{
+        char* result = (char*)palloc(12);  /*sign, 10 digits, '\0' */
+	pg_ltoa(value, result);
+	return result;
+}
+
 /*
  * text_to_cstring_buffer
  *
