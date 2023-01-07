@@ -1040,7 +1040,6 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
         PrinttupAttrInfo *thisState = myState->myinfo + i;
         if (thisState->format != 0)
             binary = true;
-	    break;
     }
 
     /*
