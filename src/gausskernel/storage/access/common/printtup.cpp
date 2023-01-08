@@ -1022,6 +1022,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
     /* just as we define in backend/commands/analyze.cpp */
 #define WIDTH_THRESHOLD 1024
 
+    StreamTimeSerilizeStart(t_thrd.pgxc_cxt.GlobalNetInstr);
     /* Set or update my derived attribute info, if needed */
     if (myState->attrinfo != typeinfo || myState->nattrs != natts)
         printtup_prepare_info(myState, typeinfo, natts);
@@ -1051,6 +1052,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
         appendBinaryStringInfo(buf, slot->tts_dataRow, slot->tts_dataLen);
         AddCheckInfo(buf);
         pq_endmessage_reuse(buf);
+        StreamTimeSerilizeEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
         return;
     }
 #endif
@@ -1162,6 +1164,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
     }
 
     (void)MemoryContextSwitchTo(old_context);
+    StreamTimeSerilizeEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
 
     AddCheckInfo(buf);
     pq_endmessage_reuse(buf);
