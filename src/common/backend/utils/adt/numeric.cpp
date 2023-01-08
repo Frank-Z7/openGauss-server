@@ -451,14 +451,14 @@ char* output_numeric_out(Numeric num)
         int64 val64 = NUMERIC_64VALUE(num);
         scale = NUMERIC_BI_SCALE(num);
         Datum numeric_out_bi64 = bi64_out(val64, scale);
-	return DatumGetCString(numeric_out_bi64);
+        return DatumGetCString(numeric_out_bi64);
     } else if (NUMERIC_FLAG_IS_BI128(numFlags)) {
         int128 val128 = 0;
         errno_t rc = memcpy_s(&val128, sizeof(int128), (num)->choice.n_bi.n_data, sizeof(int128));
         securec_check(rc, "\0", "\0");
         scale = NUMERIC_BI_SCALE(num);
         Datum numeric_out_bi128 =  bi128_out(val128, scale);
-	return DatumGetCString(numeric_out_bi128);
+        return DatumGetCString(numeric_out_bi128);
     }
     /*
      * Get the number in the variable format

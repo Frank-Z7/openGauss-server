@@ -1102,21 +1102,21 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
             if (thisState->format == 0) {
                 /* Text output */
                 char *outputstr = NULL;
-		switch (thisState->typoutput) {
-			case F_INT4OUT:		/*int4out*/
-				outputstr = output_int32_to_cstring(DatumGetInt32(attr));
-				break;
-			case F_BPCHAROUT:	/*bpcharout*/
-			case F_VARCHAROUT:	/*varcharout*/
-				outputstr = output_text_to_cstring((text*)DatumGetPointer(attr));
-				break;
-			case F_NUMERIC_OUT:     /*numeric_out*/
-				outputstr = output_numeric_out(DatumGetNumeric(attr));
-				break;
-			default:
-                                outputstr = OutputFunctionCall(&thisState->finfo, attr);
-				break;
-		}
+                switch (thisState->typoutput) {
+                    case F_INT4OUT:     /*int4out*/
+                        outputstr = output_int32_to_cstring(DatumGetInt32(attr));
+                        break;
+                    case F_BPCHAROUT:   /*bpcharout*/
+                    case F_VARCHAROUT:    /*varcharout*/
+                        outputstr = output_text_to_cstring((text*)DatumGetPointer(attr));
+                        break;
+                    case F_NUMERIC_OUT:    /*numeric_out*/
+                        outputstr = output_numeric_out(DatumGetNumeric(attr));
+                        break;
+                    default:
+                        outputstr = OutputFunctionCall(&thisState->finfo, attr);
+                        break;
+                }
 #ifdef ENABLE_MULTIPLE_NODES
                 if (thisState->typisvarlena && self->forAnalyzeSampleTuple &&
                     (typeinfo->attrs[i].atttypid == BYTEAOID || typeinfo->attrs[i].atttypid == CHAROID ||
