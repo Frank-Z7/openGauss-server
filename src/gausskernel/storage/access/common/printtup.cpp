@@ -68,6 +68,8 @@ static void printHybridBatch(VectorBatch *batch, DestReceiver *self);
 static void finalizeLocalStream(DestReceiver *self);
 
 inline void AddCheckInfo(StringInfo buf);
+
+extern char* output_numeric_out(Numeric num);
 /* ----------------------------------------------------------------
  *		printtup / debugtup support
  * ----------------------------------------------------------------
@@ -1088,7 +1090,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
              * origattr had been converted to CSTRING type previously by using anyarray_out.
              * just send over the DataRow message as we received it.
              */
-            pq_sendcountedtext(buf, (char *)attr, strlen((char *)attr), false);
+            pq_sendcountedtext_printtup(buf, (char *)attr, strlen((char *)attr));
         } else {
             /*
              * Here we catch undefined bytes in datums that are returned to the
@@ -1102,8 +1104,21 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
             if (thisState->format == 0) {
                 /* Text output */
                 char *outputstr = NULL;
-
-                outputstr = OutputFunctionCall(&thisState->finfo, attr);
+                switch (thisState->typoutput) {
+                    case F_INT4OUT:     /*int4out*/
+                        outputstr = output_int32_to_cstring(DatumGetInt32(attr));
+                        break;
+                    case F_BPCHAROUT:   /*bpcharout*/
+                    case F_VARCHAROUT:    /*varcharout*/
+                        outputstr = output_text_to_cstring((text*)DatumGetPointer(attr));
+                        break;
+                    case F_NUMERIC_OUT:    /*numeric_out*/
+                        outputstr = output_numeric_out(DatumGetNumeric(attr));
+                        break;
+                    default:
+                        outputstr = OutputFunctionCall(&thisState->finfo, attr);
+                        break;
+                }
 #ifdef ENABLE_MULTIPLE_NODES
                 if (thisState->typisvarlena && self->forAnalyzeSampleTuple &&
                     (typeinfo->attrs[i].atttypid == BYTEAOID || typeinfo->attrs[i].atttypid == CHAROID ||
@@ -1136,7 +1151,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                     pfree(result);
                 }
 #endif
-                pq_sendcountedtext(buf, outputstr, strlen(outputstr), false);
+                pq_sendcountedtext_printtup(buf, outputstr, strlen(outputstr));
             } else {
                 /* Binary output */
                 bytea *outputbytes = NULL;

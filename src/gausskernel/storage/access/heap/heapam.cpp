@@ -384,6 +384,11 @@ void heapgetpage(TableScanDesc sscan, BlockNumber page)
             HeapTupleData loctup;
             bool valid = false;
 
+            if (likely(all_visible && (!IsSerializableXact()))) {
+                scan->rs_base.rs_vistuples[ntup++] = line_off;
+                continue;
+            }
+
             loctup.t_tableOid = RelationGetRelid(scan->rs_base.rs_rd);
             loctup.t_bucketId = RelationGetBktid(scan->rs_base.rs_rd);
             loctup.t_data = (HeapTupleHeader)PageGetItem((Page)dp, lpp);
