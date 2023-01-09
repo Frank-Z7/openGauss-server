@@ -436,7 +436,6 @@ char* output_numeric_out(Numeric num)
     char* str = NULL;
     int scale = 0;
 
-
     /*
      * Handle NaN
      */
@@ -4582,7 +4581,6 @@ static char* get_str_from_var(NumericVar* var)
  *      CAUTION: var's contents may be modified by rounding!
  *      Returns a palloc'd string.
  */ 
-char output_buffer_str_from_var[64] = {0};
 static char* output_get_str_from_var(NumericVar* var)
 {
     int dscale;
@@ -4613,10 +4611,11 @@ static char* output_get_str_from_var(NumericVar* var)
         i = 1;
 
     len = i + dscale + DEC_DIGITS + 2;
-    if (len > 64) {
+    if (len >= 64) {
         str = (char*)palloc(len);
     } else {
-        str = (char*)output_buffer_str_from_var;
+        u_sess->utils_cxt.numericoutput_buffer[0] = '\0';
+        str = u_sess->utils_cxt.numericoutput_buffer;
     }
     cp = str;
 

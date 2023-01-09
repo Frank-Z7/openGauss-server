@@ -1103,14 +1103,20 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                 /* Text output */
                 char *outputstr = NULL;
                 switch (thisState->typoutput) {
-                    case F_INT4OUT:     /*int4out*/
+                    case F_INT4OUT:
                         outputstr = output_int32_to_cstring(DatumGetInt32(attr));
                         break;
-                    case F_BPCHAROUT:   /*bpcharout*/
-                    case F_VARCHAROUT:    /*varcharout*/
+                    case F_INT8OUT:
+                        outputstr = output_int64_to_cstring(DatumGetInt64(attr));
+                        break;
+                    case F_INT16OUT:
+                        outputstr = output_int128_to_cstring(DatumGetInt128(attr));
+                        break;
+                    case F_BPCHAROUT:
+                    case F_VARCHAROUT:
                         outputstr = output_text_to_cstring((text*)DatumGetPointer(attr));
                         break;
-                    case F_NUMERIC_OUT:    /*numeric_out*/
+                    case F_NUMERIC_OUT:
                         outputstr = output_numeric_out(DatumGetNumeric(attr));
                         break;
                     default:
