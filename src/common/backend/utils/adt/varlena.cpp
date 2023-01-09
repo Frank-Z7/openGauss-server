@@ -230,7 +230,7 @@ char* text_to_cstring(const text* t)
     return result;
 }
 
-static char output_buffer[256] {0};
+char output_buffer[256] {0};
 char*  output_text_to_cstring(const text* t)
 {
     if (unlikely(t == NULL)) {
@@ -244,7 +244,11 @@ char*  output_text_to_cstring(const text* t)
     int len = VARSIZE_ANY_EXHDR(tunpacked);
     char* result = NULL;
 
-    result = (char*)palloc(len + 1);
+    if (len + 1 > 256) {
+        result = (char*)palloc(len + 1);
+    } else {
+        result = output_buffer;
+    }
     memcpy(result, VARDATA_ANY(tunpacked), len);
     result[len] = '\0';
 
@@ -254,12 +258,11 @@ char*  output_text_to_cstring(const text* t)
     return result;
 }
 
-static char output_int32_buffer[32] = {0};
+char output_int32_buffer[32] = {0};
 char* output_int32_to_cstring(int32 value)
 {
-        char* result = (char*)palloc(12);  /*sign, 10 digits, '\0' */
-	pg_ltoa(value, result);
-	return result;
+    pg_ltoa(value, output_int32_buffer);
+    return output_int32_buffer;
 }
 
 /*
