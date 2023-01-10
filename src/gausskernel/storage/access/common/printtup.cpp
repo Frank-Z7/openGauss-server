@@ -1022,7 +1022,6 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
     /* just as we define in backend/commands/analyze.cpp */
 #define WIDTH_THRESHOLD 1024
 
-    StreamTimeSerilizeStart(t_thrd.pgxc_cxt.GlobalNetInstr);
     /* Set or update my derived attribute info, if needed */
     if (myState->attrinfo != typeinfo || myState->nattrs != natts)
         printtup_prepare_info(myState, typeinfo, natts);
@@ -1052,7 +1051,6 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
         appendBinaryStringInfo(buf, slot->tts_dataRow, slot->tts_dataLen);
         AddCheckInfo(buf);
         pq_endmessage_reuse(buf);
-        StreamTimeSerilizeEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
         return;
     }
 #endif
@@ -1105,14 +1103,20 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                 /* Text output */
                 char *outputstr = NULL;
                 switch (thisState->typoutput) {
-                    case F_INT4OUT:     /*int4out*/
+                    case F_INT4OUT:
                         outputstr = output_int32_to_cstring(DatumGetInt32(attr));
                         break;
-                    case F_BPCHAROUT:   /*bpcharout*/
-                    case F_VARCHAROUT:    /*varcharout*/
+                    case F_INT8OUT:
+                        outputstr = output_int64_to_cstring(DatumGetInt64(attr));
+                        break;
+                    case F_INT16OUT:
+                        outputstr = output_int128_to_cstring(DatumGetInt128(attr));
+                        break;
+                    case F_BPCHAROUT:
+                    case F_VARCHAROUT:
                         outputstr = output_text_to_cstring((text*)DatumGetPointer(attr));
                         break;
-                    case F_NUMERIC_OUT:    /*numeric_out*/
+                    case F_NUMERIC_OUT:
                         outputstr = output_numeric_out(DatumGetNumeric(attr));
                         break;
                     default:
@@ -1164,7 +1168,6 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
     }
 
     (void)MemoryContextSwitchTo(old_context);
-    StreamTimeSerilizeEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
 
     AddCheckInfo(buf);
     pq_endmessage_reuse(buf);

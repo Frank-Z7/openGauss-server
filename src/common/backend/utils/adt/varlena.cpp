@@ -230,8 +230,7 @@ char* text_to_cstring(const text* t)
     return result;
 }
 
-static char output_buffer[256] {0};
-char*  output_text_to_cstring(const text* t)
+char* output_text_to_cstring(const text* t)
 {
     if (unlikely(t == NULL)) {
         ereport(ERROR,
@@ -244,7 +243,12 @@ char*  output_text_to_cstring(const text* t)
     int len = VARSIZE_ANY_EXHDR(tunpacked);
     char* result = NULL;
 
-    result = (char*)palloc(len + 1);
+    if (len + 1 > 256) {
+        result = (char*)palloc(len + 1);
+    } else {
+        u_sess->utils_cxt.varcharoutput_buffer[0] = '\0';
+        result = u_sess->utils_cxt.varcharoutput_buffer;
+    }
     memcpy(result, VARDATA_ANY(tunpacked), len);
     result[len] = '\0';
 
@@ -254,12 +258,25 @@ char*  output_text_to_cstring(const text* t)
     return result;
 }
 
-static char output_int32_buffer[32] = {0};
 char* output_int32_to_cstring(int32 value)
 {
-        char* result = (char*)palloc(12);  /*sign, 10 digits, '\0' */
-	pg_ltoa(value, result);
-	return result;
+    u_sess->utils_cxt.int4output_buffer[0] = '\0';
+    pg_ltoa(value, u_sess->utils_cxt.int4output_buffer);
+    return u_sess->utils_cxt.int4output_buffer;
+}
+
+char* output_int64_to_cstring(int64 value)
+{
+    u_sess->utils_cxt.int8output_buffer[0] = '\0';
+    pg_lltoa(value, u_sess->utils_cxt.int8output_buffer);
+    return u_sess->utils_cxt.int8output_buffer;
+}
+
+char* output_int128_to_cstring(int128 value)
+{
+    u_sess->utils_cxt.int16output_buffer[0] = '\0';
+    pg_i128toa(value, u_sess->utils_cxt.int16output_buffer, 128);
+    return u_sess->utils_cxt.int16output_buffer;
 }
 
 /*

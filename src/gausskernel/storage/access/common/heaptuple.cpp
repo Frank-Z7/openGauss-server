@@ -1760,15 +1760,17 @@ void heap_slot_getsomeattrs(TupleTableSlot *slot, int attnum)
     slot_deform_tuple(slot, attno);
 
     /* If tuple doesn't have all the atts indicated by tupleDesc, read the rest as null */
-    for (; attno < attnum; attno++) {
-        /* get init default value from tupleDesc.
-         * The original Code is:
-         * example code: slot->tts_values[attno] = (Datum) 0;
-         * example code: slot->tts_isnull[attno] = true;
-         */
-        slot->tts_values[attno] = heapGetInitDefVal(attno + 1, slot->tts_tupleDescriptor, &slot->tts_isnull[attno]);
+    if (unlikely(attno < attnum)) {
+        for (; attno < attnum; attno++) {
+            /* get init default value from tupleDesc.
+             * The original Code is:
+             * example code: slot->tts_values[attno] = (Datum) 0;
+             * example code: slot->tts_isnull[attno] = true;
+             */
+            slot->tts_values[attno] = heapGetInitDefVal(attno + 1, slot->tts_tupleDescriptor, &slot->tts_isnull[attno]);
     }
-    slot->tts_nvalid = attnum;
+        slot->tts_nvalid = attnum;
+    }
 }
 
 /*
