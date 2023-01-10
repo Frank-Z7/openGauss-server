@@ -165,7 +165,7 @@ static void assign_convert_string_to_digit(bool newval, void* extra);
 static void AssignUStoreAttr(const char* newval, void* extra);
 static bool check_snapshot_delimiter(char** newval, void** extra, GucSource source);
 static bool check_snapshot_separator(char** newval, void** extra, GucSource source);
-
+static void strategy_assign_vector_targetlist(int newval, void* extra);
 
 static void InitSqlConfigureNamesBool();
 static void InitSqlConfigureNamesInt();
@@ -1616,6 +1616,18 @@ static void InitSqlConfigureNamesBool()
             NULL,
             NULL},
 #endif
+        {{"enable_vector_targetlist",
+            PGC_USERSET,
+            NODE_ALL,
+            QUERY_TUNING_OTHER,
+            gettext_noop("enable vector targetlist for row to vector."),
+            NULL},
+            &u_sess->attr.attr_sql.enable_vector_targetlist, 
+            false,
+            NULL,
+            NULL,
+            NULL
+        },
         /* End-of-list marker */
         {{NULL,
             (GucContext)0,
@@ -2577,7 +2589,6 @@ static void InitSqlConfigureNamesReal()
             NULL,
             NULL,
             NULL},
-
         /* End-of-list marker */
         {{NULL,
             (GucContext)0,
@@ -2958,7 +2969,7 @@ static void InitSqlConfigureNamesEnum()
             OFF_VECTOR_ENGINE,
             vector_engine_strategy,
             NULL,
-            NULL,
+            strategy_assign_vector_targetlist,
             NULL},
 
         /* End-of-list marker */
@@ -3462,4 +3473,15 @@ static bool check_snapshot_separator(char** newval, void** extra, GucSource sour
 {
     return (strlen(*newval) == 1 && (!u_sess->attr.attr_sql.db4ai_snapshot_version_delimiter
                                      || **newval != *u_sess->attr.attr_sql.db4ai_snapshot_version_delimiter));
+}
+
+static void strategy_assign_vector_targetlist(int newval, void* extra)
+{
+    if (newval == FORCE_VECTOR_ENGINE || newval == OPT_VECTOR_ENGINE)
+        u_sess->attr.attr_sql.enable_vector_targetlist = true;
+    else {
+        u_sess->attr.attr_sql.enable_vector_targetlist = false;
+    }
+
+    return;
 }
