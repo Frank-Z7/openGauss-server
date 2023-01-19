@@ -386,6 +386,8 @@ extern void pg_itoa(int16 i, char* a);
 extern void pg_ltoa(int32 l, char* a);
 extern void pg_ctoa(uint8 i, char* a);
 extern void pg_lltoa(int64 ll, char* a);
+extern char *pg_ltostr_zeropad(char *str, int32 value, int32 minwidth);
+extern char *pg_ltostr(char *str, int32 value);
 extern void pg_i128toa(int128 value, char* a, int length);
 
 /*
