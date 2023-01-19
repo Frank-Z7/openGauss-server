@@ -598,6 +598,7 @@ static void GetAccessedVarNumbers(ProjectionInfo* projInfo, List* targetList, Li
     projInfo->pi_PackTCopyVars = PackTCopyVarsList;
     projInfo->pi_acessedVarNumbers = varattno_list;
     projInfo->pi_lateAceessVarNumbers = lateAccessVarNoList;
+    projInfo->pi_projectVarNumbers = PackTCopyVarsList;
     projInfo->pi_sysAttrList = sysVarList;
     projInfo->pi_const = isConst;
     projInfo->pi_PackLateAccessVarNumbers = PackLateAccessList;
