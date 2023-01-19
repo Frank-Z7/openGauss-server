@@ -242,6 +242,7 @@ typedef struct knl_session_attr_sql {
     bool dolphin;
     bool enable_trace_column;
     double pre_detoast_var_factor;
+    bool enable_vector_targetlist;
 } knl_session_attr_sql;
 
 #endif /* SRC_INCLUDE_KNL_KNL_SESSION_ATTR_SQL */
