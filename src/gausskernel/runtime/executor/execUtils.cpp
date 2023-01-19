@@ -51,6 +51,7 @@
 #include "catalog/heap.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_partition_fn.h"
+#include "catalog/pg_proc.h"
 #include "executor/exec/execdebug.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/parsetree.h"
@@ -2567,6 +2568,13 @@ bool func_has_refcursor_args(Oid Funcid, FunctionCallInfoData* fcinfo)
     bool return_refcursor = false;
     int out_count = 0; /* out arg count */
 
+    fcinfo->refcursor_data.return_number = 0;
+    fcinfo->refcursor_data.returnCursor = NULL;
+
+    if (IsSystemObjOid(Funcid) && Funcid != CURSORTOXMLOID && Funcid != CURSORTOXMLSCHEMAOID) {
+        return false;
+    }
+
     proctup = SearchSysCache(PROCOID, ObjectIdGetDatum(Funcid), 0, 0, 0);
 
     /*
@@ -2580,8 +2588,6 @@ bool func_has_refcursor_args(Oid Funcid, FunctionCallInfoData* fcinfo)
     allarg = get_func_arg_info(proctup, &p_argtypes, &p_argnames, &p_argmodes);
     procStruct = (Form_pg_proc)GETSTRUCT(proctup);
 
-    fcinfo->refcursor_data.return_number = 0;
-    fcinfo->refcursor_data.returnCursor = NULL;
     for (int i = 0; i < allarg; i++) {
         if (p_argmodes != NULL && (p_argmodes[i] == 'o' || p_argmodes[i] == 'b')) {
             out_count++;
@@ -2613,6 +2619,10 @@ bool expr_func_has_refcursor_args(Oid Funcid)
     char** p_argnames = NULL;
     char* p_argmodes = NULL;
     bool use_cursor = false;
+
+    if (IsSystemObjOid(Funcid) && Funcid != CURSORTOXMLOID && Funcid != CURSORTOXMLSCHEMAOID) {
+        return false;
+    }
 
     proctup = SearchSysCache(PROCOID, ObjectIdGetDatum(Funcid), 0, 0, 0);
 

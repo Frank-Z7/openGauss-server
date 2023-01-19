@@ -2145,7 +2145,7 @@ ExecInitFunc(ExprEvalStep *scratch, Expr *node, List *args, Oid funcid,
     /* Only allow commit at CN, therefore only need to set atomic and
      * relevant check at CN level.
      */
-    if (supportTranaction && IsA(node, FuncExpr)) {
+    if (!IsSystemObjOid(funcid) && supportTranaction && IsA(node, FuncExpr)) {
         fssnode = makeNode(FunctionScanState);
         if (!u_sess->SPI_cxt.is_allow_commit_rollback) {
             fssnode->atomic = true;
