@@ -680,7 +680,9 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
         ereport(LOG, (errmsg("LockAcquire: lock [%u,%u] %s", locktag->locktag_field1, locktag->locktag_field2,
                              lockMethodTable->lockModeNames[lockmode])));
 #endif
-    instr_stmt_report_lock(LOCK_START, lockmode, locktag);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+        instr_stmt_report_lock(LOCK_START, lockmode, locktag);
+    }
 
     /* Identify owner for lock */
     if (!sessionLock) {
@@ -734,11 +736,15 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
      */
     if (locallock->nLocks > 0) {
         GrantLockLocal(locallock, owner);
-        instr_stmt_report_lock(LOCK_END, lockmode);
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+            instr_stmt_report_lock(LOCK_END, lockmode);
+        }
         return LOCKACQUIRE_ALREADY_HELD;
 #ifdef PGXC
     } else if (only_increment) {
-        instr_stmt_report_lock(LOCK_END, NoLock);
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+            instr_stmt_report_lock(LOCK_END, NoLock);
+        }
         /* User does not want to create new lock if it does not already exist */
         return LOCKACQUIRE_NOT_AVAIL;
 #endif
@@ -819,7 +825,9 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
             locallock->lock = NULL;
             locallock->proclock = NULL;
             GrantLockLocal(locallock, owner);
-            instr_stmt_report_lock(LOCK_END, lockmode);
+            if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+                instr_stmt_report_lock(LOCK_END, lockmode);
+            }
             return LOCKACQUIRE_OK;
         }
     }
@@ -836,7 +844,9 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
         BeginStrongLockAcquire(locallock, fasthashcode);
         if (!FastPathTransferRelationLocks(lockMethodTable, locktag, hashcode)) {
             AbortStrongLockAcquire();
-            instr_stmt_report_lock(LOCK_END, NoLock);
+            if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+                instr_stmt_report_lock(LOCK_END, NoLock);
+            }
             if (reportMemoryError)
                 ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of shared memory"),
                     errhint("You might need to increase max_locks_per_transaction.")));
@@ -867,7 +877,9 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
     if (proclock == NULL) {
         AbortStrongLockAcquire();
         LWLockRelease(partitionLock);
-        instr_stmt_report_lock(LOCK_END, NoLock);
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+            instr_stmt_report_lock(LOCK_END, NoLock);
+        }
         if (reportMemoryError)
             ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of shared memory"),
                             errhint("You might need to increase max_locks_per_transaction.")));
@@ -978,7 +990,9 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
             if (locallock->nLocks == 0) {
                 RemoveLocalLock(locallock);
             }
-            instr_stmt_report_lock(LOCK_END, NoLock);
+            if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+                instr_stmt_report_lock(LOCK_END, NoLock);
+            }
             return LOCKACQUIRE_NOT_AVAIL;
         }
 
@@ -1021,7 +1035,9 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
             LOCK_PRINT("LockAcquire: INCONSISTENT", lock, lockmode);
             /* Should we retry ? */
             LWLockRelease(partitionLock);
-            instr_stmt_report_lock(LOCK_END, NoLock);
+            if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+                instr_stmt_report_lock(LOCK_END, NoLock);
+            }
             ereport(ERROR, (errcode(ERRCODE_LOCK_NOT_AVAILABLE), errmsg("LockAcquire failed")));
         }
         PROCLOCK_PRINT("LockAcquire: granted", proclock);
@@ -1049,7 +1065,9 @@ static LockAcquireResult LockAcquireExtendedXC(const LOCKTAG *locktag, LOCKMODE 
         LogAccessExclusiveLock(locktag->locktag_field1, locktag->locktag_field2);
     }
 
-    instr_stmt_report_lock(LOCK_END, lockmode);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_REPORT_REMOVE)) {
+        instr_stmt_report_lock(LOCK_END, lockmode);
+    }
     return LOCKACQUIRE_OK;
 }
 

@@ -422,6 +422,8 @@ typedef struct knl_u_parser_context {
     bool isCreateFuncOrProc;
     
     bool isTimeCapsule;
+
+    bool has_hintwarning;
 } knl_u_parser_context;
 
 typedef struct knl_u_trigger_context {
@@ -641,6 +643,13 @@ typedef struct knl_u_utils_context {
 #endif
 
     bool enable_memory_context_control;
+
+    /* printtup output buffer instead of functioncall */
+    char* int4output_buffer;
+    char* int8output_buffer;
+    char* int16output_buffer;
+    char* varcharoutput_buffer;
+    char* numericoutput_buffer;
 
     syscalllock deleMemContextMutex;
 } knl_u_utils_context;

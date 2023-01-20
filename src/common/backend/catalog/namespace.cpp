@@ -793,7 +793,11 @@ char* RelnameGetRelidExtended(const char* relname, Oid* relOid, Oid* refSynOid, 
 
     recomputeNamespacePath();
 
-    tempActiveSearchPath = list_copy(u_sess->catalog_cxt.activeSearchPath);
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+        tempActiveSearchPath = u_sess->catalog_cxt.activeSearchPath;
+    } else {
+        tempActiveSearchPath = list_copy(u_sess->catalog_cxt.activeSearchPath);
+    }
 
     foreach (l, tempActiveSearchPath) {
         Oid namespaceId = lfirst_oid(l);
@@ -812,7 +816,9 @@ char* RelnameGetRelidExtended(const char* relname, Oid* relOid, Oid* refSynOid, 
     if (relOid != NULL && !OidIsValid(*relOid) && module_logging_is_on(MOD_SCHEMA)) {
         AddSchemaSearchPathInfo(tempActiveSearchPath, detailInfo);
     }    
-    list_free_ext(tempActiveSearchPath);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+        list_free_ext(tempActiveSearchPath);
+    }
 
     /* return checking details. */
     return errDetail;
@@ -1057,6 +1063,11 @@ bool IsPlpgsqlLanguageOid(Oid langoid)
     HeapTuple tp;
     bool isNull = true;
     char* langName = NULL;
+
+    if (langoid == INTERNALlanguageId || langoid == ClanguageId
+        || langoid == SQLlanguageId || langoid == JavalanguageId) {
+        return false;
+    }
 
     Relation relation = heap_open(LanguageRelationId, NoLock);
     tp = SearchSysCache1(LANGOID, ObjectIdGetDatum(langoid));

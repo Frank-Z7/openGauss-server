@@ -207,6 +207,7 @@ static const char* set_var_from_str(const char* str, const char* cp, NumericVar*
 static void set_var_from_num(Numeric value, NumericVar* dest);
 static void set_var_from_var(const NumericVar* value, NumericVar* dest);
 static char* get_str_from_var(NumericVar* var);
+static char* output_get_str_from_var(NumericVar* var);
 static char* get_str_from_var_sci(NumericVar* var, int rscale);
 
 static void apply_typmod(NumericVar* var, int32 typmod);
@@ -423,6 +424,49 @@ Datum numeric_out(PG_FUNCTION_ARGS)
     PG_RETURN_CSTRING(str);
 }
 
+/*
+ * output_numeric_out() -
+ *
+ *      Output function for numeric data type.
+ *      include bi64 and bi128 type
+ */
+char* output_numeric_out(Numeric num)
+{
+    NumericVar x;
+    char* str = NULL;
+    int scale = 0;
+
+    /*
+     * Handle NaN
+     */
+    if (NUMERIC_IS_NAN(num))
+        return pstrdup("NaN");
+
+    /*
+     * If numeric is big integer, call int64_out/int128_out
+     */
+    uint16 numFlags = NUMERIC_NB_FLAGBITS(num);
+    if (NUMERIC_FLAG_IS_BI64(numFlags)) {
+        int64 val64 = NUMERIC_64VALUE(num);
+        scale = NUMERIC_BI_SCALE(num);
+        Datum numeric_out_bi64 = bi64_out(val64, scale);
+        return DatumGetCString(numeric_out_bi64);
+    } else if (NUMERIC_FLAG_IS_BI128(numFlags)) {
+        int128 val128 = 0;
+        errno_t rc = memcpy_s(&val128, sizeof(int128), (num)->choice.n_bi.n_data, sizeof(int128));
+        securec_check(rc, "\0", "\0");
+        scale = NUMERIC_BI_SCALE(num);
+        Datum numeric_out_bi128 =  bi128_out(val128, scale);
+        return DatumGetCString(numeric_out_bi128);
+    }
+    /*
+     * Get the number in the variable format
+     */
+    init_var_from_num(num, &x);
+    str = output_get_str_from_var(&x);
+
+    return str;
+}
 /*
  * numeric_is_nan() -
  *
@@ -4529,6 +4573,147 @@ static char* get_str_from_var(NumericVar* var)
     remove_tail_zero(str);
     return str;
 }
+
+/*
+ * output_get_str_from_var() - 
+ *
+ *      Convert a var to text representation (guts of numeric_out).
+ *      CAUTION: var's contents may be modified by rounding!
+ *      Returns a palloc'd string.
+ */ 
+static char* output_get_str_from_var(NumericVar* var)
+{
+    int dscale;
+    char* str = NULL;     
+    char* cp = NULL;      
+    char* endcp = NULL;   
+    int i;
+    int d;
+    NumericDigit dig;
+    int len;
+
+#if DEC_DIGITS > 1
+    NumericDigit d1;
+#endif  
+    
+    dscale = var->dscale;
+    
+    /*
+     * Allocate space for the result.
+     *      
+     * i is set to the # of decimal digits before decimal point. dscale is the
+     * # of decimal digits we will print after decimal point. We may generate
+     * as many as DEC_DIGITS-1 excess digits at the end, and in addition we
+     * need room for sign, decimal point, null terminator.
+     */ 
+    i = (var->weight + 1) * DEC_DIGITS;
+    if (i <= 0)
+        i = 1;
+
+    len = i + dscale + DEC_DIGITS + 2;
+    if (len >= 64) {
+        str = (char*)palloc(len);
+    } else {
+        u_sess->utils_cxt.numericoutput_buffer[0] = '\0';
+        str = u_sess->utils_cxt.numericoutput_buffer;
+    }
+    cp = str;
+
+    /*
+     * Output a dash for negative values
+     */
+    if (var->sign == NUMERIC_NEG)
+        *cp++ = '-';
+
+    /*
+     * Output all digits before the decimal point
+     */
+    if (var->weight < 0) {
+        d = var->weight + 1;
+        if (DISPLAY_LEADING_ZERO) {
+            *cp++ = '0';
+        }
+    } else {
+        for (d = 0; d <= var->weight; d++) {
+            dig = (d < var->ndigits) ? var->digits[d] : 0;
+            /* In the first digit, suppress extra leading decimal zeroes */
+#if DEC_DIGITS == 4
+            {
+                bool putit = (d > 0);
+
+                d1 = dig / 1000;
+                dig -= d1 * 1000;
+                putit |= (d1 > 0);
+                if (putit)
+                    *cp++ = d1 + '0';
+                d1 = dig / 100;
+                dig -= d1 * 100;
+                putit |= (d1 > 0);
+                if (putit)
+                    *cp++ = d1 + '0';
+                d1 = dig / 10;
+                dig -= d1 * 10;
+                putit |= (uint32)(d1 > 0);
+                if (putit)
+                    *cp++ = d1 + '0';
+                *cp++ = dig + '0';
+            }
+#elif DEC_DIGITS == 2
+            d1 = dig / 10;
+            dig -= d1 * 10;
+            if (d1 > 0 || d > 0)
+                *cp++ = d1 + '0';
+            *cp++ = dig + '0';
+#elif DEC_DIGITS == 1
+            *cp++ = dig + '0';
+#else
+#error unsupported NBASE
+#endif
+        }
+    }
+
+    /*
+     * If requested, output a decimal point and all the digits that follow it.
+     * We initially put out a multiple of DEC_DIGITS digits, then truncate if
+     * needed.
+     */
+    if (dscale > 0) {
+        *cp++ = '.';
+        endcp = cp + dscale;
+        for (i = 0; i < dscale; d++, i += DEC_DIGITS) {
+            dig = (d >= 0 && d < var->ndigits) ? var->digits[d] : 0;
+#if DEC_DIGITS == 4
+            d1 = dig / 1000;
+            dig -= d1 * 1000;
+            *cp++ = d1 + '0';
+            d1 = dig / 100;
+            dig -= d1 * 100;
+            *cp++ = d1 + '0';
+            d1 = dig / 10;
+            dig -= d1 * 10;
+            *cp++ = d1 + '0';
+            *cp++ = dig + '0';
+#elif DEC_DIGITS == 2
+            d1 = dig / 10;
+            dig -= d1 * 10;
+            *cp++ = d1 + '0';
+            *cp++ = dig + '0';
+#elif DEC_DIGITS == 1
+            *cp++ = dig + '0';
+#else
+#error unsupported NBASE
+#endif
+        }
+        cp = endcp;
+    }
+    /*
+     * terminate the string and return it
+     */
+    *cp = '\0';
+    remove_tail_zero(str);
+    return str;
+}
+
 
 /*
  * get_str_from_var_sci() -
@@ -18754,6 +18939,23 @@ int64 convert_short_numeric_to_int64_byscale(_in_ Numeric n, _in_ int scale)
     return (int64)result;
 }
 
+int64 convert_short_numeric_to_int64_byscale_fast(NumericVar *numVar)
+{
+    int128 result = 0;
+    int ascale = (numVar->ndigits > 0) ? (numVar->ndigits - numVar->weight - 1) : 0;
+    int scaleDiff = numVar->dscale - ascale * DEC_DIGITS;
+
+    encode_digits(result, numVar->digits, numVar->ndigits);
+
+    /* adjust scale */
+    result = (scaleDiff > 0) ? (result * ScaleMultipler[scaleDiff]) : (result / ScaleMultipler[-scaleDiff]);
+    /* get the result by sign */
+    result = (NUMERIC_POS == numVar->sign) ? result : -result;
+    Assert(INT128_INT64_EQ(result));
+
+    return (int64)result;
+}
+
 /*
  * n: ndigits
  * w: weight
@@ -18845,6 +19047,47 @@ void convert_short_numeric_to_int128_byscale(_in_ Numeric n, _in_ int dscale, _o
     result = (NUMERIC_POS == NUMERIC_SIGN(n)) ? result : -result;
 }
 
+void convert_short_numeric_to_int128_byscale_fast(NumericVar *numVar, int128& result)
+{
+    bool special_do = false;
+
+    /* ndigits is 0, result is 0, return directly */
+    result = 0;
+    if (0 == numVar->ndigits) {
+        return;
+    }
+
+    int remainder = numVar->dscale % DEC_DIGITS;
+    int ascale = numVar->ndigits - (numVar->weight + 1);
+    int end_index = numVar->ndigits;
+    int diff_scale = 0;
+    Assert(numVar->ndigits >= 0);
+
+    if (ascale > 0 && remainder != 0 && (numVar->dscale / DEC_DIGITS + 1) == ascale) {
+        special_do = true;
+        --end_index;
+    }
+
+    /* step1. get all valid digitals to result */
+    for (int i = 0; i < end_index; i++)
+        result += (numVar->digits[i] * getScaleMultiplier((end_index - 1 - i) * DEC_DIGITS));
+
+    if (special_do) {
+        result = (result * getScaleMultiplier(remainder)) +
+                 (numVar->digits[numVar->ndigits - 1] / getScaleMultiplier(DEC_DIGITS - remainder));
+        /* step2. get diff_scale by dscale and ascale */
+        diff_scale = numVar->dscale - (ascale - 1) * 4 - numVar->dscale % 4;
+    } else {
+        /* step2. get diff_scale by dscale and ascale */
+        diff_scale = numVar->dscale - ascale * 4;
+    }
+
+    /* step3. adjust result by diff_scale */
+    result *= getScaleMultiplier(diff_scale);
+
+    result = (NUMERIC_POS == numVar->sign) ? result : -result;
+}
+
 /*
  * vscale is from orc file, and dscale is from gaussdb
  */
@@ -18929,7 +19172,62 @@ Datum try_convert_numeric_normal_to_fast(Datum value, ScalarVector *arr)
     } else if (CAN_CONVERT_BI128(whole_scale)) {
         int128 result = 0;
         convert_short_numeric_to_int128_byscale(val, numVar.dscale, result);
-        return makeNumeric128(result, numVar.dscale);
+        return makeNumeric128(result, numVar.dscale, arr);
+    } else
+        return NumericGetDatum(val);
+}
+
+Datum try_direct_convert_numeric_normal_to_fast(Datum value, ScalarVector *arr)
+{
+    Numeric val;
+    struct varlena* attr = (struct varlena*)value;
+    union NumericChoice* choice;
+    NumericVar numVar;
+
+    if (u_sess->attr.attr_sql.enable_fast_numeric == false)
+        return NumericGetDatum(DatumGetNumeric(value));
+
+    if (VARATT_IS_EXTENDED(attr)) {
+        if (VARATT_IS_SHORT(attr) && !VARATT_IS_HUGE_TOAST_POINTER(attr)) {
+            choice = (union NumericChoice*)VARDATA_SHORT(attr);
+
+            if (NUMERIC_IS_NANORBI_CHOICE(choice))
+                return NumericGetDatum(DatumGetNumeric(value));
+
+            numVar.ndigits = ((VARSIZE_SHORT(attr) - NUMERIC_HEADER_SIZE_CHOICE_1B(choice)) / sizeof(NumericDigit));
+            numVar.weight = NUMERIC_WEIGHT_CHOICE(choice);
+            numVar.sign = NUMERIC_SIGN_CHOICE(choice);
+            numVar.dscale = NUMERIC_DSCALE_CHOICE(choice);
+            numVar.digits = NUMERIC_DIGITS_CHOICE(choice);
+        }
+        else {
+            val = DatumGetNumeric(value);
+
+            if (NUMERIC_IS_NANORBI(val))
+                return NumericGetDatum(val);
+
+            init_var_from_num(val, &numVar);
+        }
+    }
+    else {
+        val = (Numeric)value;
+
+        if (NUMERIC_IS_NANORBI(val))
+            return NumericGetDatum(val);
+
+        init_var_from_num(val, &numVar);
+    }
+
+    int whole_scale = get_whole_scale(numVar);
+
+    // should be ( whole_scale <= MAXINT64DIGIT)
+    if (CAN_CONVERT_BI64(whole_scale)) {
+        int64 result = convert_short_numeric_to_int64_byscale_fast(&numVar);
+        return makeNumeric64(result, numVar.dscale, arr);
+    } else if (CAN_CONVERT_BI128(whole_scale)) {
+        int128 result = 0;
+        convert_short_numeric_to_int128_byscale_fast(&numVar, result);
+        return makeNumeric128(result, numVar.dscale, arr);
     } else
         return NumericGetDatum(val);
 }

@@ -392,7 +392,9 @@ int32 _bt_compare(Relation rel, int keysz, ScanKey scankey, Page page, OffsetNum
     /*
      * Check tuple has correct number of attributes.
      */
-    Assert(_bt_check_natts(rel, page, offnum));
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_CHECKSUM_REMOVE)) {
+        Assert(_bt_check_natts(rel, page, offnum));
+    }
 
     /*
      * Force result ">" if target item is first data item on an internal page
@@ -424,9 +426,15 @@ int32 _bt_compare(Relation rel, int keysz, ScanKey scankey, Page page, OffsetNum
 
         if (likely((!(scankey->sk_flags & SK_ISNULL)) && !isNull)) {
             /* btint4cmp */
-            if (scankey->sk_func.fn_oid == BTINT4CMP_OID) {
+            if (scankey->sk_func.fn_oid == 351) {                   // F_BTINT4CMP
                 if ((int32)datum != (int32)scankey->sk_argument) {
                     result = ((int32)datum > (int32)scankey->sk_argument) ? 1 : -1;
+                } else {
+                    continue;
+                }
+            } else if (scankey->sk_func.fn_oid == 2189) {           // F_BTINT84CMP
+                if ((int64)datum != (int64)scankey->sk_argument) {
+                    result = ((int64)datum > (int64)scankey->sk_argument) ? 1 : -1;
                 } else {
                     continue;
                 }
@@ -957,11 +965,14 @@ bool _bt_first(IndexScanDesc scan, ScanDirection dir)
     if (scan->xs_want_itup) {
         scan->xs_itup = (IndexTuple)(so->currTuples + currItem->tupleOffset);
     }
-    if (scan->xs_want_ext_oid && GPIScanCheckPartOid(scan->xs_gpi_scan, currItem->partitionOid)) {
-        GPISetCurrPartOid(scan->xs_gpi_scan, currItem->partitionOid);
-    }
-    if (scan->xs_want_bucketid && cbi_scan_need_change_bucket(scan->xs_cbi_scan, currItem->bucketid)) {
-        cbi_set_bucketid(scan->xs_cbi_scan, currItem->bucketid);
+
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        if (scan->xs_want_ext_oid && GPIScanCheckPartOid(scan->xs_gpi_scan, currItem->partitionOid)) {
+            GPISetCurrPartOid(scan->xs_gpi_scan, currItem->partitionOid);
+        }
+        if (scan->xs_want_bucketid && cbi_scan_need_change_bucket(scan->xs_cbi_scan, currItem->bucketid)) {
+            cbi_set_bucketid(scan->xs_cbi_scan, currItem->bucketid);
+        }
     }
 
     return true;
@@ -1018,12 +1029,13 @@ bool _bt_next(IndexScanDesc scan, ScanDirection dir)
     if (scan->xs_want_itup)
         scan->xs_itup = (IndexTuple)(so->currTuples + currItem->tupleOffset);
 
-    if (scan->xs_want_ext_oid && GPIScanCheckPartOid(scan->xs_gpi_scan, currItem->partitionOid)) {
-        GPISetCurrPartOid(scan->xs_gpi_scan, currItem->partitionOid);
-    }
-
-    if (scan->xs_want_bucketid && cbi_scan_need_change_bucket(scan->xs_cbi_scan, currItem->bucketid)) {
-        cbi_set_bucketid(scan->xs_cbi_scan, currItem->bucketid);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        if (scan->xs_want_ext_oid && GPIScanCheckPartOid(scan->xs_gpi_scan, currItem->partitionOid)) {
+            GPISetCurrPartOid(scan->xs_gpi_scan, currItem->partitionOid);
+        }
+        if (scan->xs_want_bucketid && cbi_scan_need_change_bucket(scan->xs_cbi_scan, currItem->bucketid)) {
+            cbi_set_bucketid(scan->xs_cbi_scan, currItem->bucketid);
+        }
     }
 
     return true;
@@ -1056,8 +1068,12 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
     int indnatts;
 
     Oid partOid = InvalidOid;
-    Oid heapOid = IndexScanGetPartHeapOid(scan);
+    Oid heapOid = InvalidOid;
     int2 bucketid = InvalidBktId;
+
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        heapOid = IndexScanGetPartHeapOid(scan);
+    }
 
     /* we must have the buffer pinned and locked */
     Assert(BufferIsValid(so->currPos.buf));
@@ -1100,12 +1116,17 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
             itup = (IndexTuple) PageGetItem(page, iid);
 
             if (_bt_checkkeys(scan, itup, indnatts, dir, &continuescan)) {
-                /* Get partition oid for global partition index. */
-                partOid = scan->xs_want_ext_oid ? index_getattr_tableoid(scan->indexRelation, itup) : heapOid;
-                /* Get bucketid for crossbucket index. */
-                bucketid = scan->xs_want_bucketid ? index_getattr_bucketid(scan->indexRelation, itup) : InvalidBktId;
-                /* tuple passes all scan key conditions, so remember it */
-                _bt_saveitem(so, itemIndex, offnum, itup, partOid, bucketid);
+                if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+                    /* Get partition oid for global partition index. */
+                    partOid = scan->xs_want_ext_oid ? index_getattr_tableoid(scan->indexRelation, itup) : heapOid;
+                    /* Get bucketid for crossbucket index. */
+                    bucketid = scan->xs_want_bucketid ? index_getattr_bucketid(scan->indexRelation, itup) : InvalidBktId;
+                    /* tuple passes all scan key conditions, so remember it */
+                    _bt_saveitem(so, itemIndex, offnum, itup, partOid, bucketid);
+                }
+                else {
+                    _bt_saveitem(so, itemIndex, offnum, itup, InvalidOid, InvalidBktId);
+                }
                 itemIndex++;
             }
             /* When !continuescan, there can't be any more matches, so stop */
@@ -1182,11 +1203,17 @@ static bool _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber off
             passes_quals = _bt_checkkeys(scan, itup, indnatts, dir,
                                         &continuescan);
             if (passes_quals && tuple_alive) {
-                partOid = scan->xs_want_ext_oid ? index_getattr_tableoid(scan->indexRelation, itup) : heapOid;
-                bucketid = scan->xs_want_bucketid ? index_getattr_bucketid(scan->indexRelation, itup) : InvalidBktId;
-                /* tuple passes all scan key conditions, so remember it */
-                itemIndex--;
-                _bt_saveitem(so, itemIndex, offnum, itup, partOid, bucketid);
+                if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+                    partOid = scan->xs_want_ext_oid ? index_getattr_tableoid(scan->indexRelation, itup) : heapOid;
+                    bucketid = scan->xs_want_bucketid ? index_getattr_bucketid(scan->indexRelation, itup) : InvalidBktId;
+                    /* tuple passes all scan key conditions, so remember it */
+                    itemIndex--;
+                    _bt_saveitem(so, itemIndex, offnum, itup, partOid, bucketid);
+                } else {
+                    /* tuple passes all scan key conditions, so remember it */
+                    itemIndex--;
+                    _bt_saveitem(so, itemIndex, offnum, itup, InvalidOid, InvalidBktId);
+                }
             }
             if (!continuescan) {
                 /* there can't be any more matches, so stop */
@@ -1626,12 +1653,13 @@ static bool _bt_endpoint(IndexScanDesc scan, ScanDirection dir)
     if (scan->xs_want_itup)
         scan->xs_itup = (IndexTuple)(so->currTuples + currItem->tupleOffset);
 
-    if (scan->xs_want_ext_oid && GPIScanCheckPartOid(scan->xs_gpi_scan, currItem->partitionOid)) {
-        GPISetCurrPartOid(scan->xs_gpi_scan, currItem->partitionOid);
-    }
-
-    if (scan->xs_want_bucketid && cbi_scan_need_change_bucket(scan->xs_cbi_scan, currItem->bucketid)) {
-        cbi_set_bucketid(scan->xs_cbi_scan, currItem->bucketid);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        if (scan->xs_want_ext_oid && GPIScanCheckPartOid(scan->xs_gpi_scan, currItem->partitionOid)) {
+            GPISetCurrPartOid(scan->xs_gpi_scan, currItem->partitionOid);
+        }
+        if (scan->xs_want_bucketid && cbi_scan_need_change_bucket(scan->xs_cbi_scan, currItem->bucketid)) {
+            cbi_set_bucketid(scan->xs_cbi_scan, currItem->bucketid);
+        }
     }
 
     return true;

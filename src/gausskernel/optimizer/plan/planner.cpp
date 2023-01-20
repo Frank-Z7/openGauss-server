@@ -587,7 +587,10 @@ PlannedStmt* standard_planner(Query* parse, int cursorOptions, ParamListInfo bou
         glob->vectorized = false;
     /* Assume work mem is at least 1/4 of query mem */
     glob->minopmem = Min(available_mem / 4, OPT_MAX_OP_MEM);
-    parse_hint_warning = retrieve_query_hint_warning((Node*)parse);
+
+    if (u_sess->parser_cxt.has_hintwarning) {
+        parse_hint_warning = retrieve_query_hint_warning((Node*)parse);
+    }
 
     /*
      * Set up default exec_nodes, we fist build re-cursively iterate parse->rtable
@@ -3281,7 +3284,10 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                  *
                  * We don't want any excess columns for hashagg, since we support hashagg write-out-to-disk now
                  */
-                if (use_hashed_grouping)
+                if (use_hashed_grouping || 
+                    (u_sess->attr.attr_sql.enable_vector_engine && 
+                     u_sess->attr.attr_sql.vectorEngineStrategy != OFF_VECTOR_ENGINE && 
+                     u_sess->attr.attr_sql.enable_vector_targetlist))
                     disuse_physical_tlist(result_plan, best_path);
 
                 locate_grouping_columns(root, tlist, result_plan->targetlist, groupColIdx);

@@ -384,6 +384,11 @@ void heapgetpage(TableScanDesc sscan, BlockNumber page)
             HeapTupleData loctup;
             bool valid = false;
 
+            if (likely(all_visible && (!IsSerializableXact()))) {
+                scan->rs_base.rs_vistuples[ntup++] = line_off;
+                continue;
+            }
+
             loctup.t_tableOid = RelationGetRelid(scan->rs_base.rs_rd);
             loctup.t_bucketId = RelationGetBktid(scan->rs_base.rs_rd);
             loctup.t_data = (HeapTupleHeader)PageGetItem((Page)dp, lpp);
@@ -2413,7 +2418,8 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
     bool at_chain_start = false;
     bool valid = false;
     bool skip = false;
-    TransactionId oldestXmin;
+    TransactionId oldestXmin = InvalidOid;
+    bool needOldestXmin = true;
 
     /* If this is not the first call, previous call returned a (live!) tuple */
     if (all_dead != NULL) {
@@ -2426,8 +2432,6 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
     skip = !first_call;
 
     Assert(TransactionIdIsValid(u_sess->utils_cxt.RecentGlobalXmin));
-    oldestXmin = GetOldestXminForHot(relation);
-
     Assert(BufferGetBlockNumber(buffer) == blkno);
     HeapTupleCopyBaseFromPage(heap_tuple, dp);
 
@@ -2540,8 +2544,14 @@ bool heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer, S
          * request, check whether all chain members are dead to all
          * transactions.
          */
-        if (all_dead && *all_dead && !HeapTupleIsSurelyDead(heap_tuple, oldestXmin)) {
-            *all_dead = false;
+        if (all_dead && *all_dead) {
+            if (needOldestXmin) {
+                oldestXmin = GetOldestXminForHot(relation);
+                needOldestXmin = false;
+            }
+            if (!HeapTupleIsSurelyDead(heap_tuple, oldestXmin)) {
+                *all_dead = false;
+            }
         }
 
         /*
@@ -4510,7 +4520,7 @@ TM_Result heap_delete(Relation relation, ItemPointer tid, CommandId cid,
     HeapTupleCopyBaseFromPage(&tp, page);
     tmfd->xmin = HeapTupleHeaderGetXmin(page, tp.t_data);
 
-    if (RELATION_HAS_UIDS(relation) && HeapTupleHeaderHasUid(tp.t_data)) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING) && RELATION_HAS_UIDS(relation) && HeapTupleHeaderHasUid(tp.t_data)) {
         uint64 tupleUid = HeapTupleGetUid(&tp);
         LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
         LockTupleUid(relation, tupleUid, ExclusiveLock,
@@ -4686,7 +4696,9 @@ l1:
      * Compute replica identity tuple before entering the critical section so
      * we don't PANIC upon a memory allocation failure.
      */
-    old_key_tuple = ExtractReplicaIdentity(relation, &tp, true, &old_key_copied, &identity);
+    if (XLogLogicalInfoActive()) {
+        old_key_tuple = ExtractReplicaIdentity(relation, &tp, true, &old_key_copied, &identity);
+    }
 
     /*
      * If this is the first possibly-multixact-able operation in the

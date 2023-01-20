@@ -647,17 +647,19 @@ TM_Result HeapTupleSatisfiesUpdate(HeapTuple htup, CommandId curcid, Buffer buff
     Page page = BufferGetPage(buffer);
 
     /* do not need sync, because snapshot is not used */
-    ereport(DEBUG1,
-        (errmsg("HeapTupleSatisfiesUpdate self(%u,%u) ctid(%u,%u) cur_xid " XID_FMT " xmin"
-                XID_FMT " xmax " XID_FMT " infomask %u",
-            ItemPointerGetBlockNumber(&htup->t_self),
-            ItemPointerGetOffsetNumber(&htup->t_self),
-            ItemPointerGetBlockNumber(&tuple->t_ctid),
-            ItemPointerGetOffsetNumber(&tuple->t_ctid),
-            GetCurrentTransactionIdIfAny(),
-            HeapTupleHeaderGetXmin(page, tuple),
-            HeapTupleHeaderGetXmax(page, tuple),
-            tuple->t_infomask)));
+    if (SHOW_DEBUG_MESSAGE()) {
+        ereport(DEBUG1,
+            (errmsg("HeapTupleSatisfiesUpdate self(%u,%u) ctid(%u,%u) cur_xid " XID_FMT " xmin"
+                    XID_FMT " xmax " XID_FMT " infomask %u",
+                ItemPointerGetBlockNumber(&htup->t_self),
+                ItemPointerGetOffsetNumber(&htup->t_self),
+                ItemPointerGetBlockNumber(&tuple->t_ctid),
+                ItemPointerGetOffsetNumber(&tuple->t_ctid),
+                GetCurrentTransactionIdIfAny(),
+                HeapTupleHeaderGetXmin(page, tuple),
+                HeapTupleHeaderGetXmax(page, tuple),
+                tuple->t_infomask)));
+    }
 
 restart:
     if (!HeapTupleHeaderXminCommitted(tuple)) {
@@ -1019,24 +1021,26 @@ static bool HeapTupleSatisfiesMVCC(HeapTuple htup, Snapshot snapshot, Buffer buf
     TransactionIdStatus hintstatus;
     Page page = BufferGetPage(buffer);
 
-    ereport(DEBUG1,
-        (errmsg("HeapTupleSatisfiesMVCC self(%d,%d) ctid(%d,%d) cur_xid %ld xmin %ld"
-                " xmax %ld csn %lu",
-            ItemPointerGetBlockNumber(&htup->t_self),
-            ItemPointerGetOffsetNumber(&htup->t_self),
-            ItemPointerGetBlockNumber(&tuple->t_ctid),
-            ItemPointerGetOffsetNumber(&tuple->t_ctid),
-            GetCurrentTransactionIdIfAny(),
-            HeapTupleHeaderGetXmin(page, tuple),
-            HeapTupleHeaderGetXmax(page, tuple),
-            snapshot->snapshotcsn)));
+    if (SHOW_DEBUG_MESSAGE()) {
+        ereport(DEBUG1,
+            (errmsg("HeapTupleSatisfiesMVCC self(%d,%d) ctid(%d,%d) cur_xid %ld xmin %ld"
+                    " xmax %ld csn %lu",
+                ItemPointerGetBlockNumber(&htup->t_self),
+                ItemPointerGetOffsetNumber(&htup->t_self),
+                ItemPointerGetBlockNumber(&tuple->t_ctid),
+                ItemPointerGetOffsetNumber(&tuple->t_ctid),
+                GetCurrentTransactionIdIfAny(),
+                HeapTupleHeaderGetXmin(page, tuple),
+                HeapTupleHeaderGetXmax(page, tuple),
+                snapshot->snapshotcsn)));
+    }
 
     /*
      * Just valid for read-only transaction when u_sess->attr.attr_common.XactReadOnly is true.
      * Show any tuples including dirty ones when u_sess->attr.attr_storage.enable_show_any_tuples is true.
      * GUC param u_sess->attr.attr_storage.enable_show_any_tuples is just for analyse or maintenance
      */
-    if (u_sess->attr.attr_common.XactReadOnly && u_sess->attr.attr_storage.enable_show_any_tuples)
+    if (u_sess->attr.attr_storage.enable_show_any_tuples && u_sess->attr.attr_common.XactReadOnly)
         return true;
 
     if (!HeapTupleHeaderXminCommitted(tuple)) {
@@ -1847,7 +1851,7 @@ static bool HeapTupleSatisfiesDecodeMVCC(HeapTuple htup, Snapshot snapshot, Buff
      * Show any tuples including dirty ones when u_sess->attr.attr_storage.enable_show_any_tuples is true.
      * GUC param u_sess->attr.attr_storage.enable_show_any_tuples is just for analyse or maintenance
      */
-    if (u_sess->attr.attr_common.XactReadOnly && u_sess->attr.attr_storage.enable_show_any_tuples)
+    if (u_sess->attr.attr_storage.enable_show_any_tuples && u_sess->attr.attr_common.XactReadOnly)
         return true;
 
     bool getVisibility = false;

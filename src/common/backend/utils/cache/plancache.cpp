@@ -1850,9 +1850,13 @@ CachedPlan* GetCachedPlan(CachedPlanSource* plansource, ParamListInfo boundParam
             plansource->num_custom_plans++;
         }
 
-        ereport(DEBUG2, (errmodule(MOD_OPT), errmsg("Custom plan is used for \"%s\"", plansource->query_string)));
+        if (SHOW_DEBUG_MESSAGE()) {
+            ereport(DEBUG2, (errmodule(MOD_OPT), errmsg("Custom plan is used for \"%s\"", plansource->query_string)));
+        }
     } else {
-        ereport(DEBUG2, (errmodule(MOD_OPT), errmsg("Generic plan is used for \"%s\"", plansource->query_string)));
+        if (SHOW_DEBUG_MESSAGE()) {
+            ereport(DEBUG2, (errmodule(MOD_OPT), errmsg("Generic plan is used for \"%s\"", plansource->query_string)));
+        }
     }
 
     /*
@@ -1892,14 +1896,16 @@ CachedPlan* GetCachedPlan(CachedPlanSource* plansource, ParamListInfo boundParam
     plan->mot_jit_context = plansource->mot_jit_context;
 #endif
 
-    ListCell *lc;
-    foreach (lc, plan->stmt_list) {
-        PlannedStmt* plannedstmt = (PlannedStmt*)lfirst(lc);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_PENDING)) {
+        ListCell *lc;
+        foreach (lc, plan->stmt_list) {
+            PlannedStmt* plannedstmt = (PlannedStmt*)lfirst(lc);
 
-        if (!IsA(plannedstmt, PlannedStmt))
-            continue; /* Ignore utility statements */
+            if (!IsA(plannedstmt, PlannedStmt))
+                continue; /* Ignore utility statements */
 
-        check_gtm_free_plan(plannedstmt, u_sess->attr.attr_sql.explain_allow_multinode ? WARNING : ERROR);
+            check_gtm_free_plan(plannedstmt, u_sess->attr.attr_sql.explain_allow_multinode ? WARNING : ERROR);
+        }
     }
 
     return plan;

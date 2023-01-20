@@ -165,7 +165,7 @@ static void assign_convert_string_to_digit(bool newval, void* extra);
 static void AssignUStoreAttr(const char* newval, void* extra);
 static bool check_snapshot_delimiter(char** newval, void** extra, GucSource source);
 static bool check_snapshot_separator(char** newval, void** extra, GucSource source);
-
+static void strategy_assign_vector_targetlist(int newval, void* extra);
 
 static void InitSqlConfigureNamesBool();
 static void InitSqlConfigureNamesInt();
@@ -292,6 +292,23 @@ static const struct config_enum_entry sql_beta_options[] = {
     {"predpush_same_level", PREDPUSH_SAME_LEVEL, false},
     {"partition_fdw_on", PARTITION_FDW_ON, false},
     {"sublink_pullup_enhanced", SUBLINK_PULLUP_ENHANCED},
+    {NULL, 0, false}
+};
+
+static const struct config_enum_entry sql_fusion_engine_options[] = {
+    {"none", NO_SQL_FUSION_FEATURE, false},
+    {"iud_checksum_remove", IUD_CHECKSUM_REMOVE, false},
+    {"iud_node_context_remove", IUD_NODE_CONTEXT_REMOVE, false},
+    {"iud_is_system_class_remove_package", IUD_IS_SYSTEM_CLASS_REMOVE_PACKAGE, false},
+    {"iud_errorrel_remove", IUD_ERRORREL_REMOVE, false},
+    {"iud_block_chain_remove", IUD_BLOCK_CHAIN_REMOVE, false},
+    {"iud_trigger_remove", IUD_TRIGGER_REMOVE, false},
+    {"iud_memory_context_track_remove", IUD_MEMORY_CONTEXT_TRACK_REMOVE, false},
+    {"iud_instr_time_remove", IUD_INSTR_TIME_REMOVE, false},
+    {"iud_markdrop_remove", IUD_MARKDROP_REMOVE, false},
+    {"iud_code_optimize", IUD_CODE_OPTIMIZE, false},
+    {"iud_report_remove", IUD_REPORT_REMOVE, false},
+    {"iud_pending", IUD_PENDING, false},
     {NULL, 0, false}
 };
 
@@ -1301,6 +1318,17 @@ static void InitSqlConfigureNamesBool()
             NULL,
             NULL,
             NULL},
+        {{"enable_indexscan_optimization",
+            PGC_USERSET,
+            NODE_ALL,
+            UNGROUPED,
+            gettext_noop("Enables indexscan optimization."),
+            NULL},
+            &u_sess->attr.attr_common.enable_indexscan_optimization,
+            false,
+            NULL,
+            NULL,
+            NULL},
 
 #ifndef ENABLE_MULTIPLE_NODES
         {{"enable_beta_opfusion",
@@ -1588,6 +1616,18 @@ static void InitSqlConfigureNamesBool()
             NULL,
             NULL},
 #endif
+        {{"enable_vector_targetlist",
+            PGC_USERSET,
+            NODE_ALL,
+            QUERY_TUNING_OTHER,
+            gettext_noop("enable vector targetlist for row to vector."),
+            NULL},
+            &u_sess->attr.attr_sql.enable_vector_targetlist, 
+            false,
+            NULL,
+            NULL,
+            NULL
+        },
         /* End-of-list marker */
         {{NULL,
             (GucContext)0,
@@ -2549,7 +2589,6 @@ static void InitSqlConfigureNamesReal()
             NULL,
             NULL,
             NULL},
-
         /* End-of-list marker */
         {{NULL,
             (GucContext)0,
@@ -2909,6 +2948,17 @@ static void InitSqlConfigureNamesEnum()
             NULL,
             NULL,
             NULL},
+        {{"sql_fusion_engine",
+            PGC_USERSET,
+            NODE_SINGLENODE,
+            QUERY_TUNING,
+            gettext_noop("Sets the beta feature for SQL fusion engine."), NULL, GUC_LIST_INPUT},
+            &u_sess->attr.attr_sql.sql_fusion_engine,
+            NO_SQL_FUSION_FEATURE,
+            sql_fusion_engine_options,
+            NULL,
+            NULL,
+            NULL},
         {{"try_vector_engine_strategy",
             PGC_USERSET,
             NODE_ALL,
@@ -2919,7 +2969,7 @@ static void InitSqlConfigureNamesEnum()
             OFF_VECTOR_ENGINE,
             vector_engine_strategy,
             NULL,
-            NULL,
+            strategy_assign_vector_targetlist,
             NULL},
 
         /* End-of-list marker */
@@ -3423,4 +3473,15 @@ static bool check_snapshot_separator(char** newval, void** extra, GucSource sour
 {
     return (strlen(*newval) == 1 && (!u_sess->attr.attr_sql.db4ai_snapshot_version_delimiter
                                      || **newval != *u_sess->attr.attr_sql.db4ai_snapshot_version_delimiter));
+}
+
+static void strategy_assign_vector_targetlist(int newval, void* extra)
+{
+    if (newval == FORCE_VECTOR_ENGINE || newval == OPT_VECTOR_ENGINE)
+        u_sess->attr.attr_sql.enable_vector_targetlist = true;
+    else {
+        u_sess->attr.attr_sql.enable_vector_targetlist = false;
+    }
+
+    return;
 }

@@ -100,7 +100,7 @@ elseif($ENV{DEBUG_TYPE} STREQUAL "release")
     #close something for release version.
     set(ENABLE_LLT OFF)
     set(ENABLE_UT OFF)
-    set(OPTIMIZE_LEVEL -O2 -g3)
+    set(OPTIMIZE_LEVEL -O2)
 elseif($ENV{DEBUG_TYPE} STREQUAL "memcheck")
     message("DEBUG_TYPE:$ENV{DEBUG_TYPE}")
     set(ENABLE_MEMORY_CHECK ON)
@@ -134,9 +134,9 @@ endif()
 
 set(PROTECT_OPTIONS -fwrapv -std=c++14 -fnon-call-exceptions ${OPTIMIZE_LEVEL})
 set(WARNING_OPTIONS -Wall -Wendif-labels -Werror -Wformat-security)
-set(OPTIMIZE_OPTIONS -pipe -pthread -fno-aggressive-loop-optimizations -fno-expensive-optimizations -fno-omit-frame-pointer -fno-strict-aliasing -freg-struct-return)
+set(OPTIMIZE_OPTIONS -pipe -pthread -fno-aggressive-loop-optimizations -fno-strict-aliasing -freg-struct-return)
 set(CHECK_OPTIONS -Wmissing-format-attribute -Wno-attributes -Wno-unused-but-set-variable -Wno-write-strings -Wpointer-arith)
-set(MACRO_OPTIONS -D_GLIBCXX_USE_CXX11_ABI=0 -DENABLE_GSTRACE -D_GNU_SOURCE -DPGXC -D_POSIX_PTHREAD_SEMANTICS -D_REENTRANT -DSTREAMPLAN -D_THREAD_SAFE ${DB_COMMON_DEFINE})
+set(MACRO_OPTIONS -D_GLIBCXX_USE_CXX11_ABI=0 -D_GNU_SOURCE -DPGXC -D_POSIX_PTHREAD_SEMANTICS -DSTREAMPLAN ${DB_COMMON_DEFINE})
 
 # libraries need secure options during compling
 set(LIB_SECURE_OPTIONS -fPIC -fno-common -fstack-protector)

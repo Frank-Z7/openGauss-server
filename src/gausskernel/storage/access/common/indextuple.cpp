@@ -311,9 +311,9 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
          * cached offsets for these attrs.
          */
         if (IndexTupleHasVarwidths(tup)) {
-            uint32 j;
+            int j;
 
-            for (j = 0; j <= attnum; j++) {
+            for (j = 0; j <= (int)attnum; j++) {
                 if (TupleDescAttr(tuple_desc, j)->attlen <= 0) {
                     slow = true;
                     break;
@@ -323,8 +323,8 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
     }
 
     if (!slow) {
-        uint32 natts = tuple_desc->natts;
-        uint32 j = 1;
+        int natts = tuple_desc->natts;
+        int j = 1;
 
         /*
          * If we get here, we have a tuple with no nulls or var-widths up to
@@ -350,19 +350,19 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
             if (attr->attlen <= 0)
                 break;
 
-            off = att_align_nominal((uint32)off, attr->attalign);
+            off = att_align_nominal(off, attr->attalign);
 
             attr->attcacheoff = off;
 
             off += attr->attlen;
         }
 
-        Assert(j > attnum);
+        Assert(j > (int)attnum);
 
         off = TupleDescAttr(tuple_desc, attnum)->attcacheoff;
     } else {
         bool usecache = true;
-        uint32 i;
+        int i;
 
         /*
          * Now we know that we have to walk the tuple CAREFULLY.  But we still
@@ -393,21 +393,21 @@ Datum nocache_index_getattr(IndexTuple tup, uint32 attnum, TupleDesc tuple_desc)
                  * no pad bytes in any case: then the offset will be valid for
                  * either an aligned or unaligned value.
                  */
-                if (usecache && (uintptr_t)(off) == att_align_nominal((uint32)off, att->attalign))
+                if (usecache && (uintptr_t)(off) == att_align_nominal(off, att->attalign))
                     att->attcacheoff = off;
                 else {
-                    off = att_align_pointer((uint32)off, att->attalign, -1, tp + off);
+                    off = att_align_pointer(off, att->attalign, -1, tp + off);
                     usecache = false;
                 }
             } else {
                 /* not varlena, so safe to use att_align_nominal */
-                off = att_align_nominal((uint32)off, att->attalign);
+                off = att_align_nominal(off, att->attalign);
 
                 if (usecache)
                     att->attcacheoff = off;
             }
 
-            if (i == attnum)
+            if (i == (int)attnum)
                 break;
 
             off = att_addlength_pointer(off, att->attlen, tp + off);

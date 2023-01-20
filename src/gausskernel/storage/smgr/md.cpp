@@ -1839,7 +1839,9 @@ SMGR_READ_STATUS mdread(SMgrRelation reln, ForkNumber forknum, BlockNumber block
         }
     }
 
-    (void)INSTR_TIME_SET_CURRENT(startTime);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        (void)INSTR_TIME_SET_CURRENT(startTime);
+    }
 
     TRACE_POSTGRESQL_SMGR_MD_READ_START(forknum, blocknum, reln->smgr_rnode.node.spcNode, reln->smgr_rnode.node.dbNode,
                                         reln->smgr_rnode.node.relNode, reln->smgr_rnode.backend);
@@ -1856,53 +1858,55 @@ SMGR_READ_STATUS mdread(SMgrRelation reln, ForkNumber forknum, BlockNumber block
     TRACE_POSTGRESQL_SMGR_MD_READ_DONE(forknum, blocknum, reln->smgr_rnode.node.spcNode, reln->smgr_rnode.node.dbNode,
                                        reln->smgr_rnode.node.relNode, reln->smgr_rnode.backend, nbytes, BLCKSZ);
 
-    (void)INSTR_TIME_SET_CURRENT(endTime);
-    INSTR_TIME_SUBTRACT(endTime, startTime);
-    timeDiff = INSTR_TIME_GET_MICROSEC(endTime);
-    if (msgCount == 0) {
-        lstFile = reln->smgr_rnode.node.relNode;
-        lstDb = reln->smgr_rnode.node.dbNode;
-        lstSpc = reln->smgr_rnode.node.spcNode;
-        CONTINUOUS_ASSIGN_2(msgCount, sumPage, 1);
-        CONTINUOUS_ASSIGN_3(sumTime, minTime, maxTime, timeDiff);
-    } else if (msgCount % STAT_MSG_BATCH == 0 || lstFile != reln->smgr_rnode.node.relNode) {
-        PgStat_MsgFile msg;
-        errno_t rc;
-
-        msg.dbid = lstDb;
-        msg.spcid = lstSpc;
-        msg.fn = lstFile;
-        msg.rw = 'r';
-        msg.cnt = msgCount;
-        msg.blks = sumPage;
-        msg.tim = sumTime;
-        msg.lsttim = lstTime;
-        msg.mintim = minTime;
-        msg.maxtim = maxTime;
-        reportFileStat(&msg);
-
-        rc = memset_s(&msg, sizeof(PgStat_MsgFile), 0, sizeof(PgStat_MsgFile));
-        securec_check(rc, "", "");
-
-        CONTINUOUS_ASSIGN_2(msgCount, sumPage, 1);
-        sumTime = timeDiff;
-        if (lstFile != reln->smgr_rnode.node.relNode) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        (void)INSTR_TIME_SET_CURRENT(endTime);
+        INSTR_TIME_SUBTRACT(endTime, startTime);
+        timeDiff = INSTR_TIME_GET_MICROSEC(endTime);
+        if (msgCount == 0) {
             lstFile = reln->smgr_rnode.node.relNode;
             lstDb = reln->smgr_rnode.node.dbNode;
             lstSpc = reln->smgr_rnode.node.spcNode;
+            CONTINUOUS_ASSIGN_2(msgCount, sumPage, 1);
             CONTINUOUS_ASSIGN_3(sumTime, minTime, maxTime, timeDiff);
+        } else if (msgCount % STAT_MSG_BATCH == 0 || lstFile != reln->smgr_rnode.node.relNode) {
+            PgStat_MsgFile msg;
+            errno_t rc;
+
+            msg.dbid = lstDb;
+            msg.spcid = lstSpc;
+            msg.fn = lstFile;
+            msg.rw = 'r';
+            msg.cnt = msgCount;
+            msg.blks = sumPage;
+            msg.tim = sumTime;
+            msg.lsttim = lstTime;
+            msg.mintim = minTime;
+            msg.maxtim = maxTime;
+            reportFileStat(&msg);
+
+            rc = memset_s(&msg, sizeof(PgStat_MsgFile), 0, sizeof(PgStat_MsgFile));
+            securec_check(rc, "", "");
+
+            CONTINUOUS_ASSIGN_2(msgCount, sumPage, 1);
+            sumTime = timeDiff;
+            if (lstFile != reln->smgr_rnode.node.relNode) {
+                lstFile = reln->smgr_rnode.node.relNode;
+                lstDb = reln->smgr_rnode.node.dbNode;
+                lstSpc = reln->smgr_rnode.node.spcNode;
+                CONTINUOUS_ASSIGN_3(sumTime, minTime, maxTime, timeDiff);
+            }
+        } else {
+            msgCount++;
+            sumPage++;
+            sumTime += timeDiff;
         }
-    } else {
-        msgCount++;
-        sumPage++;
-        sumTime += timeDiff;
-    }
-    lstTime = timeDiff;
-    if (minTime > timeDiff) {
-        minTime = timeDiff;
-    }
-    if (maxTime < timeDiff) {
-        maxTime = timeDiff;
+        lstTime = timeDiff;
+        if (minTime > timeDiff) {
+            minTime = timeDiff;
+        }
+        if (maxTime < timeDiff) {
+            maxTime = timeDiff;
+        }
     }
 
     if (nbytes != BLCKSZ) {
@@ -2093,7 +2097,9 @@ void mdwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, const 
     static THR_LOCAL Oid lst_db = InvalidOid;
     static THR_LOCAL Oid lst_spc = InvalidOid;
 
-    (void)INSTR_TIME_SET_CURRENT(start_time);
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        (void)INSTR_TIME_SET_CURRENT(start_time);
+    }
 
     /* This assert is too expensive to have on normally ... */
 #ifdef CHECK_WRITE_VS_EXTEND
@@ -2124,51 +2130,53 @@ void mdwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, const 
                                             reln->smgr_rnode.node.dbNode, reln->smgr_rnode.node.relNode,
                                             reln->smgr_rnode.backend, nbytes, BLCKSZ);
     }
-    (void)INSTR_TIME_SET_CURRENT(end_time);
-    INSTR_TIME_SUBTRACT(end_time, start_time);
-    time_diff = (PgStat_Counter)INSTR_TIME_GET_MICROSEC(end_time);
-    if (msg_count == 0) {
-        lst_file = reln->smgr_rnode.node.relNode;
-        lst_db = reln->smgr_rnode.node.dbNode;
-        lst_spc = reln->smgr_rnode.node.spcNode;
-        CONTINUOUS_ASSIGN_2(msg_count, sum_page, 1);
-        CONTINUOUS_ASSIGN_3(sum_time, min_time, max_time, time_diff);
-    } else if (lst_file != reln->smgr_rnode.node.relNode || msg_count % STAT_MSG_BATCH) {
-        PgStat_MsgFile msg;
-        errno_t rc = memset_s(&msg, sizeof(msg), 0, sizeof(msg));
-        securec_check(rc, "", "");
-
-        msg.dbid = lst_db;
-        msg.spcid = lst_spc;
-        msg.fn = lst_file;
-        msg.rw = 'w';
-        msg.cnt = msg_count;
-        msg.blks = sum_page;
-        msg.tim = sum_time;
-        msg.lsttim = lst_time;
-        msg.mintim = min_time;
-        msg.maxtim = max_time;
-        reportFileStat(&msg);
-
-        CONTINUOUS_ASSIGN_2(msg_count, sum_page, 1);
-        sum_time = time_diff;
-        if (lst_file != reln->smgr_rnode.node.relNode) {
+    if (!ENABLE_SQL_FUSION_ENGINE(IUD_INSTR_TIME_REMOVE)) {
+        (void)INSTR_TIME_SET_CURRENT(end_time);
+        INSTR_TIME_SUBTRACT(end_time, start_time);
+        time_diff = (PgStat_Counter)INSTR_TIME_GET_MICROSEC(end_time);
+        if (msg_count == 0) {
             lst_file = reln->smgr_rnode.node.relNode;
             lst_db = reln->smgr_rnode.node.dbNode;
             lst_spc = reln->smgr_rnode.node.spcNode;
+            CONTINUOUS_ASSIGN_2(msg_count, sum_page, 1);
             CONTINUOUS_ASSIGN_3(sum_time, min_time, max_time, time_diff);
+        } else if (lst_file != reln->smgr_rnode.node.relNode || msg_count % STAT_MSG_BATCH) {
+            PgStat_MsgFile msg;
+            errno_t rc = memset_s(&msg, sizeof(msg), 0, sizeof(msg));
+            securec_check(rc, "", "");
+
+            msg.dbid = lst_db;
+            msg.spcid = lst_spc;
+            msg.fn = lst_file;
+            msg.rw = 'w';
+            msg.cnt = msg_count;
+            msg.blks = sum_page;
+            msg.tim = sum_time;
+            msg.lsttim = lst_time;
+            msg.mintim = min_time;
+            msg.maxtim = max_time;
+            reportFileStat(&msg);
+
+            CONTINUOUS_ASSIGN_2(msg_count, sum_page, 1);
+            sum_time = time_diff;
+            if (lst_file != reln->smgr_rnode.node.relNode) {
+                lst_file = reln->smgr_rnode.node.relNode;
+                lst_db = reln->smgr_rnode.node.dbNode;
+                lst_spc = reln->smgr_rnode.node.spcNode;
+                CONTINUOUS_ASSIGN_3(sum_time, min_time, max_time, time_diff);
+            }
+        } else {
+            msg_count++;
+            sum_page++;
+            sum_time += time_diff;
         }
-    } else {
-        msg_count++;
-        sum_page++;
-        sum_time += time_diff;
-    }
-    lst_time = time_diff;
-    if (min_time > time_diff) {
-        min_time = time_diff;
-    }
-    if (max_time < time_diff) {
-        max_time = time_diff;
+        lst_time = time_diff;
+        if (min_time > time_diff) {
+            min_time = time_diff;
+        }
+        if (max_time < time_diff) {
+            max_time = time_diff;
+        }
     }
     if (compressed) {
         return;

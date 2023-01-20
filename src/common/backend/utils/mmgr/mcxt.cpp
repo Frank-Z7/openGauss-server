@@ -220,7 +220,9 @@ void MemoryContextReset(MemoryContext context)
         return opt_MemoryContextReset(context);
     }
 
+#ifdef MEMORY_CONTEXT_CHECKING
     PreventActionOnSealedContext(context);
+#endif
 
     if (MemoryContextIsShared(context))
         MemoryContextLock(context);
@@ -1014,7 +1016,7 @@ void* MemoryAllocFromContext(MemoryContext context, Size size, const char* file,
     context->isReset = false;
 
     ret = (*context->methods->alloc)(context, 0, size, file, line);
-    if (ret == NULL)
+    if (unlikely(ret == NULL))
         ereport(ERROR,
             (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
                 errmsg("memory is temporarily unavailable"),
@@ -1080,7 +1082,7 @@ void* MemoryContextAllocZeroDebug(MemoryContext context, Size size, const char* 
     context->isReset = false;
 
     ret = (*context->methods->alloc)(context, 0, size, file, line);
-    if (ret == NULL)
+    if (unlikely(ret == NULL))
         ereport(ERROR,
             (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
                 errmsg("memory is temporarily unavailable"),
@@ -1122,8 +1124,9 @@ void* MemoryContextAllocZeroAlignedDebug(MemoryContext context, Size size, const
     }
 
     AssertArg(MemoryContextIsValid(context));
-
+#ifdef MEMORY_CONTEXT_CHECKING
     PreventActionOnSealedContext(context);
+#endif
 
     if (!AllocSizeIsValid(size)) {
         ereport(ERROR,
@@ -1134,7 +1137,7 @@ void* MemoryContextAllocZeroAlignedDebug(MemoryContext context, Size size, const
     context->isReset = false;
 
     ret = (*context->methods->alloc)(context, 0, size, file, line);
-    if (ret == NULL)
+    if (unlikely(ret == NULL))
         ereport(ERROR,
             (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
                 errmsg("memory is temporarily unavailable"),
@@ -1153,6 +1156,7 @@ void* MemoryContextAllocZeroAlignedDebug(MemoryContext context, Size size, const
     if (unlikely(STATEMENT_MAX_MEM)) {
         MemoryContextCheckSessionMemory(context, size, file, line);
     }
+
     MemSetLoop(ret, 0, size);
 
     InsertMemoryAllocInfo(ret, context, file, line, size);
@@ -1181,7 +1185,7 @@ void* palloc_extended(Size size, int flags)
     CurrentMemoryContext->isReset = false;
 
     ret = (*CurrentMemoryContext->methods->alloc)(CurrentMemoryContext, 0, size, __FILE__, __LINE__);
-    if (ret == NULL) {
+    if (unlikely(ret == NULL)) {
         /*
          * If flag has not MCXT_ALLOC_NO_OOM, we must ereport ERROR here
          */
@@ -1295,9 +1299,10 @@ void* repalloc_noexcept_Debug(void* pointer, Size size, const char* file, int li
 
     ret = (*context->methods->realloc)(context, pointer, 0, size, file, line);
 
-    if (ret == NULL) {
+    if (unlikely(ret == NULL)) {
         return NULL;
     }
+
     /* check if the session used memory is beyond the limitation */
     if (unlikely(STATEMENT_MAX_MEM)) {
         MemoryContextCheckSessionMemory(context, size, file, line);
@@ -1345,14 +1350,16 @@ void* repallocDebug(void* pointer, Size size, const char* file, int line)
     Assert(pointer == (void*)MAXALIGN(pointer));
 
     AssertArg(MemoryContextIsValid(context));
+#ifdef MEMORY_CONTEXT_CHECKING
     PreventActionOnSealedContext(context);
+#endif
     /* isReset must be false already */
     Assert(!context->isReset);
 
     RemoveMemoryAllocInfo(pointer, context);
 
     ret = (*context->methods->realloc)(context, pointer, 0, size, file, line);
-    if (ret == NULL)
+    if (unlikely(ret == NULL))
         ereport(ERROR,
             (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
                 errmsg("memory is temporarily unavailable"),
@@ -1395,7 +1402,7 @@ void* MemoryContextMemalignAllocDebug(MemoryContext context, Size align, Size si
     context->isReset = false;
 
     ret = (*context->methods->alloc)(context, align, size, file, line);
-    if (ret == NULL)
+    if (unlikely(ret == NULL))
         ereport(ERROR,
             (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
                 errmsg("memory is temporarily unavailable"),
@@ -1445,7 +1452,7 @@ void* MemoryContextAllocHugeDebug(MemoryContext context, Size size, const char* 
     context->isReset = false;
 
     ret = (*context->methods->alloc)(context, 0, size, file, line);
-    if (ret == NULL)
+    if (unlikely(ret == NULL))
         ereport(ERROR,
             (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
                 errmsg("memory is temporarily unavailable"),
@@ -1567,7 +1574,7 @@ void* repallocHugeDebug(void* pointer, Size size, const char* file, int line)
     RemoveMemoryAllocInfo(pointer, context);
 
     ret = (*context->methods->realloc)(context, pointer, 0, size, file, line);
-    if (ret == NULL)
+    if (unlikely(ret == NULL))
         ereport(ERROR,
             (errcode(ERRCODE_OUT_OF_LOGICAL_MEMORY),
                 errmsg("memory is temporarily unavailable"),

@@ -67,6 +67,7 @@
 #include "postgres.h"
 #include "knl/knl_variable.h"
 
+#include "access/nbtree.h"
 #include "access/relscan.h"
 #include "access/transam.h"
 #include "access/tableam.h"
@@ -334,7 +335,7 @@ void index_rescan(IndexScanDesc scan, ScanKey keys, int nkeys, ScanKey orderbys,
     Assert(norderbys == scan->numberOfOrderBys);
 
     /* Release resources (like buffer pins) from table accesses */
-    if (scan->xs_heapfetch)
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization && scan->xs_heapfetch)
         tableam_scan_index_fetch_reset(scan->xs_heapfetch);
 
     /* Release any held pin on a heap page */
@@ -433,7 +434,7 @@ void index_restrpos(IndexScanDesc scan)
     GET_SCAN_PROCEDURE(amrestrpos);
 
     /* Release resources (like buffer pins) from table accesses */
-    if (scan->xs_heapfetch)
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization && scan->xs_heapfetch)
         tableam_scan_index_fetch_reset(scan->xs_heapfetch);
 
     scan->xs_continue_hot = false;
@@ -466,7 +467,10 @@ ItemPointer index_getnext_tid(IndexScanDesc scan, ScanDirection direction)
      * scan->xs_recheck and possibly scan->xs_itup, though we pay no attention
      * to those fields here.
      */
-    found = DatumGetBool(FunctionCall2(procedure, PointerGetDatum(scan), Int32GetDatum(direction)));
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+        found = DatumGetBool(FunctionCall2(procedure, PointerGetDatum(scan), Int32GetDatum(direction)));
+    else
+        found = _bt_gettuple_internal(scan, direction);
 
     /* Reset kill flag immediately for safety */
     scan->kill_prior_tuple = false;
@@ -474,8 +478,9 @@ ItemPointer index_getnext_tid(IndexScanDesc scan, ScanDirection direction)
     /* If we're out of index entries, we're done */
     if (!found) {
         /* Release resources (like buffer pins) from table accesses */
-        if (scan->xs_heapfetch)
+        if (!u_sess->attr.attr_common.enable_indexscan_optimization && scan->xs_heapfetch) {
             tableam_scan_index_fetch_reset(scan->xs_heapfetch);
+        }
         /* ... but first, release any held pin on a heap page */
         if (BufferIsValid(scan->xs_cbuf)) {
             ReleaseBuffer(scan->xs_cbuf);
@@ -524,8 +529,10 @@ Tuple IndexFetchTuple(IndexScanDesc scan)
     bool all_dead = false;
     Tuple fetchedTuple = NULL;
 
-
-    fetchedTuple = tableam_scan_index_fetch_tuple(scan, &all_dead);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization)
+        fetchedTuple = tableam_scan_index_fetch_tuple(scan, &all_dead);
+    else
+        fetchedTuple = (Tuple)heapam_index_fetch_tuple(scan, &all_dead);
 
     if (fetchedTuple) {
         pgstat_count_heap_fetch(scan->indexRelation);

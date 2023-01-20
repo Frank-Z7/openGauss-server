@@ -40,9 +40,6 @@
 #include "gstrace/funcs.comps.h"
 #include "gstrace/gstrace_infra_int.h"
 
-#define likely(x) __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-
 /* judge whether a char is digital */
 #define isDigital(_ch) (((_ch) >= '0') && ((_ch) <= '9'))
 
@@ -58,6 +55,11 @@
 #define COMPONENT_IDX(traceId) (((traceId)&GS_TRC_COMP_MASK) >> GS_TRC_COMP_SHIFT)
 
 #define FUNCTION_IDX(traceId) (((traceId)&GS_TRC_FUNC_MASK) >> GS_TRC_FUNC_SHIFT)
+
+#ifdef ENABLE_GSTRACE
+
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
 
 #define isTraceEnbled(pTrcCxt) ((pTrcCxt)->pTrcCfg != NULL && (pTrcCxt)->pTrcCfg->bEnabled)
 
@@ -112,6 +114,7 @@
     } while (0)
 
 static __thread int* gtCurTryCounter = NULL;
+#endif
 
 static trace_context* getTraceContext()
 {
@@ -120,12 +123,14 @@ static trace_context* getTraceContext()
     return &TRC_GLOBALS;
 }
 
+#ifdef ENABLE_GSTRACE
 static pthread_mutex_t* getTraceFileMutex()
 {
     static pthread_mutex_t fileMutex;
 
     return &fileMutex;
 }
+#endif
 
 // Rounds given size down to the nearest power of 2 (<= 2^n)
 static uint64_t roundToNearestPowerOfTwo(uint64_t initialSize)
@@ -304,6 +309,7 @@ static trace_msg_code attachTraceSharedMemLow(void** pTrcMem, const char* sMemNa
     return TRACE_OK;
 }
 
+#ifdef ENABLE_GSTRACE
 static trace_msg_code detachTraceSharedMemLow(trace_infra* pTrcMem)
 {
     if (pTrcMem != NULL && munmap(pTrcMem, pTrcMem->total_size) == -1) {
@@ -311,6 +317,7 @@ static trace_msg_code detachTraceSharedMemLow(trace_infra* pTrcMem)
     }
     return TRACE_OK;
 }
+#endif
 
 static trace_msg_code attachTraceBufferSharedMem(int key)
 {
@@ -346,6 +353,7 @@ static trace_msg_code attachTraceCfgSharedMem(int key)
     return rc;
 }
 
+#ifdef ENABLE_GSTRACE
 /* Attach to buffer shared memory if tracing has been enabled */
 static void attachTraceBufferIfEnabled()
 {
@@ -504,6 +512,7 @@ int gstrace_init(int key)
 
     return TRACE_OK;
 }
+#endif
 
 static trace_msg_code createAndAttachTraceBuffer(int key, uint64_t bufferSize)
 {
@@ -654,6 +663,7 @@ trace_msg_code gstrace_stop(int key)
     return TRACE_OK;
 }
 
+#ifdef ENABLE_GSTRACE
 static bool isTraceIdRequired(const uint32_t rec_id)
 {
     trace_context* pTrcCxt = getTraceContext();
@@ -952,6 +962,7 @@ void gstrace_tryblock_exit(bool inCatch, int* oldTryCounter)
     }
     gtCurTryCounter = oldTryCounter;
 }
+#endif
 
 static trace_msg_code dump_trace_context(int fd)
 {

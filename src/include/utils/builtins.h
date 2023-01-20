@@ -386,6 +386,8 @@ extern void pg_itoa(int16 i, char* a);
 extern void pg_ltoa(int32 l, char* a);
 extern void pg_ctoa(uint8 i, char* a);
 extern void pg_lltoa(int64 ll, char* a);
+extern char *pg_ltostr_zeropad(char *str, int32 value, int32 minwidth);
+extern char *pg_ltostr(char *str, int32 value);
 extern void pg_i128toa(int128 value, char* a, int length);
 
 /*
@@ -901,6 +903,10 @@ extern text* cstring_to_text_with_len(const char* s, size_t len);
 extern bytea *cstring_to_bytea_with_len(const char *s, int len);
 extern BpChar* cstring_to_bpchar_with_len(const char* s, int len);
 extern char* text_to_cstring(const text* t);
+extern char* output_text_to_cstring(const text* t);
+extern char* output_int32_to_cstring(int32 value);
+extern char* output_int64_to_cstring(int64 value);
+extern char* output_int128_to_cstring(int128 value);
 extern void text_to_cstring_buffer(const text* src, char* dst, size_t dst_len);
 extern int text_instr_3args(text* textStr, text* textStrToSearch, int32 beginIndex);
 extern int text_instr_4args(text* textStr, text* textStrToSearch, int32 beginIndex, int occurTimes);

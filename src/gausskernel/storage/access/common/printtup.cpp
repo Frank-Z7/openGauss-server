@@ -68,6 +68,8 @@ static void printHybridBatch(VectorBatch *batch, DestReceiver *self);
 static void finalizeLocalStream(DestReceiver *self);
 
 inline void AddCheckInfo(StringInfo buf);
+
+extern char* output_numeric_out(Numeric num);
 /* ----------------------------------------------------------------
  *		printtup / debugtup support
  * ----------------------------------------------------------------
@@ -1020,7 +1022,6 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
     /* just as we define in backend/commands/analyze.cpp */
 #define WIDTH_THRESHOLD 1024
 
-    StreamTimeSerilizeStart(t_thrd.pgxc_cxt.GlobalNetInstr);
     /* Set or update my derived attribute info, if needed */
     if (myState->attrinfo != typeinfo || myState->nattrs != natts)
         printtup_prepare_info(myState, typeinfo, natts);
@@ -1050,7 +1051,6 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
         appendBinaryStringInfo(buf, slot->tts_dataRow, slot->tts_dataLen);
         AddCheckInfo(buf);
         pq_endmessage_reuse(buf);
-        StreamTimeSerilizeEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
         return;
     }
 #endif
@@ -1088,7 +1088,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
              * origattr had been converted to CSTRING type previously by using anyarray_out.
              * just send over the DataRow message as we received it.
              */
-            pq_sendcountedtext(buf, (char *)attr, strlen((char *)attr), false);
+            pq_sendcountedtext_printtup(buf, (char *)attr, strlen((char *)attr));
         } else {
             /*
              * Here we catch undefined bytes in datums that are returned to the
@@ -1102,8 +1102,27 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
             if (thisState->format == 0) {
                 /* Text output */
                 char *outputstr = NULL;
-
-                outputstr = OutputFunctionCall(&thisState->finfo, attr);
+                switch (thisState->typoutput) {
+                    case F_INT4OUT:
+                        outputstr = output_int32_to_cstring(DatumGetInt32(attr));
+                        break;
+                    case F_INT8OUT:
+                        outputstr = output_int64_to_cstring(DatumGetInt64(attr));
+                        break;
+                    case F_INT16OUT:
+                        outputstr = output_int128_to_cstring(DatumGetInt128(attr));
+                        break;
+                    case F_BPCHAROUT:
+                    case F_VARCHAROUT:
+                        outputstr = output_text_to_cstring((text*)DatumGetPointer(attr));
+                        break;
+                    case F_NUMERIC_OUT:
+                        outputstr = output_numeric_out(DatumGetNumeric(attr));
+                        break;
+                    default:
+                        outputstr = OutputFunctionCall(&thisState->finfo, attr);
+                        break;
+                }
 #ifdef ENABLE_MULTIPLE_NODES
                 if (thisState->typisvarlena && self->forAnalyzeSampleTuple &&
                     (typeinfo->attrs[i].atttypid == BYTEAOID || typeinfo->attrs[i].atttypid == CHAROID ||
@@ -1136,7 +1155,7 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                     pfree(result);
                 }
 #endif
-                pq_sendcountedtext(buf, outputstr, strlen(outputstr), false);
+                pq_sendcountedtext_printtup(buf, outputstr, strlen(outputstr));
             } else {
                 /* Binary output */
                 bytea *outputbytes = NULL;
@@ -1149,7 +1168,6 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
     }
 
     (void)MemoryContextSwitchTo(old_context);
-    StreamTimeSerilizeEnd(t_thrd.pgxc_cxt.GlobalNetInstr);
 
     AddCheckInfo(buf);
     pq_endmessage_reuse(buf);

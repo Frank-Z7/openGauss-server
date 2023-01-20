@@ -373,11 +373,13 @@ TupleTableSlot* ExecStoreTuple(Tuple tuple, TupleTableSlot* slot, Buffer buffer,
     Assert(slot != NULL);
     Assert(slot->tts_tupleDescriptor != NULL);
 
-    HeapTuple htup = (HeapTuple)tuple;
-    if (TTS_TABLEAM_IS_USTORE(slot) && htup->tupTableType == HEAP_TUPLE) {
-        tuple = (Tuple)HeapToUHeap(slot->tts_tupleDescriptor, (HeapTuple)tuple);
-    } else if (TTS_TABLEAM_IS_HEAP(slot) && htup->tupTableType == UHEAP_TUPLE) {
-        tuple = (Tuple)UHeapToHeap(slot->tts_tupleDescriptor, (UHeapTuple)tuple);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        HeapTuple htup = (HeapTuple)tuple;
+        if (TTS_TABLEAM_IS_USTORE(slot) && htup->tupTableType == HEAP_TUPLE) {
+            tuple = (Tuple)HeapToUHeap(slot->tts_tupleDescriptor, (HeapTuple)tuple);
+        } else if (TTS_TABLEAM_IS_HEAP(slot) && htup->tupTableType == UHEAP_TUPLE) {
+            tuple = (Tuple)UHeapToHeap(slot->tts_tupleDescriptor, (UHeapTuple)tuple);
+        }
     }
 
     tableam_tslot_store_tuple(tuple, slot, buffer, should_free, false);
@@ -829,7 +831,8 @@ static TupleDesc ExecTypeFromTLInternal(List* target_list, bool has_oid, bool sk
         TupleDescInitEntryCollation(type_info, cur_resno, exprCollation((Node*)tle->expr));
 
         /* mark dropped column, maybe we can find another way some day */
-        if (mark_dropped && strstr(tle->resname, "........pg.dropped.")) {
+        if (!ENABLE_SQL_FUSION_ENGINE(IUD_MARKDROP_REMOVE) && mark_dropped
+            && strstr(tle->resname, "........pg.dropped.")) {
             type_info->attrs[cur_resno - 1].attisdropped = true;
         }
 

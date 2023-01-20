@@ -615,7 +615,7 @@ extern TransactionId PartGetRelFrozenxid64(Partition part);
  */
 #define RelationOpenSmgr(relation)                                                                       \
     do {                                                                                                 \
-        if ((relation)->rd_smgr == NULL)                                                                 \
+        if (unlikely((relation)->rd_smgr == NULL))                                                       \
             smgrsetowner(&((relation)->rd_smgr), smgropen((relation)->rd_node, (relation)->rd_backend)); \
     } while (0)
 

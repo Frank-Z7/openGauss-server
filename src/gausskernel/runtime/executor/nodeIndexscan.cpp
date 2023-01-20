@@ -81,7 +81,9 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
     econtext = node->ss.ps.ps_ExprContext;
     slot = node->ss.ss_ScanTupleSlot;
 
-    isUstore = RelationIsUstoreFormat(node->ss.ss_currentRelation);
+    if (!u_sess->attr.attr_common.enable_indexscan_optimization) {
+        isUstore = RelationIsUstoreFormat(node->ss.ss_currentRelation);
+    }
 
     /*
      * ok, now that we have what we need, fetch the next tuple.
@@ -108,10 +110,14 @@ static TupleTableSlot* IndexNext(IndexScanState* node)
              * Note: we pass 'false' because tuples returned by amgetnext are
              * pointers onto disk pages and must not be pfree_ext()'d.
              */
-            (void)ExecStoreTuple(tuple, /* tuple to store */
-                slot,                   /* slot to store in */
-                indexScan->xs_cbuf,     /* buffer containing tuple */
-                false);                 /* don't pfree */
+            if (!u_sess->attr.attr_common.enable_indexscan_optimization) 
+                (void)ExecStoreTuple(tuple, /* tuple to store */
+                    slot,                   /* slot to store in */
+                    indexScan->xs_cbuf,     /* buffer containing tuple */
+                    false);                 /* don't pfree */
+            else {
+                heap_slot_store_heap_tuple(tuple, slot, indexScan->xs_cbuf, false, false);
+            }
         }
 
         /*
@@ -689,7 +695,11 @@ IndexScanState* ExecInitIndexScan(IndexScan* node, EState* estate, int eflags)
     /*
      * get the scan type from the relation descriptor.
      */
-    ExecAssignScanType(&index_state->ss, CreateTupleDescCopy(RelationGetDescr(current_relation)));
+    if (ENABLE_SQL_FUSION_ENGINE(IUD_CODE_OPTIMIZE)) {
+        ExecAssignScanType(&index_state->ss, RelationGetDescr(current_relation));
+    } else {
+        ExecAssignScanType(&index_state->ss, CreateTupleDescCopy(RelationGetDescr(current_relation)));
+    }
     index_state->ss.ss_ScanTupleSlot->tts_tupleDescriptor->td_tam_ops = current_relation->rd_tam_ops;
 
     /*

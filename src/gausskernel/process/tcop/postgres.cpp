@@ -2866,6 +2866,9 @@ static void exec_simple_query(const char* query_string, MessageType messageType,
     /* Reset the single_shard_stmt flag */
     u_sess->exec_cxt.single_shard_stmt = false;
 
+    /* Reset hint flag */
+    u_sess->parser_cxt.has_hintwarning = false;
+
     MemoryContextDelete(OptimizerContext);
 
     /*
@@ -5153,6 +5156,9 @@ static void exec_execute_message(const char* portal_name, long max_rows)
         } else
             WLMParctlRelease(&t_thrd.wlm_cxt.parctl_state);
     }
+
+    /* Reset hint flag */
+    u_sess->parser_cxt.has_hintwarning = false;
 
     /*
      * Emit duration logging if appropriate.
@@ -7745,6 +7751,9 @@ int PostgresMain(int argc, char* argv[], const char* dbname, const char* usernam
         }
         gstrace_tryblock_exit(true, oldTryCounter);
         Assert(t_thrd.proc->dw_pos == -1);
+
+        /* Reset hint flag */
+        u_sess->parser_cxt.has_hintwarning = false;
 
         (void)pgstat_report_waitstatus(STATE_WAIT_UNDEFINED);
         t_thrd.pgxc_cxt.GlobalNetInstr = NULL;
@@ -11679,6 +11688,9 @@ static void exec_batch_bind_execute(StringInfo input_message)
     }
     /* end batch, reset gpc batch flag */
     u_sess->pcache_cxt.gpc_in_batch = false;
+
+    /* Reset hint flag */
+    u_sess->parser_cxt.has_hintwarning = false;
 
     /* Done with the snapshot used */
     if (snapshot_set)

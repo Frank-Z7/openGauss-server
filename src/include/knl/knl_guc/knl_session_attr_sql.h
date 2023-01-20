@@ -214,6 +214,7 @@ typedef struct knl_session_attr_sql {
     double default_limit_rows;
 
     int sql_beta_feature;
+    int sql_fusion_engine;
     /* hypo index */
     bool enable_hypo_index;
     bool hypopg_is_explain;
@@ -241,6 +242,7 @@ typedef struct knl_session_attr_sql {
     bool dolphin;
     bool enable_trace_column;
     double pre_detoast_var_factor;
+    bool enable_vector_targetlist;
 } knl_session_attr_sql;
 
 #endif /* SRC_INCLUDE_KNL_KNL_SESSION_ATTR_SQL */

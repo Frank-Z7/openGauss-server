@@ -412,6 +412,7 @@ const char* sync_guc_variable_namelist[] = {"work_mem",
 #ifndef ENABLE_MULTIPLE_NODES
     "plsql_show_all_error",
     "uppercase_attribute_name",
+    "sql_fusion_engine",
 #endif 
     "track_stmt_session_slot",
     "track_stmt_stat_level",
@@ -4404,6 +4405,13 @@ struct config_generic** get_guc_variables(void)
     return u_sess->guc_variables;
 }
 
+#ifdef ENABLE_MULTIPLE_NODES
+static void InitMultipleNodeUnsupportGuc()
+{
+    u_sess->attr.attr_sql.sql_fusion_engine = 0;
+}
+#endif
+
 #ifndef ENABLE_MULTIPLE_NODES
 static void InitSingleNodeUnsupportGuc()
 {
@@ -6646,7 +6654,8 @@ static const char* config_enum_map_lookup_by_value(struct config_enum* record, i
 const char* config_enum_lookup_by_value(struct config_enum* record, int val)
 {
     if (pg_strncasecmp(record->gen.name, "rewrite_rule", sizeof("rewrite_rule")) == 0 ||
-        pg_strncasecmp(record->gen.name, "sql_beta_feature", sizeof("sql_beta_feature")) == 0) {
+        pg_strncasecmp(record->gen.name, "sql_beta_feature", sizeof("sql_beta_feature")) == 0 ||
+        pg_strncasecmp(record->gen.name, "sql_fusion_engine", sizeof("sql_fusion_engine")) == 0) {
         return config_enum_map_lookup_by_value(record, val);
     } else {
         const struct config_enum_entry* entry = NULL;
@@ -6716,7 +6725,8 @@ static bool config_enum_map_lookup_by_name(struct config_enum* record, const cha
 bool config_enum_lookup_by_name(struct config_enum* record, const char* value, int* retval)
 {
     if (pg_strncasecmp(record->gen.name, "rewrite_rule", sizeof("rewrite_rule")) == 0 ||
-        pg_strncasecmp(record->gen.name, "sql_beta_feature", sizeof("sql_beta_feature")) == 0) {
+        pg_strncasecmp(record->gen.name, "sql_beta_feature", sizeof("sql_beta_feature")) == 0 ||
+        pg_strncasecmp(record->gen.name, "sql_fusion_engine", sizeof("sql_fusion_engine")) == 0) {
         return config_enum_map_lookup_by_name(record, value, retval);
     } else {
         const struct config_enum_entry* entry = NULL;
