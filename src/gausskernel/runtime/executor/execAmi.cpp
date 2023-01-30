@@ -54,6 +54,7 @@
 #include "executor/node/nodeWindowAgg.h"
 #include "executor/node/nodeWorktablescan.h"
 #include "executor/node/nodeProjectSet.h"
+#include "executor/node/nodeSortGroup.h"
 #include "nodes/nodeFuncs.h"
 #include "vecexecutor/vecnodes.h"
 #include "vecexecutor/vecnodevectorow.h"
@@ -218,6 +219,9 @@ void ExecReScanByType(PlanState* node)
 
         case T_SortState:
             ExecReScanSort((SortState*)node);
+            break;
+        case T_SortGroupState:
+            ExecReScanSortGroup((SortGroupState*)node);
             break;
 
         case T_GroupState:

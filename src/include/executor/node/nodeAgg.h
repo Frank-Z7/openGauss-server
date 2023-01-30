@@ -289,6 +289,7 @@ typedef struct AggStatePerPhaseData {
     FmgrInfo* eqfunctions;    /* per-grouping-field equality fns */
     Agg* aggnode;             /* Agg node for phase data */
     Sort* sortnode;           /* Sort node for input ordering for phase */
+    SortGroup* sortGroupNode; /* SortGroup node for input ordering for phase */
     ExprState  *evaltrans;		/* evaluation of transition functions  */
 } AggStatePerPhaseData;
 
