@@ -1,5 +1,6 @@
 #include "postgres.h"
 #include "miscadmin.h"
+#include "access/tableam.h"
 #include "executor/executor.h"
 #include "executor/node/nodeSortGroup.h"
 #include "executor/tuptable.h"
@@ -350,8 +351,6 @@ static void initGroupIter(SortGroupStatePriv *state)
 
 /*
  * Accept one tuple while collecting input data for group sort.
- *
- * Note that the input data is always copied; the caller need not save it.
  */
 static void groupSortPutTupleslot(SortGroupStatePriv *state, TupleTableSlot *slot)
 {
@@ -360,7 +359,7 @@ static void groupSortPutTupleslot(SortGroupStatePriv *state, TupleTableSlot *slo
     SkiplistNode *groupNode;
 
     if (unlikely(slot->tts_nvalid < state->nKeys)) {
-        heap_slot_getallattrs(slot);
+        tableam_tslot_getallattrs(slot);
     }
 
     if (skiplist->length >= state->max_groups) {
