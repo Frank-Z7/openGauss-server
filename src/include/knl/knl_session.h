@@ -650,6 +650,7 @@ typedef struct knl_u_utils_context {
     char* int16output_buffer;
     char* varcharoutput_buffer;
     char* numericoutput_buffer;
+    char* dateoutput_buffer;
 
     syscalllock deleMemContextMutex;
 } knl_u_utils_context;

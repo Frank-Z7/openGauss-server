@@ -36,6 +36,7 @@
 #include "executor/exec/execStream.h"
 #include "access/heapam.h"
 #include "utils/memutils.h"
+#include "catalog/pg_proc.h"
 
 static void printtup_startup(DestReceiver *self, int operation, TupleDesc typeinfo);
 static void printtup_20(TupleTableSlot *slot, DestReceiver *self);
@@ -1118,6 +1119,9 @@ void printtup(TupleTableSlot *slot, DestReceiver *self)
                         break;
                     case F_NUMERIC_OUT:
                         outputstr = output_numeric_out(DatumGetNumeric(attr));
+                        break;
+                    case F_DATE_OUT:
+                        outputstr = output_date_out(DatumGetDateADT(attr));
                         break;
                     default:
                         outputstr = OutputFunctionCall(&thisState->finfo, attr);
