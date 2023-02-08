@@ -36,9 +36,36 @@ SELECT generate_series(1,id), sum(salary) OVER w, avg(salary) OVER w
   WINDOW w AS (PARTITION BY depname ORDER BY salary DESC);
 
 
--- windows + sort
+-- window + sort
 explain (costs off, verbose)
 SELECT id, generate_series(1, id) as g, salary, sum(salary) OVER (ORDER BY salary) FROM empsalary order by g;
 SELECT id, generate_series(1, id) as g, salary, sum(salary) OVER (ORDER BY salary) FROM empsalary order by g;
+
+drop table empsalary;
+
+create table tbl_1k(id bigint, v1 numeric, v2 numeric);
+insert into tbl_1k select generate_series(1, 1000), (RANDOM() * 67)::int::numeric, (RANDOM() * 77)::int::numeric;
+analyze tbl_1k;
+
+set enable_hashagg=off;
+explain (costs off, verbose) 
+select sum(id), v1,v2,generate_series(1,v1) as g1 from tbl_1k group by v1,v2 order by sum(id) limit 1500;
+
+create table agg_group as
+select sum(id), v1,v2,generate_series(1,v1) as g1 from tbl_1k group by v1,v2 order by sum(id) limit 1500;
+
+set enable_hashagg=on;
+explain (costs off, verbose) 
+select sum(id), v1,v2,generate_series(1,v1) as g1 from tbl_1k group by v1,v2 order by sum(id) limit 1500;
+
+create table agg_hash as
+select sum(id), v1,v2,generate_series(1,v1) as g1 from tbl_1k group by v1,v2 order by sum(id) limit 1500;
+
+-- Compare results to hash aggregation results
+(select * from agg_group except select * from agg_hash)
+  union all
+(select * from agg_hash except select * from agg_group);
+
+drop table tbl_1k,agg_group,agg_hash;
 
 drop schema windows_srf cascade;
