@@ -471,6 +471,7 @@ static void knl_u_utils_init(knl_u_utils_context* utils_cxt)
     utils_cxt->int16output_buffer = (char*)palloc0(128);
     utils_cxt->varcharoutput_buffer = (char*)palloc0(256);
     utils_cxt->numericoutput_buffer = (char*)palloc0(64);
+    utils_cxt->dateoutput_buffer = (char*)palloc0(MAXDATELEN + 1);
 
     (void)syscalllockInit(&utils_cxt->deleMemContextMutex);
 }
