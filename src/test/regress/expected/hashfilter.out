@@ -913,20 +913,22 @@ select t1.c from hashfilter_t1 t1 left join hashfilter_t2 t2 on t1.c=t2.c order 
 
 --multiply table join between replication and hash
 explain (costs off) select t1.a from hashfilter_t1 t1 where t1.b in (select t3.b from hashfilter_t1 t3 left join hashfilter_t2 t2 on t3.a=t2.b) order by t1.a;
-                      QUERY PLAN                      
-------------------------------------------------------
+                            QUERY PLAN                            
+------------------------------------------------------------------
  Sort
    Sort Key: t1.a
-   ->  Hash Right Semi Join
-         Hash Cond: ((t3.b)::text = (t1.b)::text)
-         ->  Hash Left Join
-               Hash Cond: (t3.a = (t2.b)::bigint)
-               ->  Seq Scan on hashfilter_t1 t3
-               ->  Hash
-                     ->  Seq Scan on hashfilter_t2 t2
+   ->  Hash Join
+         Hash Cond: ((t1.b)::text = (t3.b)::text)
+         ->  Seq Scan on hashfilter_t1 t1
          ->  Hash
-               ->  Seq Scan on hashfilter_t1 t1
-(11 rows)
+               ->  HashAggregate
+                     Group By Key: (t3.b)::text
+                     ->  Hash Left Join
+                           Hash Cond: (t3.a = (t2.b)::bigint)
+                           ->  Seq Scan on hashfilter_t1 t3
+                           ->  Hash
+                                 ->  Seq Scan on hashfilter_t2 t2
+(13 rows)
 
 select t1.a from hashfilter_t1 t1 where t1.b in (select t3.b from hashfilter_t1 t3 left join hashfilter_t2 t2 on t3.a=t2.b) order by t1.a;
   a  
@@ -985,32 +987,34 @@ explain (costs off) select min(table_01.b) from hashfilter_t7 as table_01 full o
 
 --the side which add hashfilter need add remote query because other side has gather on CN
 explain (costs off) select * from hashfilter_t1 t1 where t1.a in (select t2.a from hashfilter_t2 t2 where t2.a in (select t3.a from hashfilter_t1 t13 left join hashfilter_t3 t3 on t13.a=t3.b order by 1 limit 10) order by 1 limit 7) order by 1 limit 6;
-                                           QUERY PLAN                                           
-------------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
  Limit
-   ->  Merge Semi Join
-         Merge Cond: (t1.a = t2.a)
+   ->  Merge Join
+         Merge Cond: (t2.a = t1.a)
+         ->  Sort
+               Sort Key: t2.a
+               ->  HashAggregate
+                     Group By Key: t2.a
+                     ->  Limit
+                           ->  Sort
+                                 Sort Key: t2.a
+                                 ->  Hash Semi Join
+                                       Hash Cond: (t2.a = t3.a)
+                                       ->  Seq Scan on hashfilter_t2 t2
+                                       ->  Hash
+                                             ->  Limit
+                                                   ->  Sort
+                                                         Sort Key: t3.a
+                                                         ->  Hash Left Join
+                                                               Hash Cond: (t13.a = (t3.b)::bigint)
+                                                               ->  Seq Scan on hashfilter_t1 t13
+                                                               ->  Hash
+                                                                     ->  Seq Scan on hashfilter_t3 t3
          ->  Sort
                Sort Key: t1.a
                ->  Seq Scan on hashfilter_t1 t1
-         ->  Limit
-               ->  Sort
-                     Sort Key: t2.a
-                     ->  Hash Join
-                           Hash Cond: (t2.a = t3.a)
-                           ->  Seq Scan on hashfilter_t2 t2
-                           ->  Hash
-                                 ->  HashAggregate
-                                       Group By Key: t3.a
-                                       ->  Limit
-                                             ->  Sort
-                                                   Sort Key: t3.a
-                                                   ->  Hash Left Join
-                                                         Hash Cond: (t13.a = (t3.b)::bigint)
-                                                         ->  Seq Scan on hashfilter_t1 t13
-                                                         ->  Hash
-                                                               ->  Seq Scan on hashfilter_t3 t3
-(23 rows)
+(25 rows)
 
 select * from hashfilter_t1 t1 where t1.a in (select t2.a from hashfilter_t2 t2 where t2.a in (select t3.a from hashfilter_t1 t13 left join hashfilter_t3 t3 on t13.a=t3.b order by 1 limit 10) order by 1 limit 7) order by 1 limit 6;
   a  |  b  |    c     

@@ -368,8 +368,9 @@ explain (costs off, verbose) insert into aa values(4,4,4,4) on duplicate key upd
                        Output: data2.a, data2.b
                  ->  Hash
                        Output: data1.a
-                       ->  Hash Semi Join
+                       ->  Hash Join
                              Output: data1.a
+                             Inner Unique: true
                              Hash Cond: (data1.a = upserttest.aa.a1)
                              ->  Seq Scan on upserttest.data1
                                    Output: data1.a
@@ -379,7 +380,7 @@ explain (costs off, verbose) insert into aa values(4,4,4,4) on duplicate key upd
                                          Output: upserttest.aa.a1
    ->  Result
          Output: 4, 4, 4, 4
-(24 rows)
+(25 rows)
 
 select * from aa order by a1;
  a1 | a2 | a3 | a4 
