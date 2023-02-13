@@ -260,20 +260,24 @@ explain (verbose on, costs off) DELETE FROM distribute_target_hash_01 WHERE c1 <
 (4 rows)
 
 explain (verbose on, costs off) DELETE FROM distribute_target_hash_01 WHERE c1 in (select c2 from distribute_source_hash_01 where c1 < 50);
-                                         QUERY PLAN                                          
----------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  Delete on distribute_dml.distribute_target_hash_01
-   ->  Hash Semi Join
+   ->  Hash Join
          Output: distribute_target_hash_01.ctid, distribute_source_hash_01.ctid
+         Inner Unique: true
          Hash Cond: ((distribute_target_hash_01.c1)::numeric = distribute_source_hash_01.c2)
          ->  Seq Scan on distribute_dml.distribute_target_hash_01
                Output: distribute_target_hash_01.ctid, distribute_target_hash_01.c1
          ->  Hash
                Output: distribute_source_hash_01.ctid, distribute_source_hash_01.c2
-               ->  Seq Scan on distribute_dml.distribute_source_hash_01
+               ->  HashAggregate
                      Output: distribute_source_hash_01.ctid, distribute_source_hash_01.c2
-                     Filter: (distribute_source_hash_01.c1 < 50)
-(11 rows)
+                     Group By Key: distribute_source_hash_01.c2
+                     ->  Seq Scan on distribute_dml.distribute_source_hash_01
+                           Output: distribute_source_hash_01.ctid, distribute_source_hash_01.c2
+                           Filter: (distribute_source_hash_01.c1 < 50)
+(15 rows)
 
 explain (verbose on, costs off) DELETE FROM distribute_target_hash_01 WHERE c3 in (select c2 from distribute_source_hash_01);
                                          QUERY PLAN                                          

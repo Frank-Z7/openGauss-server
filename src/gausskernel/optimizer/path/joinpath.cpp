@@ -179,7 +179,7 @@ void add_paths_to_joinrel(PlannerInfo* root, RelOptInfo* joinrel, RelOptInfo* ou
      * If it's SEMI, ANTI, or inner_unique join, compute correction factors
      * for cost estimation.  These will be the same for all paths.
      */
-    if (jointype == JOIN_SEMI || jointype == JOIN_ANTI || extra.inner_unique)
+    if (jointype == JOIN_SEMI || jointype == JOIN_ANTI)
         compute_semi_anti_join_factors(root, outerrel, innerrel, jointype, sjinfo, restrictlist, &extra.semifactors);
     if (jointype == JOIN_RIGHT_SEMI) {
         SemiAntiJoinFactors sf;

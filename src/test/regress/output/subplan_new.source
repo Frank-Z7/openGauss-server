@@ -519,12 +519,6 @@ order by 1,2,3;
                              One-Time Filter: ((customer.c_birth_country)::text ~~ '%J%'::text)
                              ->  Nested Loop
                                    Join Filter: ((web_site.web_company_id + 2) = ((store.s_market_id - 1)))
-                                   ->  GroupAggregate
-                                         Group By Key: (store.s_market_id - 1)
-                                         Filter: ((store.s_company_id + 5) = max(DISTINCT call_center.cc_mkt_id))
-                                         ->  Result
-                                               One-Time Filter: (store.s_company_id < 1000)
-                                               ->  Seq Scan on call_center
                                    ->  Hash Join
                                          Hash Cond: ((date_part('month'::text, web_page.wp_rec_end_date) - 1::double precision) = date_part('month'::text, web_site.web_rec_end_date))
                                          ->  Partition Iterator
@@ -537,6 +531,12 @@ order by 1,2,3;
                                                      ->  Partitioned Seq Scan on web_site
                                                            Filter: (customer.c_birth_month = web_mkt_id)
                                                            Selected Partitions:  1..7
+                                   ->  GroupAggregate
+                                         Group By Key: (store.s_market_id - 1)
+                                         Filter: ((store.s_company_id + 5) = max(DISTINCT call_center.cc_mkt_id))
+                                         ->  Result
+                                               One-Time Filter: (store.s_company_id < 1000)
+                                               ->  Seq Scan on call_center
 (36 rows)
 
 select distinct *  
@@ -687,19 +687,22 @@ analyze c;
 set enable_nestloop=off;
 set enable_mergejoin=off;
 explain (costs off) select count(*) from a where a.c1 in (select b.c1 from b where b.c2 in (select nullif(a.c2, c.c2+990) from c));
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
  Row Adapter
    ->  Vector Aggregate
          ->  CStore Scan on a
                Filter: (SubPlan 1)
                SubPlan 1
                  ->  Row Adapter
-                       ->  Vector Hash Semi Join
-                             Hash Cond: (b.c2 = NULLIF(a.c2, (c.c2 + 990)))
+                       ->  Vector Sonic Hash Join
+                             Hash Cond: (b.c2 = (NULLIF(a.c2, (c.c2 + 990))))
                              ->  CStore Scan on b
-                             ->  CStore Scan on c
-(10 rows)
+                             ->  Vector Unique
+                                   ->  Vector Sort
+                                         Sort Key: (NULLIF(a.c2, (c.c2 + 990)))
+                                         ->  CStore Scan on c
+(13 rows)
 
 select count(*) from a where a.c1 in (select b.c1 from b where b.c2 in (select nullif(a.c2, c.c2+990) from c));
  count 
