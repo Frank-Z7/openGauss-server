@@ -85,12 +85,15 @@ extern THR_LOCAL PGDLLIMPORT MemoryContext TopMemoryContext;
  * Fundamental memory-allocation operations (more are in utils/memutils.h)
  */
 extern void* MemoryAllocFromContext(MemoryContext context, Size size, const char* file, int line);
+extern void* opt_MemoryAllocFromContext(MemoryContext context, Size size);
 extern void* MemoryContextAllocDebug(MemoryContext context, Size size, const char* file, int line);
 extern void* MemoryContextAllocHugeDebug(MemoryContext context, Size size, const char* file, int line);
 extern void* MemoryContextAllocHugeZeroDebug(MemoryContext context, Size size, const char* file, int line);
 extern void* repallocHugeDebug(void* pointer, Size size, const char* file, int line);
 extern void* MemoryContextAllocZeroDebug(MemoryContext context, Size size, const char* file, int line);
+extern void* opt_MemoryContextAllocZeroDebug(MemoryContext context, Size size, const char* file, int line);
 extern void* MemoryContextAllocZeroAlignedDebug(MemoryContext context, Size size, const char* file, int line);
+extern void* opt_MemoryContextAllocZeroAlignedDebug(MemoryContext context, Size size, const char* file, int line);
 extern char* MemoryContextStrdupDebug(MemoryContext context, const char* string, const char* file, int line);
 extern void* MemoryContextMemalignAllocDebug(MemoryContext context, Size align, Size size, const char* file, int line);
 extern void MemoryContextMemalignFree(MemoryContext context, void* pointer);
@@ -134,6 +137,7 @@ extern THR_LOCAL MemoryContext AlignMemoryContext;
                        : MemoryContextAllocZero(CurrentMemoryContext, sz))
 
 extern void pfree(void* pointer);
+extern void opt_pfree(void* pointer);
 
 template <typename T>
 bool isConst(T& x)
@@ -160,7 +164,9 @@ bool isConst(T const& x)
 #define pfree_ext(__p) FREE_POINTER(__p)
 
 extern void* repallocDebug(void* pointer, Size size, const char* file, int line);
+extern void* opt_repallocDebug(void* pointer, Size size, const char* file, int line);
 extern void* repalloc_noexcept_Debug(void* pointer, Size size, const char* file, int line);
+extern void* opt_repalloc_noexcept_Debug(void* pointer, Size size, const char* file, int line);
 
 /*
  * MemoryContextSwitchTo can't be a macro in standard C compilers.
