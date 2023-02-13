@@ -2927,7 +2927,11 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
             u_sess->opt_cxt.query_dop = dop_tmp;
         }
 
-        if (parse->distinctClause || parse->havingQual || parse->hasWindowFuncs || root->hasHavingQual)
+        if (parse->distinctClause || 
+            parse->havingQual || 
+            parse->hasWindowFuncs ||
+            root->hasHavingQual ||
+            parse->hasTargetSRFs)
             root->consider_sortgroup_agg = false;
 
         /*
@@ -3343,10 +3347,6 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                 }
             }
 #endif
-            bool grouping_contains_srfs = planner_targets->grouping_contains_srfs;
-            if (grouping_contains_srfs) {
-                root->consider_sortgroup_agg = false;
-            }
             /*
              * groupColIdx is now cast in stone, so record a mapping from
              * tleSortGroupRef to column index. setrefs.c needs this to
@@ -3366,10 +3366,11 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                 }
 
                 root->grouping_map = grouping_map;
-                List* grouping_tlist = grouping_contains_srfs? planner_targets->grouping_target->exprs : tlist;
+                if (parse->hasTargetSRFs)
+                    tlist = build_plan_tlist(root, planner_targets->grouping_target);
                 result_plan = build_groupingsets_plan(root,
                     parse,
-                    &grouping_tlist,
+                    &tlist,
                     need_sort_for_grouping,
                     rollup_groupclauses,
                     rollup_lists,
@@ -3408,7 +3409,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                             erraction("Modify SQL statement according to the manual.")));
                 }
 
-                if (!grouping_contains_srfs && IS_STREAM_PLAN && (is_hashed_plan(result_plan) || is_rangelist_plan(result_plan))) {
+                if (!parse->hasTargetSRFs && IS_STREAM_PLAN && (is_hashed_plan(result_plan) || is_rangelist_plan(result_plan))) {
                     Assert(!expression_returns_set((Node*)tlist));
 
                     if (check_subplan_in_qual(tlist, result_plan->qual)) {
@@ -3421,7 +3422,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                 }
             }
 
-            if (grouping_contains_srfs) {
+            if (parse->hasTargetSRFs) {
                 needs_stream = false;
             } else if (IS_STREAM_PLAN) {
                 if (is_execute_on_coordinator(result_plan) || is_execute_on_allnodes(result_plan) ||
@@ -3445,7 +3446,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
 
             /* Don't need second level agg when distribute key is in group clause of groupingsets. */
             if (!needSecondLevelAgg) {
-                if (grouping_contains_srfs) {
+                if (parse->hasTargetSRFs) {
                     result_plan = adjust_plan_for_srfs(root, result_plan, 
                                                         planner_targets->grouping_targets, 
                                                         planner_targets->grouping_targets_contain_srfs);
@@ -3455,11 +3456,12 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                 if (IS_STREAM_PLAN &&
                     is_execute_on_datanodes(result_plan) &&
                     !is_replicated_plan(result_plan)) {
+                    if (parse->hasTargetSRFs)
+                        tlist = build_plan_tlist(root, planner_targets->grouping_target);
                     if (agg_costs.hasDnAggs || list_length(agg_costs.exprAggs) == 0) {
-                        List* agg_tlist = grouping_contains_srfs ? planner_targets->grouping_target->exprs : tlist;
                         result_plan = generate_hashagg_plan(root,
                                                             result_plan,
-                                                            agg_tlist,
+                                                            tlist,
                                                             &agg_costs,
                                                             numGroupCols,
                                                             numGroups,
@@ -3489,7 +3491,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                                                                       rel_info);
                     }
 
-                    if (grouping_contains_srfs) {
+                    if (parse->hasTargetSRFs) {
                         result_plan = adjust_plan_for_srfs(root, result_plan, 
                                                         planner_targets->grouping_targets, 
                                                         planner_targets->grouping_targets_contain_srfs);
@@ -3500,9 +3502,10 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                      * To Ap function, need not do hashagg if it is not stream plan,
                      * in this case, all work always is finished in sort agg.
                     */
-                    List* agg_tlist = grouping_contains_srfs ? planner_targets->grouping_target->exprs : tlist;
+                   if (parse->hasTargetSRFs)
+                        tlist = build_plan_tlist(root, planner_targets->grouping_target);
                     result_plan = (Plan *) make_agg(root,
-                                    agg_tlist,
+                                    tlist,
                                     (List *) parse->havingQual,
                                     AGG_HASHED,
                                     &agg_costs,
@@ -3517,7 +3520,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                                     NIL,
                                     false,
                                     hash_entry_size);
-                    if (grouping_contains_srfs) {
+                    if (parse->hasTargetSRFs) {
                         result_plan = adjust_plan_for_srfs(root, result_plan, 
                                                            planner_targets->grouping_targets, 
                                                            planner_targets->grouping_targets_contain_srfs);
@@ -3530,7 +3533,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                     is_execute_on_datanodes(result_plan) &&
                     !is_replicated_plan(result_plan))  {
 
-                    if (next_is_second_level_group && grouping_contains_srfs) {
+                    if (next_is_second_level_group && parse->hasTargetSRFs) {
                         errno_t sprintf_rc = sprintf_s(u_sess->opt_cxt.not_shipping_info->not_shipping_reason,
                             NOTPLANSHIPPING_LENGTH,
                             "\"set-valued expression in qual/targetlist + two-level Groupagg\"");
@@ -3648,10 +3651,11 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                                 result_plan =
                                     (Plan*)make_sort_from_groupcols(root, parse->groupClause, groupColIdx, result_plan);
 
-                            List* agg_tlist = grouping_contains_srfs ? planner_targets->grouping_target->exprs : tlist;
+                            if (parse->hasTargetSRFs)
+                                tlist =  build_plan_tlist(root, planner_targets->grouping_target);
 
                             result_plan = (Plan*)make_agg(root,
-                                agg_tlist,
+                                tlist,
                                 (List*)parse->havingQual,
                                 AGG_SORTED,
                                 &agg_costs,
@@ -3667,7 +3671,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                                 0,
                                 true);
 
-                            if (grouping_contains_srfs) {
+                            if (parse->hasTargetSRFs) {
                                 result_plan = adjust_plan_for_srfs(root, result_plan, 
                                                            planner_targets->grouping_targets, 
                                                            planner_targets->grouping_targets_contain_srfs);
@@ -3697,7 +3701,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                     }
 
                     /* Add local redistribute for a local group cols. */
-                    if (!grouping_contains_srfs && IS_STREAM_PLAN && !needs_stream && result_plan->dop > 1)
+                    if (!parse->hasTargetSRFs && IS_STREAM_PLAN && !needs_stream && result_plan->dop > 1)
                         result_plan = create_local_redistribute(root, result_plan, result_plan->distributed_keys, 0);
 
                     if (need_sort_for_grouping && partial_plan == NULL &&
@@ -3783,7 +3787,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                 }
 
                 /* If two level agg is needs and we have non-exist var in subplan of qual, push down is unsupported */
-                if (IS_STREAM_PLAN && next_is_second_level_group && grouping_contains_srfs) {
+                if (IS_STREAM_PLAN && next_is_second_level_group && parse->hasTargetSRFs) {
                     errno_t sprintf_rc = sprintf_s(u_sess->opt_cxt.not_shipping_info->not_shipping_reason,
                         NOTPLANSHIPPING_LENGTH,
                         "\"set-valued expression in qual/targetlist + two-level Groupagg\"");
@@ -3794,9 +3798,10 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                 if (partial_plan != NULL) {
                     result_plan = mark_top_agg(root, tlist, partial_plan, result_plan, AGG_LEVEL_1_INTENT);
                 } else if (parse->groupingSets == NIL || IS_STREAM) {
-                    List* agg_tlist = grouping_contains_srfs ? planner_targets->grouping_target->exprs : tlist;
+                    if (parse->hasTargetSRFs)
+                        tlist = build_plan_tlist(root, planner_targets->grouping_target);
                     result_plan = (Plan*)make_agg(root,
-                        agg_tlist,
+                        tlist,
                         (List*)parse->havingQual,
                         aggstrategy,
                         &agg_costs,
@@ -3812,7 +3817,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                         0,
                         true);
 
-                    if (grouping_contains_srfs) {
+                    if (parse->hasTargetSRFs) {
                         result_plan = adjust_plan_for_srfs(root, result_plan, 
                                                            planner_targets->grouping_targets, 
                                                            planner_targets->grouping_targets_contain_srfs);
@@ -3830,7 +3835,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
 #ifdef STREAMPLAN
                 if (IS_STREAM_PLAN && needs_stream && is_execute_on_datanodes(result_plan) &&
                     !is_replicated_plan(result_plan)) {
-                    if (next_is_second_level_group && grouping_contains_srfs) {
+                    if (next_is_second_level_group && parse->hasTargetSRFs) {
                         errno_t sprintf_rc = sprintf_s(u_sess->opt_cxt.not_shipping_info->not_shipping_reason,
                             NOTPLANSHIPPING_LENGTH,
                             "\"set-valued expression in qual/targetlist + two-level Groupagg\"");
@@ -3889,8 +3894,8 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                      * be found) can happend.
                      */
                     List* group_tlst = needs_stream && need_tlist_eval ? result_plan->targetlist : tlist;
-                    if (grouping_contains_srfs) {
-                        group_tlst = planner_targets->grouping_target->exprs;
+                    if (parse->hasTargetSRFs) {
+                        group_tlst = build_plan_tlist(root, planner_targets->grouping_target);
                     }
                     result_plan = (Plan*)make_group(root,
                         group_tlst,
@@ -3901,7 +3906,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                         dNumGroups[0],
                         result_plan);
                     
-                    if (grouping_contains_srfs) {
+                    if (parse->hasTargetSRFs) {
                         result_plan = adjust_plan_for_srfs(root, result_plan, 
                                                            planner_targets->grouping_targets, 
                                                            planner_targets->grouping_targets_contain_srfs);
@@ -3911,7 +3916,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
 
 #ifdef STREAMPLAN
                 if (needs_stream) {
-                    if (next_is_second_level_group && grouping_contains_srfs) {
+                    if (next_is_second_level_group && parse->hasTargetSRFs) {
                         errno_t sprintf_rc = sprintf_s(u_sess->opt_cxt.not_shipping_info->not_shipping_reason,
                             NOTPLANSHIPPING_LENGTH,
                             "\"set-valued expression in qual/targetlist + two-level Groupagg\"");
@@ -4120,7 +4125,7 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                     wc->startOffset,
                     wc->endOffset,
                     result_plan);
-                if (planner_targets->sort_input_contains_srfs) {
+                if (parse->hasTargetSRFs) {
                     result_plan = adjust_plan_for_srfs(root, result_plan, 
                                                 planner_targets->sort_input_targets, 
                                                 planner_targets->sort_input_targets_contain_srfs);
@@ -4360,21 +4365,16 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
          * so equal expr can not be deleted from pathkeys. Rebuild pathkey EquivalenceClass's ec_group_set
          * is true.
          */
+        if (parse->hasTargetSRFs) {
+            tlist = build_plan_tlist(root, planner_targets->final_target);
+            result_plan->targetlist = tlist;
+        }
         rebuild_pathkey_for_groupingSet<sort_pathkey>(root, tlist, NULL, collectiveGroupExpr);
 
         /* we also need to add sort if the sub node is parallized. */
         if (!pathkeys_contained_in(root->sort_pathkeys, current_pathkeys) ||
             (result_plan->dop > 1 && root->sort_pathkeys)) {
-            if (planner_targets->final_contains_srfs) {
-                List* sort_input_target = build_plan_tlist(root, planner_targets->sort_input_target);
-                result_plan->targetlist = sort_input_target;
-            }
             result_plan = (Plan*)make_sort_from_pathkeys(root, result_plan, root->sort_pathkeys, limit_tuples);
-            if (planner_targets->final_contains_srfs) {
-                result_plan = adjust_plan_for_srfs(root, result_plan, 
-                                                planner_targets->final_targets, 
-                                                planner_targets->final_targets_contain_srfs);
-            }
 #ifdef PGXC
 #ifdef STREAMPLAN
             if (IS_STREAM_PLAN && check_sort_for_upsert(root))
@@ -4384,6 +4384,12 @@ static Plan* grouping_planner(PlannerInfo* root, double tuple_fraction)
                 result_plan = (Plan*)create_remotesort_plan(root, result_plan);
 #endif /* PGXC */
             current_pathkeys = root->sort_pathkeys;
+        }
+
+        if (parse->hasTargetSRFs) {
+            result_plan = adjust_plan_for_srfs(root, result_plan, 
+                                                planner_targets->final_targets, 
+                                                planner_targets->final_targets_contain_srfs);
         }
     }
 

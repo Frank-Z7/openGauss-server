@@ -8,6 +8,8 @@ analyze tbl_10k;
 set enable_sortgroup_agg=on;
 
 explain (costs off) select sum(id), v1,v2 from tbl_10k group by v1,v2 order by v1,v2 limit 1;
+-- srf, cant not perform sort-group plan right now
+explain (costs off) select sum(id), v1,v2,generate_series(1,3) from tbl_10k group by v1,v2 order by v1,v2 limit 1;
 
 -- order keys are not contained in group keys, needs sorts after aggregation
 explain (costs off) select sum(id), v1,v2 from tbl_10k group by v1,v2 order by v1,sum(id) limit 10;
