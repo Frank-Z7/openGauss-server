@@ -272,7 +272,7 @@ xufailed		[uU]&
 <xb>{quotecontinue}	{
 					/* ignore */
 				}
-<xb><<EOF>>		{ hint_scanner_yyerror("unterminated bit string literal", yyscanner);}
+<xb><<EOF>>		{ hint_scanner_yyerror("unterminated bit string literal", yyscanner);  return 0; }
 
 {xhstart}		{
 					/* Hexadecimal bit type.
@@ -293,7 +293,7 @@ xufailed		[uU]&
 					yyextra->is_hint_str = true;
 					return XCONST;
 				}
-<xh><<EOF>>		{ hint_scanner_yyerror("unterminated hexadecimal string literal", yyscanner);}
+<xh><<EOF>>		{ hint_scanner_yyerror("unterminated hexadecimal string literal", yyscanner);  return 0; }
 
 {xnstart}		{
 					/* National character.
@@ -411,7 +411,7 @@ xufailed		[uU]&
 				}
 <xeu>.			{ hint_scanner_yyerror("invalid Unicode surrogate pair", yyscanner); }
 <xeu>\n			{ hint_scanner_yyerror("invalid Unicode surrogate pair", yyscanner); }
-<xeu><<EOF>>	{ hint_scanner_yyerror("invalid Unicode surrogate pair", yyscanner); }
+<xeu><<EOF>>	{ hint_scanner_yyerror("invalid Unicode surrogate pair", yyscanner); return 0; }
 <xe,xeu>{xeunicodefail}	{
 						hint_scanner_yyerror("invalid Unicode escape. Unicode escapes must be \\uXXXX or \\UXXXXXXXX.", yyscanner);
 				}
@@ -450,7 +450,7 @@ xufailed		[uU]&
 					/* This is only needed for \ just before EOF */
 					addlitchar(yytext[0], yyscanner);
 				}
-<xq,xe,xus><<EOF>>		{ hint_scanner_yyerror("unterminated quoted string", yyscanner); }
+<xq,xe,xus><<EOF>>		{ hint_scanner_yyerror("unterminated quoted string", yyscanner);  return 0; }
 
 {dolqdelim}		{
 					yyextra->dolqstart = pstrdup(yytext);
@@ -495,7 +495,7 @@ xufailed		[uU]&
 					/* This is only needed for $ inside the quoted text */
 					addlitchar(yytext[0], yyscanner);
 				}
-<xdolq><<EOF>>	{ hint_scanner_yyerror("unterminated dollar-quoted string", yyscanner); }
+<xdolq><<EOF>>	{ hint_scanner_yyerror("unterminated dollar-quoted string", yyscanner);  return 0; }
 
 {xdstart}		{
 					BEGIN(xd);
@@ -559,7 +559,7 @@ xufailed		[uU]&
 <xd,xui>{xdinside}	{
 					addlit(yytext, yyleng, yyscanner);
 				}
-<xd,xui><<EOF>>		{ hint_scanner_yyerror("unterminated quoted identifier", yyscanner); }
+<xd,xui><<EOF>>		{ hint_scanner_yyerror("unterminated quoted identifier", yyscanner);  return 0; }
 
 {xufailed}	{
 					char		   *ident;
